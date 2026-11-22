@@ -17,7 +17,7 @@ import app.openhikes.core.database.dao.HikeLocalStateDao
 import app.openhikes.core.database.dao.TrailPointDao
 import app.openhikes.core.database.entity.HikeEntity
 import app.openhikes.core.database.entity.HikeLocalStateEntity
-import app.openhikes.core.database.entity.HikeRouteEntity
+import app.openhikes.core.database.entity.HikeRouteChunkEntity
 import app.openhikes.core.database.entity.TrailPointEntity
 import app.openhikes.core.model.ExportedGpx
 import app.openhikes.core.model.GpxImportFailure
@@ -67,29 +67,39 @@ internal class OfflineFirstHikeRepository @Inject constructor(
 ) : HikeRepository {
     private val hasSeededFixture = AtomicBoolean(false)
     private val hasConsumedFirstSaveFailure = AtomicBoolean(false)
+    private val localStateRepairer = HikeLocalStateRepairer(
+        hikeDao = hikeDao,
+        hikeLocalStateDao = hikeLocalStateDao,
+        ioDispatcher = ioDispatcher,
+        defaultDispatcher = defaultDispatcher
+    )
 
     override val hikes: Flow<List<HikeSummary>> = combine(
         hikeDao.observeAllHikes(),
         hikeLocalStateDao.observeAll()
     ) { entities, localStates ->
-        val localByHikeId = localStates.associateBy { it.hikeId }
-        entities.map { entity -> entity.toSummary(localByHikeId[entity.id]) }
+        val existingByHikeId = localStates.associateBy { it.hikeId }
+        val resolvedByHikeId = localStateRepairer.repairMissingForHikes(entities, existingByHikeId)
+        entities.map { entity -> entity.toSummary(resolvedByHikeId[entity.id]) }
     }.flowOn(defaultDispatcher)
 
-    override val mapRoutes: Flow<List<HikeMapRoute>> = hikeDao.observeAllMapRoutes()
-        .map { rows -> rows.map { it.toDomain() } }
+    override val mapRoutes: Flow<List<HikeMapRoute>> = hikeDao.observeAllMapRouteChunks()
+        .map { rows -> rows.toMapRoutes() }
         .flowOn(defaultDispatcher)
 
     override fun observeHike(hikeId: HikeId): Flow<Hike?> = combine(
         hikeDao.observeHikeWithRoute(hikeId.value),
         trailPointDao.observeByHikeId(hikeId.value)
     ) { hikeWithRoute, trailPoints ->
-        hikeWithRoute?.hike?.toDomain(hikeWithRoute.routeBlob, trailPoints)
+        hikeWithRoute?.hike?.toDomain(hikeWithRoute.routeChunks, trailPoints)
     }.flowOn(defaultDispatcher)
 
     override fun observeLocalState(hikeId: HikeId): Flow<HikeLocalState?> =
         hikeLocalStateDao.observeByHikeId(hikeId.value)
-            .map { it?.toDomain() }
+            .map { entity ->
+                val resolved = entity ?: localStateRepairer.repairIfMissing(hikeId.value)
+                resolved?.toDomain()
+            }
             .flowOn(defaultDispatcher)
 
     override suspend fun importGpxBytes(bytes: ByteArray, fileName: String?): GpxImportResult =
@@ -161,9 +171,9 @@ internal class OfflineFirstHikeRepository @Inject constructor(
         if (launchConfigHolder.current.value.refusesHikeDeletion) {
             return@withContext Result.failure(IOException("Hike deletion refused by launch configuration"))
         }
-        hikeLocalStateDao.deleteByHikeId(hikeId.value)
         val deleted = hikeDao.deleteHikeById(hikeId.value)
         if (deleted > 0) {
+            localStateRepairer.deleteBestEffort(hikeId.value)
             Result.success(Unit)
         } else {
             Result.failure(NoSuchElementException("Hike not found: ${hikeId.value}"))
@@ -190,14 +200,14 @@ internal class OfflineFirstHikeRepository @Inject constructor(
             }
             database.withTransaction {
                 for (record in prepared) {
-                    hikeDao.insertHikeWithRoute(record.hike, record.route)
+                    hikeDao.insertHikeWithRoute(record.hike, record.routeChunks)
                     if (record.places.isNotEmpty()) {
                         trailPointDao.insertAll(record.places)
                     }
                 }
             }
             for (record in prepared) {
-                hikeLocalStateDao.upsert(record.localState)
+                localStateRepairer.upsertBestEffort(record.localState)
             }
             GpxImportResult.Success(prepared.map { it.hike.toSummary(it.localState) })
         }
@@ -225,10 +235,9 @@ internal class OfflineFirstHikeRepository @Inject constructor(
             keywords = track.keywords,
             routePointCount = track.route.size
         )
-        val routeEntity = HikeRouteEntity(
-            hikeId = hikeId,
-            routeBlob = RouteBlobCodec.encode(track.route)
-        )
+        val routeChunks = RouteBlobCodec.encodeChunked(track.route).mapIndexed { index, blob ->
+            HikeRouteChunkEntity(hikeId = hikeId, chunkIndex = index, chunkBlob = blob)
+        }
         val placeEntities = track.places.mapIndexed { idx, wpt ->
             TrailPointEntity(
                 id = UUID.randomUUID().toString(),
@@ -251,7 +260,7 @@ internal class OfflineFirstHikeRepository @Inject constructor(
             ownsRecordingDraft = false,
             autoSavedTileKeysJson = "[]"
         )
-        return PreparedImportRecord(hikeEntity, routeEntity, placeEntities, localEntity)
+        return PreparedImportRecord(hikeEntity, routeChunks, placeEntities, localEntity)
     }
 
     private fun shouldFailFirstSave(): Boolean =
@@ -259,7 +268,7 @@ internal class OfflineFirstHikeRepository @Inject constructor(
 
     private data class PreparedImportRecord(
         val hike: HikeEntity,
-        val route: HikeRouteEntity,
+        val routeChunks: List<HikeRouteChunkEntity>,
         val places: List<TrailPointEntity>,
         val localState: HikeLocalStateEntity
     )

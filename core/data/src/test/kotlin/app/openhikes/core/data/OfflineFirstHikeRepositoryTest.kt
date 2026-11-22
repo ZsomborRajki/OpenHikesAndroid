@@ -1,11 +1,14 @@
 package app.openhikes.core.data
 
+import android.database.sqlite.SQLiteException
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import app.openhikes.core.common.LaunchConfig
 import app.openhikes.core.common.LaunchConfigHolder
 import app.openhikes.core.database.OpenHikesDatabase
 import app.openhikes.core.database.OpenHikesLocalDatabase
+import app.openhikes.core.database.dao.HikeLocalStateDao
+import app.openhikes.core.database.entity.HikeLocalStateEntity
 import app.openhikes.core.model.GpxImportFailure
 import app.openhikes.core.model.GpxImportResult
 import app.openhikes.core.model.RouteBorder
@@ -14,7 +17,10 @@ import app.openhikes.core.model.RouteStyleUpdate
 import app.openhikes.core.testing.TestClock
 import app.openhikes.core.testing.TestFixtures
 import com.google.common.truth.Truth.assertThat
+import java.util.Locale
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -108,15 +114,77 @@ class OfflineFirstHikeRepositoryTest {
         assertThat(repo.observeHike(paused.id).first()?.displayTitle).isEqualTo("Second Succeeds")
     }
 
+    @Test
+    fun importsLarge80000PointGpxAndReadsMapRoutesAndDetailWithoutCursorWindowFailure() = runTest {
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        val repo = createRepository(LaunchConfigHolder(LaunchConfig()), LinkedHashMap(), dispatcher)
+        val gpxBytes = buildLargeGpxBytes(pointCount = 80_000)
+
+        val result = repo.importGpxBytes(gpxBytes, "long-alpine.gpx") as GpxImportResult.Success
+        val importedSummary = result.importedHikes.single()
+        assertThat(importedSummary.routePointCount).isEqualTo(80_000)
+
+        val mapRoute = repo.mapRoutes.first().single()
+        assertThat(mapRoute.hikeId).isEqualTo(importedSummary.id)
+        assertThat(mapRoute.route).hasSize(80_000)
+
+        val detailHike = repo.observeHike(importedSummary.id).first()!!
+        assertThat(detailHike.route).hasSize(80_000)
+        assertThat(detailHike.route.first().elevationMeters).isNotNull()
+        assertThat(detailHike.route.first().timestampEpochMillis).isNotNull()
+    }
+
+    @Test
+    fun keepsPortableImportAuthoritativeAndRepairsMissingLocalStateAfterLocalUpsertFailure() = runTest {
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        val failingLocalDao = FailingUpsertLocalStateDao(localDb.hikeLocalStateDao())
+        val repo = createRepository(
+            launchConfigHolder = LaunchConfigHolder(LaunchConfig()),
+            writtenUris = LinkedHashMap(),
+            dispatcher = dispatcher,
+            localStateDao = failingLocalDao
+        )
+
+        failingLocalDao.failUpsert = true
+        val gpxBytes = TestFixtures.thumseeLoopFastGpxBytes()
+        val firstResult = repo.importGpxBytes(gpxBytes, "thumsee.gpx") as GpxImportResult.Success
+        val firstSummary = firstResult.importedHikes.single()
+        val expectedClimb = firstSummary.climbMeters
+        val expectedDescent = firstSummary.descentMeters
+        assertThat(expectedClimb).isGreaterThan(0.0)
+
+        // Even while local DB upserts are failing, library query does not crash and repairs in-memory view.
+        val summaryWhileLocalFailing = repo.hikes.first().single()
+        assertThat(summaryWhileLocalFailing.climbMeters).isWithin(0.01).of(expectedClimb!!)
+        assertThat(summaryWhileLocalFailing.descentMeters).isWithin(0.01).of(expectedDescent!!)
+        assertThat(localDb.hikeLocalStateDao().getByHikeId(firstSummary.id.value)).isNull()
+
+        // Once local storage recovers, library observation repairs and persists missing local state.
+        failingLocalDao.failUpsert = false
+        val repairedSummary = repo.hikes.first().single()
+        assertThat(repairedSummary.climbMeters).isWithin(0.01).of(expectedClimb)
+        val persistedLocal = localDb.hikeLocalStateDao().getByHikeId(firstSummary.id.value)
+        assertThat(persistedLocal).isNotNull()
+        assertThat(persistedLocal!!.climbMeters).isWithin(0.01).of(expectedClimb)
+
+        // Direct detail local-state observation also repairs a wiped local row cleanly.
+        localDb.hikeLocalStateDao().deleteByHikeId(firstSummary.id.value)
+        assertThat(localDb.hikeLocalStateDao().getByHikeId(firstSummary.id.value)).isNull()
+        val observedRepaired = repo.observeLocalState(firstSummary.id).first()!!
+        assertThat(observedRepaired.climbMeters).isWithin(0.01).of(expectedClimb)
+        assertThat(localDb.hikeLocalStateDao().getByHikeId(firstSummary.id.value)).isNotNull()
+    }
+
     private fun createRepository(
         launchConfigHolder: LaunchConfigHolder,
         writtenUris: MutableMap<String, String>,
-        dispatcher: kotlinx.coroutines.CoroutineDispatcher
+        dispatcher: CoroutineDispatcher,
+        localStateDao: HikeLocalStateDao = localDb.hikeLocalStateDao()
     ): OfflineFirstHikeRepository = OfflineFirstHikeRepository(
         database = portableDb,
         hikeDao = portableDb.hikeDao(),
         trailPointDao = portableDb.trailPointDao(),
-        hikeLocalStateDao = localDb.hikeLocalStateDao(),
+        hikeLocalStateDao = localStateDao,
         gpxFileSource = object : GpxFileSource {
             override suspend fun read(uriString: String): GpxFilePayload? = null
         },
@@ -139,4 +207,54 @@ class OfflineFirstHikeRepositoryTest {
         ioDispatcher = dispatcher,
         defaultDispatcher = dispatcher
     )
+
+    private fun buildLargeGpxBytes(pointCount: Int): ByteArray {
+        val sb = StringBuilder(pointCount * 96 + 256)
+        sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+        sb.append("<gpx version=\"1.1\" xmlns=\"http://www.topografix.com/GPX/1/1\">\n")
+        sb.append("  <trk><name>Long Alpine</name><trkseg>\n")
+        for (i in 0 until pointCount) {
+            val lat = 47.0 + i * 0.00001
+            val ele = 500.0 + (i % 300) * 0.5
+            val totalSeconds = i
+            val sec = totalSeconds % 60
+            val min = (totalSeconds / 60) % 60
+            val hour = (totalSeconds / 3600) % 24
+            val day = 1 + (totalSeconds / 86400)
+            sb.append(
+                String.format(
+                    Locale.US,
+                    "    <trkpt lat=\"%.6f\" lon=\"12.800000\"><ele>%.1f</ele>" +
+                        "<time>2026-01-%02dT%02d:%02d:%02dZ</time></trkpt>\n",
+                    lat,
+                    ele,
+                    day,
+                    hour,
+                    min,
+                    sec
+                )
+            )
+        }
+        sb.append("  </trkseg></trk>\n</gpx>\n")
+        return sb.toString().encodeToByteArray()
+    }
+
+    private class FailingUpsertLocalStateDao(private val delegate: HikeLocalStateDao) : HikeLocalStateDao {
+        var failUpsert: Boolean = false
+
+        override fun observeAll(): Flow<List<HikeLocalStateEntity>> = delegate.observeAll()
+
+        override fun observeByHikeId(hikeId: String): Flow<HikeLocalStateEntity?> = delegate.observeByHikeId(hikeId)
+
+        override suspend fun getByHikeId(hikeId: String): HikeLocalStateEntity? = delegate.getByHikeId(hikeId)
+
+        override suspend fun upsert(entity: HikeLocalStateEntity) {
+            if (failUpsert) {
+                throw SQLiteException("Simulated local DB write failure")
+            }
+            delegate.upsert(entity)
+        }
+
+        override suspend fun deleteByHikeId(hikeId: String): Int = delegate.deleteByHikeId(hikeId)
+    }
 }

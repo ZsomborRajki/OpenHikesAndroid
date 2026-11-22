@@ -32,6 +32,9 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.AwaitPointerEventScope
+import androidx.compose.ui.input.pointer.PointerId
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -51,6 +54,7 @@ import app.openhikes.core.ui.R
 import app.openhikes.core.ui.format.HikeMetricsFormatter
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 import app.openhikes.core.ui.theme.parseHexColorOrDefault
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -81,6 +85,8 @@ private const val PAUSE_DASH_ON_PX = 4f
 private const val PAUSE_DASH_OFF_PX = 6f
 private const val SCRUB_DASH_ON_PX = 8f
 private const val SCRUB_DASH_OFF_PX = 6f
+private const val GRID_MIDPOINT_RATIO = 0.5f
+private val GridLineRatios = floatArrayOf(0f, GRID_MIDPOINT_RATIO, 1f)
 
 /**
  * Interactive elevation profile chart separating static plot rendering from draw-phase
@@ -170,48 +176,25 @@ private fun ElevationProfilePlot(
         val totalDistance = profile.totalDistanceMeters.coerceAtLeast(1.0)
         val elevSpan = (domainMax - domainMin).coerceAtLeast(1.0)
 
-        drawGridLines(gridColor, topPad, plotHeight)
-        val geometry = PlotGeometry(
-            width = size.width,
-            topPad = topPad,
-            plotHeight = plotHeight,
-            totalDistance = totalDistance,
-            domainMin = domainMin,
-            elevSpan = elevSpan
-        )
+        for (ratio in GridLineRatios) {
+            val y = topPad + plotHeight * ratio
+            drawLine(gridColor, Offset(0f, y), Offset(size.width, y), strokeWidth = 1.dp.toPx())
+        }
+        val geometry = PlotGeometry(size.width, topPad, plotHeight, totalDistance, domainMin, elevSpan)
         val (linePath, areaPath) = buildElevationPaths(samples = profile.samples, geometry = geometry)
         val baseY = topPad + plotHeight
+        val areaColors = listOf(accentColor.copy(alpha = AREA_TOP_ALPHA), accentColor.copy(alpha = AREA_BOTTOM_ALPHA))
 
-        drawPath(
-            path = areaPath,
-            brush = Brush.verticalGradient(
-                colors = listOf(
-                    accentColor.copy(alpha = AREA_TOP_ALPHA),
-                    accentColor.copy(alpha = AREA_BOTTOM_ALPHA)
-                ),
-                startY = topPad,
-                endY = baseY
-            )
-        )
+        drawPath(areaPath, Brush.verticalGradient(areaColors, startY = topPad, endY = baseY))
         drawPath(
             path = linePath,
             color = accentColor,
-            style = Stroke(
-                width = LINE_WIDTH_DP.dp.toPx(),
-                cap = StrokeCap.Round,
-                join = StrokeJoin.Round
-            )
+            style = Stroke(width = LINE_WIDTH_DP.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
         )
 
         for (pauseDist in profile.pauseDistances) {
             val x = ((pauseDist / totalDistance).toFloat().coerceIn(0f, 1f)) * size.width
-            drawLine(
-                color = pauseRuleColor,
-                start = Offset(x, topPad),
-                end = Offset(x, baseY),
-                strokeWidth = 1.dp.toPx(),
-                pathEffect = dashEffect
-            )
+            drawLine(pauseRuleColor, Offset(x, topPad), Offset(x, baseY), 1.dp.toPx(), pathEffect = dashEffect)
         }
     }
 }
@@ -248,23 +231,6 @@ private fun buildElevationPaths(samples: List<ElevationSample>, geometry: PlotGe
         }
     }
     return linePath to areaPath
-}
-
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawGridLines(
-    gridColor: Color,
-    topPad: Float,
-    plotHeight: Float
-) {
-    val gridRatios = floatArrayOf(0f, 0.5f, 1f)
-    for (ratio in gridRatios) {
-        val y = topPad + plotHeight * ratio
-        drawLine(
-            color = gridColor,
-            start = Offset(0f, y),
-            end = Offset(size.width, y),
-            strokeWidth = 1.dp.toPx()
-        )
-    }
 }
 
 @Composable
@@ -314,28 +280,101 @@ private fun ElevationTouchAndAccessibilityOverlay(
     )
 }
 
+private class ScrubGestureState(val startX: Float, val startY: Float) {
+    var isHorizontalScrub = false
+    var yieldedToVertical = false
+}
+
+private class ScrubCallbacks(val onScrubbingChanged: (Boolean) -> Unit, val onScrubDistance: (Double) -> Unit)
+
 private fun Modifier.scrubPointerInput(
     profile: RouteProfile,
     totalDistance: Double,
     onScrubbingChanged: (Boolean) -> Unit,
     onScrubDistance: (Double) -> Unit
 ): Modifier = pointerInput(profile) {
+    val touchSlop = viewConfiguration.touchSlop
+    val callbacks = ScrubCallbacks(onScrubbingChanged, onScrubDistance)
     awaitEachGesture {
-        val down = awaitFirstDown(requireUnconsumed = false)
-        down.consume()
-        onScrubbingChanged(true)
-        onScrubDistance(distanceForOffset(down.position.x, size.width, totalDistance))
-
-        var pointerId = down.id
-        while (true) {
-            val event = awaitPointerEvent()
-            val change = event.changes.firstOrNull { it.id == pointerId } ?: event.changes.firstOrNull()
-            if (change == null || !change.pressed) break
-            pointerId = change.id
-            change.consume()
-            onScrubDistance(distanceForOffset(change.position.x, size.width, totalDistance))
+        val down = awaitFirstDown(requireUnconsumed = true)
+        val state = ScrubGestureState(startX = down.position.x, startY = down.position.y)
+        trackScrubPointer(
+            pointerId = down.id,
+            touchSlop = touchSlop,
+            state = state,
+            totalDistance = totalDistance,
+            callbacks = callbacks
+        )
+        if (state.isHorizontalScrub) {
+            onScrubbingChanged(false)
         }
-        onScrubbingChanged(false)
+    }
+}
+
+private suspend fun AwaitPointerEventScope.trackScrubPointer(
+    pointerId: PointerId,
+    touchSlop: Float,
+    state: ScrubGestureState,
+    totalDistance: Double,
+    callbacks: ScrubCallbacks
+) {
+    var keepTracking = true
+    while (keepTracking) {
+        val change = awaitPointerEvent().changes.firstOrNull { it.id == pointerId }
+        keepTracking = change != null &&
+            processScrubChange(
+                change = change,
+                widthPx = size.width,
+                touchSlop = touchSlop,
+                state = state,
+                totalDistance = totalDistance,
+                callbacks = callbacks
+            )
+    }
+}
+
+@Suppress("LongParameterList")
+private fun processScrubChange(
+    change: PointerInputChange,
+    widthPx: Int,
+    touchSlop: Float,
+    state: ScrubGestureState,
+    totalDistance: Double,
+    callbacks: ScrubCallbacks
+): Boolean = when {
+    !change.pressed -> {
+        if (!state.isHorizontalScrub && !state.yieldedToVertical && !change.isConsumed) {
+            change.consume()
+            callbacks.onScrubDistance(distanceForOffset(change.position.x, widthPx, totalDistance))
+        }
+        false
+    }
+    change.isConsumed -> {
+        state.yieldedToVertical = true
+        false
+    }
+    state.isHorizontalScrub -> {
+        change.consume()
+        callbacks.onScrubDistance(distanceForOffset(change.position.x, widthPx, totalDistance))
+        true
+    }
+    else -> {
+        val dx = abs(change.position.x - state.startX)
+        val dy = abs(change.position.y - state.startY)
+        when {
+            dx >= touchSlop && dx >= dy -> {
+                state.isHorizontalScrub = true
+                change.consume()
+                callbacks.onScrubbingChanged(true)
+                callbacks.onScrubDistance(distanceForOffset(change.position.x, widthPx, totalDistance))
+                true
+            }
+            dy >= touchSlop && dy > dx -> {
+                state.yieldedToVertical = true
+                false
+            }
+            else -> true
+        }
     }
 }
 

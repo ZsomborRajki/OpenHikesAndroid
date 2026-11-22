@@ -4,20 +4,36 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.RouteBorder
+import app.openhikes.core.model.RouteChevronShade
 import app.openhikes.core.model.RouteLinePattern
 import app.openhikes.core.model.RouteTint
+import kotlin.math.min
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.JsonObject
 import org.maplibre.compose.expressions.dsl.const
+import org.maplibre.compose.expressions.dsl.image
+import org.maplibre.compose.expressions.value.IconPitchAlignment
+import org.maplibre.compose.expressions.value.IconRotationAlignment
 import org.maplibre.compose.expressions.value.LineCap
 import org.maplibre.compose.expressions.value.LineJoin
+import org.maplibre.compose.expressions.value.SymbolPlacement
 import org.maplibre.compose.layers.CircleLayer
 import org.maplibre.compose.layers.LineLayer
+import org.maplibre.compose.layers.SymbolLayer
 import org.maplibre.compose.sources.GeoJsonData
 import org.maplibre.compose.sources.rememberGeoJsonSource
 import org.maplibre.compose.util.MaplibreComposable
@@ -33,9 +49,9 @@ private const val PAUSED_GAP_LENGTH = 2.5
 private const val SELECTED_WIDTH_BONUS_DP = 1.5f
 private const val SELECTED_OPACITY = 1.0f
 private const val UNSELECTED_OPACITY = 0.88f
-private const val ARROWHEAD_DASH = 1.5
-private const val ARROWHEAD_GAP = 3.0
 private const val BORDER_MULTIPLIER = 2f
+private const val ICON_PADDING_DP = 4f
+private const val HALF_DIVISOR = 2f
 private const val HIGHLIGHT_RADIUS_DP = 7.0f
 private const val HIGHLIGHT_STROKE_DP = 2.5f
 private const val COLOR_RADIX = 16
@@ -46,6 +62,30 @@ private const val SHIFT_16 = 16
 private const val SHIFT_8 = 8
 private const val FULL_ALPHA = 0xFFL
 private const val BYTE_MASK = 0xFFL
+
+internal data class RouteChevronRenderSpec(
+    val spacingDp: Float,
+    val iconWidthDp: Float,
+    val iconHeightDp: Float,
+    val halfLengthDp: Float,
+    val halfWidthDp: Float,
+    val strokeWidthDp: Float,
+    val color: Color,
+    val borderColor: Color?,
+    val borderStrokeWidthDp: Float?
+)
+
+internal data class WalkedRouteRenderPlan(
+    val drawsLine: Boolean,
+    val lineCap: LineCap,
+    val lineColor: Color,
+    val lineWidthDp: Float,
+    val lineDashArray: List<Number>?,
+    val borderColor: Color?,
+    val borderWidthDp: Float?,
+    val borderDashArray: List<Number>?,
+    val chevronSpec: RouteChevronRenderSpec?
+)
 
 @Composable
 @MaplibreComposable
@@ -60,7 +100,7 @@ internal fun RouteOverlayLayers(routes: List<MapRouteOverlay>) {
             val opacity = if (route.isSelected) SELECTED_OPACITY else UNSELECTED_OPACITY
 
             if (route.walkedSegments.isNotEmpty()) {
-                WalkedRouteLayers(route = route, lineColor = lineColor, widthDp = widthDp, opacity = opacity)
+                WalkedRouteLayers(route = route, opacity = opacity)
             }
             if (route.pausedSegments.isNotEmpty()) {
                 PausedRouteLayer(route = route, lineColor = lineColor, widthDp = widthDp)
@@ -71,44 +111,181 @@ internal fun RouteOverlayLayers(routes: List<MapRouteOverlay>) {
 
 @Composable
 @MaplibreComposable
-private fun WalkedRouteLayers(route: MapRouteOverlay, lineColor: Color, widthDp: Float, opacity: Float) {
-    val lineCap = if (route.linePattern.usesRoundCap) LineCap.Round else LineCap.Butt
-    val dashNumbers: List<Number>? = remember(route.linePattern, widthDp) {
-        when (route.linePattern) {
-            RouteLinePattern.ARROWHEADS -> listOf(ARROWHEAD_DASH, ARROWHEAD_GAP)
-            else -> route.linePattern.dashLengths(widthDp.toDouble()).takeIf { it.isNotEmpty() }
-        }
-    }
+private fun WalkedRouteLayers(route: MapRouteOverlay, opacity: Float) {
+    val plan = remember(route) { buildWalkedRouteRenderPlan(route) }
     val walkedSourceData = remember(route.walkedSegments) {
         buildMultiLineFeatureCollection(route.walkedSegments)
     }
     val walkedSource = rememberGeoJsonSource(data = walkedSourceData)
 
-    if (RouteBorder.isVisible(route.borderHex)) {
-        val borderColor = parseHexColorOrDefault(RouteBorder.resolvedBorderHex(route.borderHex), Color.Black)
-        val borderWidthDp = widthDp + RouteBorder.width(widthDp.toDouble()).toFloat() * BORDER_MULTIPLIER
+    if (plan.drawsLine && plan.borderColor != null && plan.borderWidthDp != null) {
         LineLayer(
             id = "route-border-${route.hikeId.value}",
             source = walkedSource,
-            color = const(borderColor),
-            width = const(borderWidthDp.dp),
+            color = const(plan.borderColor),
+            width = const(plan.borderWidthDp.dp),
             opacity = const(opacity),
-            cap = const(lineCap),
+            cap = const(plan.lineCap),
             join = const(LineJoin.Round),
-            dasharray = dashNumbers?.let { const(it) }
+            dasharray = plan.borderDashArray?.let(::const)
         )
     }
 
-    LineLayer(
-        id = "route-line-${route.hikeId.value}",
-        source = walkedSource,
-        color = const(lineColor),
-        width = const(widthDp.dp),
-        opacity = const(opacity),
-        cap = const(lineCap),
-        join = const(LineJoin.Round),
-        dasharray = dashNumbers?.let { const(it) }
+    if (plan.drawsLine) {
+        LineLayer(
+            id = "route-line-${route.hikeId.value}",
+            source = walkedSource,
+            color = const(plan.lineColor),
+            width = const(plan.lineWidthDp.dp),
+            opacity = const(opacity),
+            cap = const(plan.lineCap),
+            join = const(LineJoin.Round),
+            dasharray = plan.lineDashArray?.let(::const)
+        )
+    }
+
+    plan.chevronSpec?.let { chevron ->
+        val chevronPainter = remember(chevron) { RouteChevronPainter(chevron) }
+        SymbolLayer(
+            id = "route-chevrons-${route.hikeId.value}",
+            source = walkedSource,
+            placement = const(SymbolPlacement.Line),
+            spacing = const(chevron.spacingDp.dp),
+            iconImage = image(
+                value = chevronPainter,
+                size = DpSize(chevron.iconWidthDp.dp, chevron.iconHeightDp.dp)
+            ),
+            iconOpacity = const(opacity),
+            iconRotationAlignment = const(IconRotationAlignment.Map),
+            iconPitchAlignment = const(IconPitchAlignment.Map),
+            iconKeepUpright = const(false),
+            iconAllowOverlap = const(true),
+            iconIgnorePlacement = const(true)
+        )
+    }
+}
+
+internal fun buildWalkedRouteRenderPlan(route: MapRouteOverlay): WalkedRouteRenderPlan {
+    val lineColor = parseHexColorOrDefault(
+        route.tintHex,
+        parseHexColorOrDefault(RouteTint.DEFAULT_HEX, Color.Green)
     )
+    val lineWidthDp = if (route.isSelected) route.widthDp + SELECTED_WIDTH_BONUS_DP else route.widthDp
+    val drawsLine = route.linePattern.drawsLine
+    val hasBorder = RouteBorder.isVisible(route.borderHex)
+    val resolvedBorderColor = if (hasBorder) {
+        parseHexColorOrDefault(RouteBorder.resolvedBorderHex(route.borderHex), Color.Black)
+    } else {
+        null
+    }
+    val borderOutsetDp = RouteBorder.width(lineWidthDp.toDouble()).toFloat() * BORDER_MULTIPLIER
+    val borderWidthDp = if (drawsLine && hasBorder) lineWidthDp + borderOutsetDp else null
+    val lineDashArray = if (drawsLine) {
+        mapLibreDashArray(route.linePattern, routeWidthDp = lineWidthDp, layerWidthDp = lineWidthDp)
+    } else {
+        null
+    }
+    val borderDashArray = if (drawsLine && borderWidthDp != null) {
+        mapLibreDashArray(route.linePattern, routeWidthDp = lineWidthDp, layerWidthDp = borderWidthDp)
+    } else {
+        null
+    }
+
+    return WalkedRouteRenderPlan(
+        drawsLine = drawsLine,
+        lineCap = if (route.linePattern.usesRoundCap) LineCap.Round else LineCap.Butt,
+        lineColor = lineColor,
+        lineWidthDp = lineWidthDp,
+        lineDashArray = lineDashArray,
+        borderColor = resolvedBorderColor,
+        borderWidthDp = borderWidthDp,
+        borderDashArray = borderDashArray,
+        chevronSpec = buildChevronRenderSpec(route.linePattern, lineColor, resolvedBorderColor, lineWidthDp)
+    )
+}
+
+private fun buildChevronRenderSpec(
+    pattern: RouteLinePattern,
+    lineColor: Color,
+    resolvedBorderColor: Color?,
+    lineWidthDp: Float
+): RouteChevronRenderSpec? {
+    val metrics = pattern.chevronMetrics(lineWidthDp.toDouble()) ?: return null
+    val halfLengthDp = metrics.halfLengthDp.toFloat()
+    val halfWidthDp = metrics.halfWidthDp.toFloat()
+    val strokeWidthDp = metrics.strokeWidthDp.toFloat()
+    val borderColor = if (pattern.chevronsUseRouteTint) resolvedBorderColor else null
+    val borderStrokeWidthDp = if (borderColor != null) {
+        strokeWidthDp + RouteBorder.width(lineWidthDp.toDouble()).toFloat() * BORDER_MULTIPLIER
+    } else {
+        null
+    }
+    val color = if (pattern.chevronsUseRouteTint) {
+        lineColor
+    } else {
+        val gray = RouteChevronShade.contrastingGray(lineColor.luminance())
+        Color(red = gray, green = gray, blue = gray, alpha = RouteChevronShade.ALPHA)
+    }
+    val maxStrokeDp = borderStrokeWidthDp ?: strokeWidthDp
+    return RouteChevronRenderSpec(
+        spacingDp = metrics.spacingDp.toFloat(),
+        iconWidthDp = halfLengthDp * HALF_DIVISOR + maxStrokeDp + ICON_PADDING_DP,
+        iconHeightDp = halfWidthDp * HALF_DIVISOR + maxStrokeDp + ICON_PADDING_DP,
+        halfLengthDp = halfLengthDp,
+        halfWidthDp = halfWidthDp,
+        strokeWidthDp = strokeWidthDp,
+        color = color,
+        borderColor = borderColor,
+        borderStrokeWidthDp = borderStrokeWidthDp
+    )
+}
+
+/**
+ * Converts screen-dp dash lengths into MapLibre's line-width-relative `line-dasharray` multiples
+ * so dashes stay true to desired dp sizes and keep border and foreground in lockstep phase.
+ */
+internal fun mapLibreDashArray(pattern: RouteLinePattern, routeWidthDp: Float, layerWidthDp: Float): List<Number>? {
+    val dashLengthsDp = if (layerWidthDp > 0f) pattern.dashLengths(routeWidthDp.toDouble()) else emptyList()
+    return dashLengthsDp.takeIf { it.isNotEmpty() }?.map { it / layerWidthDp.toDouble() }
+}
+
+private data class RouteChevronPainter(private val spec: RouteChevronRenderSpec) : Painter() {
+    override val intrinsicSize: Size = Size.Unspecified
+
+    override fun DrawScope.onDraw() {
+        val scale = min(size.width / spec.iconWidthDp, size.height / spec.iconHeightDp)
+        val centerX = size.width / HALF_DIVISOR
+        val centerY = size.height / HALF_DIVISOR
+        val halfLength = spec.halfLengthDp * scale
+        val halfWidth = spec.halfWidthDp * scale
+        val chevronPath = Path().apply {
+            moveTo(centerX - halfLength, centerY - halfWidth)
+            lineTo(centerX + halfLength, centerY)
+            lineTo(centerX - halfLength, centerY + halfWidth)
+        }
+        spec.borderColor?.let { border ->
+            spec.borderStrokeWidthDp?.let { borderStrokeDp ->
+                drawPath(
+                    path = chevronPath,
+                    color = border,
+                    style = Stroke(
+                        width = borderStrokeDp * scale,
+                        cap = StrokeCap.Round,
+                        join = StrokeJoin.Round
+                    )
+                )
+            }
+        }
+        drawPath(
+            path = chevronPath,
+            color = spec.color,
+            style = Stroke(
+                width = spec.strokeWidthDp * scale,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round
+            )
+        )
+    }
 }
 
 @Composable

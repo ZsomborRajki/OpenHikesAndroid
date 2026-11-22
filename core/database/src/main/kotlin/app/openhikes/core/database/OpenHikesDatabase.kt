@@ -5,7 +5,7 @@ import androidx.room.RoomDatabase
 import app.openhikes.core.database.dao.HikeDao
 import app.openhikes.core.database.dao.TrailPointDao
 import app.openhikes.core.database.entity.HikeEntity
-import app.openhikes.core.database.entity.HikeRouteEntity
+import app.openhikes.core.database.entity.HikeRouteChunkEntity
 import app.openhikes.core.database.entity.HikeWalkEntity
 import app.openhikes.core.database.entity.TrailPointEntity
 
@@ -16,7 +16,7 @@ import app.openhikes.core.database.entity.TrailPointEntity
 @Database(
     entities = [
         HikeEntity::class,
-        HikeRouteEntity::class,
+        HikeRouteChunkEntity::class,
         TrailPointEntity::class,
         HikeWalkEntity::class
     ],

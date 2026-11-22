@@ -33,7 +33,8 @@ data class HikeEntity(
 )
 
 @Entity(
-    tableName = "hike_routes",
+    tableName = "hike_route_chunks",
+    primaryKeys = ["hike_id", "chunk_index"],
     foreignKeys = [
         ForeignKey(
             entity = HikeEntity::class,
@@ -41,21 +42,26 @@ data class HikeEntity(
             childColumns = ["hike_id"],
             onDelete = ForeignKey.CASCADE
         )
-    ]
+    ],
+    indices = [Index(value = ["hike_id"])]
 )
-data class HikeRouteEntity(
-    @PrimaryKey @ColumnInfo(name = "hike_id") val hikeId: String,
-    @ColumnInfo(name = "route_blob", typeAffinity = ColumnInfo.BLOB) val routeBlob: ByteArray
+data class HikeRouteChunkEntity(
+    @ColumnInfo(name = "hike_id") val hikeId: String,
+    @ColumnInfo(name = "chunk_index") val chunkIndex: Int,
+    @ColumnInfo(name = "chunk_blob", typeAffinity = ColumnInfo.BLOB) val chunkBlob: ByteArray
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
-        if (other !is HikeRouteEntity) return false
-        return hikeId == other.hikeId && routeBlob.contentEquals(other.routeBlob)
+        if (other !is HikeRouteChunkEntity) return false
+        return hikeId == other.hikeId &&
+            chunkIndex == other.chunkIndex &&
+            chunkBlob.contentEquals(other.chunkBlob)
     }
 
     override fun hashCode(): Int {
         var result = hikeId.hashCode()
-        result = 31 * result + routeBlob.contentHashCode()
+        result = 31 * result + chunkIndex
+        result = 31 * result + chunkBlob.contentHashCode()
         return result
     }
 }

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import app.openhikes.core.data.HikeRepository
 import app.openhikes.core.map.MapClaim
 import app.openhikes.core.map.MapClaimCoordinator
+import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeSummary
 import app.openhikes.core.model.RouteBorder
@@ -17,11 +18,14 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -55,28 +59,38 @@ class RouteStyleViewModel @AssistedInject constructor(
     val hikeId: HikeId = HikeId(rawHikeId)
     private val routeKey = RouteStyleRoute(hikeId)
     private val saveErrorState = MutableStateFlow(false)
-    private val pendingStyleState = MutableStateFlow<RouteStyleUpdate?>(null)
+    private val styleEditState = MutableStateFlow(StyleEditState())
+    private val observedStyle = AtomicReference<RouteStyleUpdate?>(null)
     private val styleMutex = Mutex()
 
     val uiState: StateFlow<RouteStyleUiState> = combine(
-        hikeRepository.observeHike(hikeId),
-        pendingStyleState,
+        hikeRepository.observeHike(hikeId).onEach { hike ->
+            val observed = hike?.toStyleUpdate()
+            observedStyle.set(observed)
+            if (observed != null) {
+                styleEditState.update { current ->
+                    if (current.queuedStyle == null && current.lastSavedStyle == observed) {
+                        current.copy(lastSavedStyle = null)
+                    } else {
+                        current
+                    }
+                }
+            }
+        },
+        styleEditState,
         saveErrorState
-    ) { hike, pendingStyle, hasError ->
+    ) { hike, edits, hasError ->
         if (hike == null) {
             RouteStyleUiState(hikeId = hikeId, isLoaded = true, hasSaveError = hasError)
         } else {
-            val activeTint = pendingStyle?.tintHex ?: hike.tintHex
-            val activeBorder = pendingStyle?.routeBorderHex ?: hike.routeBorderHex
-            val activeWidth = pendingStyle?.clampedWidthDp ?: hike.routeWidthDp
-            val activePattern = pendingStyle?.linePattern ?: hike.linePattern
+            val active = edits.queuedStyle ?: edits.lastSavedStyle ?: hike.toStyleUpdate()
             RouteStyleUiState(
                 hikeId = hikeId,
                 title = hike.displayTitle,
-                tintHex = activeTint,
-                borderHex = activeBorder,
-                widthDp = activeWidth,
-                linePattern = activePattern,
+                tintHex = active.tintHex,
+                borderHex = active.routeBorderHex,
+                widthDp = active.clampedWidthDp,
+                linePattern = active.linePattern,
                 isLoaded = true,
                 hasSaveError = hasError
             )
@@ -123,28 +137,92 @@ class RouteStyleViewModel @AssistedInject constructor(
 
     private fun persistStyle(transform: (RouteStyleUpdate) -> RouteStyleUpdate) {
         val state = uiState.value
-        val base = pendingStyleState.value ?: RouteStyleUpdate(
-            tintHex = state.tintHex,
-            routeBorderHex = state.borderHex,
-            routeWidthDp = state.widthDp,
-            linePattern = state.linePattern
-        )
-        val updated = transform(base)
-        pendingStyleState.value = updated
+        styleEditState.update { current ->
+            val base = current.queuedStyle
+                ?: current.lastSavedStyle
+                ?: observedStyle.get()
+                ?: RouteStyleUpdate(
+                    tintHex = state.tintHex,
+                    routeBorderHex = state.borderHex,
+                    routeWidthDp = state.widthDp,
+                    linePattern = state.linePattern
+                ).normalized()
+            current.copy(
+                queuedStyle = transform(base).normalized(),
+                queuedRevision = current.queuedRevision + 1L
+            )
+        }
         viewModelScope.launch {
-            styleMutex.withLock {
-                val target = pendingStyleState.value ?: return@withLock
+            flushQueuedEdits()
+        }
+    }
+
+    private suspend fun flushQueuedEdits() {
+        styleMutex.withLock {
+            while (true) {
+                val snapshot = styleEditState.value
+                val target = snapshot.queuedStyle ?: return@withLock
+                val targetRevision = snapshot.queuedRevision
                 val result = hikeRepository.updateRouteStyle(hikeId, target)
                 saveErrorState.value = result.isFailure
-                if (result.isFailure || pendingStyleState.value == target) {
-                    pendingStyleState.value = null
+                val shouldContinue = if (result.isSuccess) {
+                    applyWriteSuccess(target, targetRevision)
+                } else {
+                    applyWriteFailure(targetRevision)
                 }
+                if (!shouldContinue) return@withLock
             }
         }
     }
+
+    private fun applyWriteSuccess(savedStyle: RouteStyleUpdate, targetRevision: Long): Boolean {
+        var hasMoreWork = false
+        styleEditState.update { current ->
+            if (current.queuedRevision == targetRevision) {
+                hasMoreWork = false
+                current.copy(
+                    queuedStyle = null,
+                    lastSavedStyle = if (observedStyle.get() == savedStyle) null else savedStyle
+                )
+            } else {
+                hasMoreWork = true
+                current.copy(lastSavedStyle = savedStyle)
+            }
+        }
+        return hasMoreWork
+    }
+
+    private fun applyWriteFailure(targetRevision: Long): Boolean {
+        var hasMoreWork = false
+        styleEditState.update { current ->
+            if (current.queuedRevision == targetRevision) {
+                hasMoreWork = false
+                current.copy(queuedStyle = null)
+            } else {
+                hasMoreWork = true
+                current
+            }
+        }
+        return hasMoreWork
+    }
+
+    private data class StyleEditState(
+        val queuedStyle: RouteStyleUpdate? = null,
+        val lastSavedStyle: RouteStyleUpdate? = null,
+        val queuedRevision: Long = 0L
+    )
 
     private companion object {
         const val STOP_TIMEOUT_MILLIS = 5_000L
         const val INITIAL_CLAIM_DEPTH = 2
     }
 }
+
+private fun RouteStyleUpdate.normalized(): RouteStyleUpdate = copy(routeWidthDp = clampedWidthDp)
+
+private fun Hike.toStyleUpdate(): RouteStyleUpdate = RouteStyleUpdate(
+    tintHex = tintHex,
+    routeBorderHex = routeBorderHex,
+    routeWidthDp = routeWidthDp,
+    linePattern = linePattern
+).normalized()

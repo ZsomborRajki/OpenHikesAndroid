@@ -26,8 +26,11 @@ object GpxExporter {
     private const val MAX_FILE_STEM_CHARS = 64
     private const val MAX_FILENAME_UTF8_BYTES = 255
     private const val FIRST_PRINTABLE_SCALAR = 0x20
-    private const val BMP_NON_CHARACTER = 0xFFFE
-    private const val BMP_SENTINEL = 0xFFFF
+    private const val MAX_BMP_BEFORE_SURROGATES = 0xD7FF
+    private const val MIN_BMP_AFTER_SURROGATES = 0xE000
+    private const val MAX_VALID_BMP_SCALAR = 0xFFFD
+    private const val MIN_SUPPLEMENTARY_SCALAR = 0x10000
+    private const val MAX_UNICODE_SCALAR = 0x10FFFF
     private const val CHARS_PER_POINT_ESTIMATE = 96
     private const val PREAMBLE_BYTES_ESTIMATE = 512
     private const val RESERVED_FILENAME_CHARS = "/\\:?%*|\"<>"
@@ -197,12 +200,10 @@ object GpxExporter {
         return bounded.ifEmpty { FALLBACK_FILE_STEM }
     }
 
-    private fun isValidXmlScalar(codePoint: Int): Boolean {
-        if (codePoint < FIRST_PRINTABLE_SCALAR) {
-            return codePoint == '\t'.code || codePoint == '\n'.code || codePoint == '\r'.code
-        }
-        return codePoint != BMP_NON_CHARACTER &&
-            codePoint != BMP_SENTINEL &&
-            !Character.isSurrogate(codePoint.toChar())
-    }
+    private fun isValidXmlScalar(codePoint: Int): Boolean = codePoint == '\t'.code ||
+        codePoint == '\n'.code ||
+        codePoint == '\r'.code ||
+        codePoint in FIRST_PRINTABLE_SCALAR..MAX_BMP_BEFORE_SURROGATES ||
+        codePoint in MIN_BMP_AFTER_SURROGATES..MAX_VALID_BMP_SCALAR ||
+        codePoint in MIN_SUPPLEMENTARY_SCALAR..MAX_UNICODE_SCALAR
 }

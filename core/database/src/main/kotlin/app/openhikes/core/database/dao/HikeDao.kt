@@ -1,74 +1,21 @@
 package app.openhikes.core.database.dao
 
-import androidx.room.ColumnInfo
 import androidx.room.Dao
-import androidx.room.Embedded
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import app.openhikes.core.database.entity.HikeEntity
-import app.openhikes.core.database.entity.HikeRouteEntity
+import app.openhikes.core.database.entity.HikeRouteChunkEntity
 import kotlinx.coroutines.flow.Flow
-
-data class HikeWithRouteRow(
-    @Embedded val hike: HikeEntity,
-    @ColumnInfo(name = "route_blob") val routeBlob: ByteArray?
-) {
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (other !is HikeWithRouteRow) return false
-        return hike == other.hike &&
-            (routeBlob?.contentEquals(other.routeBlob) ?: (other.routeBlob == null))
-    }
-
-    override fun hashCode(): Int = 31 * hike.hashCode() + (routeBlob?.contentHashCode() ?: 0)
-}
-
-data class HikeMapRouteRow(
-    @ColumnInfo(name = "hike_id") val hikeId: String,
-    @ColumnInfo(name = "route_blob") val routeBlob: ByteArray,
-    @ColumnInfo(name = "tint_hex") val tintHex: String,
-    @ColumnInfo(name = "route_border_hex") val routeBorderHex: String,
-    @ColumnInfo(name = "route_width_dp") val routeWidthDp: Double,
-    @ColumnInfo(name = "route_line_pattern_id") val routeLinePatternId: String
-) {
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (other !is HikeMapRouteRow) return false
-        return hikeId == other.hikeId &&
-            routeBlob.contentEquals(other.routeBlob) &&
-            tintHex == other.tintHex &&
-            routeBorderHex == other.routeBorderHex &&
-            routeWidthDp == other.routeWidthDp &&
-            routeLinePatternId == other.routeLinePatternId
-    }
-
-    override fun hashCode(): Int {
-        var result = hikeId.hashCode()
-        result = 31 * result + routeBlob.contentHashCode()
-        result = 31 * result + tintHex.hashCode()
-        result = 31 * result + routeBorderHex.hashCode()
-        result = 31 * result + routeWidthDp.hashCode()
-        result = 31 * result + routeLinePatternId.hashCode()
-        return result
-    }
-}
 
 @Dao
 interface HikeDao {
     @Query("SELECT * FROM hikes ORDER BY date_epoch_millis DESC, id ASC")
     fun observeAllHikes(): Flow<List<HikeEntity>>
 
-    @Query(
-        """
-        SELECT h.*, r.route_blob AS route_blob
-        FROM hikes h
-        LEFT JOIN hike_routes r ON h.id = r.hike_id
-        WHERE h.id = :hikeId
-        LIMIT 1
-        """
-    )
+    @Transaction
+    @Query("SELECT * FROM hikes WHERE id = :hikeId LIMIT 1")
     fun observeHikeWithRoute(hikeId: String): Flow<HikeWithRouteRow?>
 
     @Query("SELECT * FROM hikes WHERE id = :hikeId LIMIT 1")
@@ -80,29 +27,32 @@ interface HikeDao {
     @Query(
         """
         SELECT h.id AS hike_id,
-               r.route_blob AS route_blob,
+               c.chunk_index AS chunk_index,
+               c.chunk_blob AS chunk_blob,
                h.tint_hex AS tint_hex,
                h.route_border_hex AS route_border_hex,
                h.route_width_dp AS route_width_dp,
                h.route_line_pattern_id AS route_line_pattern_id
         FROM hikes h
-        INNER JOIN hike_routes r ON h.id = r.hike_id
+        INNER JOIN hike_route_chunks c ON h.id = c.hike_id
         WHERE h.is_recording = 0
-        ORDER BY h.date_epoch_millis DESC, h.id ASC
+        ORDER BY h.date_epoch_millis DESC, h.id ASC, c.chunk_index ASC
         """
     )
-    fun observeAllMapRoutes(): Flow<List<HikeMapRouteRow>>
+    fun observeAllMapRouteChunks(): Flow<List<HikeMapRouteChunkRow>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertHike(hike: HikeEntity)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertRoute(route: HikeRouteEntity)
+    suspend fun insertRouteChunks(chunks: List<HikeRouteChunkEntity>)
 
     @Transaction
-    suspend fun insertHikeWithRoute(hike: HikeEntity, route: HikeRouteEntity) {
+    suspend fun insertHikeWithRoute(hike: HikeEntity, routeChunks: List<HikeRouteChunkEntity>) {
         insertHike(hike)
-        insertRoute(route)
+        if (routeChunks.isNotEmpty()) {
+            insertRouteChunks(routeChunks)
+        }
     }
 
     @Query("UPDATE hikes SET custom_name = :customName WHERE id = :hikeId")

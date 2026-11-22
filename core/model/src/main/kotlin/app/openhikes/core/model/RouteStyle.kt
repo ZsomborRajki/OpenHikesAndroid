@@ -8,6 +8,28 @@ import kotlin.math.roundToInt
 import kotlinx.serialization.Serializable
 
 /**
+ * Directional chevron geometry and placement metrics in dp for a route line width.
+ */
+data class RouteChevronMetrics(
+    val spacingDp: Double,
+    val halfLengthDp: Double,
+    val halfWidthDp: Double,
+    val strokeWidthDp: Double
+)
+
+/**
+ * Contrasting monochrome shade for directional chevrons riding atop a tinted line.
+ */
+object RouteChevronShade {
+    const val ALPHA: Float = 0.95f
+    private const val DARK_THRESHOLD: Float = 0.6f
+    private const val DARK_SHADE: Float = 0.15f
+    private const val LIGHT_SHADE: Float = 1.0f
+
+    fun contrastingGray(luminance: Float): Float = if (luminance > DARK_THRESHOLD) DARK_SHADE else LIGHT_SHADE
+}
+
+/**
  * Visual line pattern used to draw a hike route on the map and in style swatches.
  */
 @Serializable
@@ -48,6 +70,23 @@ enum class RouteLinePattern(val id: String) {
         }
     }
 
+    /**
+     * Chevron spacing and geometry in dp for [widthDp], or `null` when this pattern
+     * does not render directional chevrons.
+     */
+    fun chevronMetrics(widthDp: Double): RouteChevronMetrics? {
+        if (!drawsChevrons) return null
+        val lineWidth = max(widthDp, MINIMUM_LINE_WIDTH)
+        val scale = if (this == ARROWHEADS) ARROWHEAD_SCALE else 1.0
+        val spacing = if (this == ARROWHEADS) ARROWHEAD_SPACING_DP else DIRECTIONAL_SPACING_DP
+        return RouteChevronMetrics(
+            spacingDp = spacing,
+            halfLengthDp = max(MINIMUM_CHEVRON_SIZE_DP, lineWidth * CHEVRON_REACH_MULTIPLIER) * scale,
+            halfWidthDp = max(MINIMUM_CHEVRON_SIZE_DP, lineWidth * CHEVRON_SPREAD_MULTIPLIER) * scale,
+            strokeWidthDp = max(MINIMUM_CHEVRON_STROKE_DP, lineWidth * CHEVRON_STROKE_MULTIPLIER) * scale
+        )
+    }
+
     companion object {
         private const val MINIMUM_LINE_WIDTH = 1.0
         private const val DASH_LENGTH_MULTIPLIER = 3.0
@@ -56,6 +95,14 @@ enum class RouteLinePattern(val id: String) {
         private const val MINIMUM_DASH_LENGTH = 6.0
         private const val MINIMUM_DASH_GAP = 4.0
         private const val DOT_LENGTH = 0.1
+        private const val DIRECTIONAL_SPACING_DP = 55.0
+        private const val ARROWHEAD_SPACING_DP = 38.0
+        private const val ARROWHEAD_SCALE = 1.7
+        private const val CHEVRON_REACH_MULTIPLIER = 1.1
+        private const val CHEVRON_SPREAD_MULTIPLIER = 1.0
+        private const val CHEVRON_STROKE_MULTIPLIER = 0.55
+        private const val MINIMUM_CHEVRON_SIZE_DP = 3.0
+        private const val MINIMUM_CHEVRON_STROKE_DP = 1.5
 
         val Default: RouteLinePattern = DIRECTIONAL
 

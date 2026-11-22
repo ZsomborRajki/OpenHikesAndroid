@@ -15,6 +15,9 @@ interface HikeLocalStateDao {
     @Query("SELECT * FROM hike_local_state WHERE hike_id = :hikeId LIMIT 1")
     fun observeByHikeId(hikeId: String): Flow<HikeLocalStateEntity?>
 
+    @Query("SELECT * FROM hike_local_state WHERE hike_id = :hikeId LIMIT 1")
+    suspend fun getByHikeId(hikeId: String): HikeLocalStateEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: HikeLocalStateEntity)
 
