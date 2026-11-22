@@ -2,6 +2,7 @@ package app.openhikes.core.ui.navigation
 
 import androidx.navigation3.runtime.EntryProviderScope
 import androidx.navigation3.runtime.NavKey
+import app.openhikes.core.model.HikeId
 import kotlinx.serialization.Serializable
 
 /**
@@ -10,10 +11,30 @@ import kotlinx.serialization.Serializable
 interface OpenHikesRoute : NavKey
 
 /**
+ * Marker interface for routes tied to a specific [HikeId] so deleting that hike strips
+ * all of its destinations atomically from the shared back stack.
+ */
+interface HikeScopedRoute : OpenHikesRoute {
+    val hikeId: HikeId
+}
+
+/**
  * Root home screen hosted inside the adaptive bottom sheet / docked side panel.
  */
 @Serializable
 data object MapHomeRoute : OpenHikesRoute
+
+/**
+ * Hike detail screen pushed onto the shared adaptive back stack.
+ */
+@Serializable
+data class HikeDetailRoute(override val hikeId: HikeId) : HikeScopedRoute
+
+/**
+ * Route line appearance editor pushed from [HikeDetailRoute].
+ */
+@Serializable
+data class RouteStyleRoute(override val hikeId: HikeId) : HikeScopedRoute
 
 /**
  * Application settings destination pushed onto the shared adaptive back stack.

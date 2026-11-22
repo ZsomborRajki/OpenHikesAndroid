@@ -28,4 +28,22 @@ object OpenHikesIcons {
     @DrawableRes val Info: Int = R.drawable.ic_info_24
 
     @DrawableRes val Landscape: Int = R.drawable.ic_landscape_24
+
+    @DrawableRes val UploadFile: Int = R.drawable.ic_upload_file_24
+
+    @DrawableRes val Download: Int = R.drawable.ic_download_24
+
+    @DrawableRes val Edit: Int = R.drawable.ic_edit_24
+
+    @DrawableRes val Delete: Int = R.drawable.ic_delete_24
+
+    @DrawableRes val FitScreen: Int = R.drawable.ic_fit_screen_24
+
+    @DrawableRes val Palette: Int = R.drawable.ic_palette_24
+
+    @DrawableRes val ChevronRight: Int = R.drawable.ic_chevron_right_24
+
+    @DrawableRes val Check: Int = R.drawable.ic_check_24
+
+    @DrawableRes val Hiking: Int = R.drawable.ic_hiking_24
 }

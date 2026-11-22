@@ -1,0 +1,8 @@
+<resources>
+    <string name="hike_row_delete_description">Delete %1$s</string>
+    <string name="elevation_chart_content_description">Elevation profile</string>
+    <string name="elevation_chart_step_forward">Step forward along trail</string>
+    <string name="elevation_chart_step_backward">Step backward along trail</string>
+    <string name="elevation_chart_no_data">No elevation data</string>
+    <string name="elevation_chart_state_description">%1$s at %2$s, %3$d%% along the trail</string>
+</resources>

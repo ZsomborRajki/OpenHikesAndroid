@@ -15,14 +15,17 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterIsInstance
 import org.maplibre.compose.camera.CameraAnimation
+import org.maplibre.compose.camera.CameraFit
 import org.maplibre.compose.camera.CameraPosition
 import org.maplibre.compose.camera.CameraUpdate
 import org.maplibre.compose.expressions.dsl.const
@@ -30,12 +33,15 @@ import org.maplibre.compose.interaction.ClickResult
 import org.maplibre.compose.interaction.MapInteractions
 import org.maplibre.compose.layers.RasterLayer
 import org.maplibre.compose.map.MapEvent
+import org.maplibre.compose.map.MapState
 import org.maplibre.compose.map.MaplibreMap
 import org.maplibre.compose.map.rememberMapState
 import org.maplibre.compose.resource.ConnectivityMode
 import org.maplibre.compose.resource.MapConnectivity
 import org.maplibre.compose.sources.rememberRasterTileSource
 import org.maplibre.compose.style.BaseStyle
+import org.maplibre.compose.util.DpPadding
+import org.maplibre.spatialk.geojson.BoundingBox
 import org.maplibre.spatialk.geojson.Position
 
 internal data class MapStylePlan(val baseStyle: BaseStyle, val hikingRoutesTileUrl: String?)
@@ -73,6 +79,7 @@ internal class MapLibreTrailMapRenderer @Inject constructor(private val mapNetwo
         viewportPadding: PaddingValues,
         interactions: MapInteractionEvents,
         onCameraCommandHandled: (Long) -> Unit,
+        highlightState: StateFlow<MapRouteHighlight?>,
         modifier: Modifier
     ) {
         val currentInteractions by rememberUpdatedState(interactions)
@@ -94,6 +101,8 @@ internal class MapLibreTrailMapRenderer @Inject constructor(private val mapNetwo
         )
         val mapState = rememberTrailMapState(
             stylePlan = stylePlan,
+            routes = overlayState.routes,
+            highlightState = highlightState,
             initialCameraState = cameraState
         )
 
@@ -124,7 +133,12 @@ internal class MapLibreTrailMapRenderer @Inject constructor(private val mapNetwo
 }
 
 @Composable
-private fun rememberTrailMapState(stylePlan: MapStylePlan, initialCameraState: MapCameraState) = rememberMapState(
+private fun rememberTrailMapState(
+    stylePlan: MapStylePlan,
+    routes: List<MapRouteOverlay>,
+    highlightState: StateFlow<MapRouteHighlight?>,
+    initialCameraState: MapCameraState
+) = rememberMapState(
     baseStyle = stylePlan.baseStyle,
     initialCameraPosition = initialCameraState.toMapLibreCameraPosition()
 ) {
@@ -142,11 +156,13 @@ private fun rememberTrailMapState(stylePlan: MapStylePlan, initialCameraState: M
             opacity = const(HIKING_ROUTES_OPACITY)
         )
     }
+    RouteOverlayLayers(routes = routes)
+    HighlightMarkerLayers(highlightState = highlightState)
 }
 
 @Composable
 private fun BindTrailMapEffects(
-    mapState: org.maplibre.compose.map.MapState,
+    mapState: MapState,
     cameraCommand: MapCameraCommand?,
     allowRemoteRequests: Boolean,
     onRemoteStyleLoaded: () -> Unit,
@@ -178,12 +194,47 @@ private fun BindTrailMapEffects(
 
     LaunchedEffect(cameraCommand?.id) {
         val command = cameraCommand ?: return@LaunchedEffect
-        mapState.animateCamera(
-            update = command.toCameraUpdate(mapState.cameraPosition),
-            animation = CameraAnimation.Ease.Standard
-        )
+        executeCameraCommand(mapState, command)
         onCameraCommandHandled(command.id)
     }
+}
+
+private suspend fun executeCameraCommand(mapState: MapState, command: MapCameraCommand) {
+    if (command is MapCameraCommand.FitBounds) {
+        if (command.bounds.isSinglePoint) {
+            val center = command.bounds.center
+            mapState.animateCamera(
+                update = CameraUpdate(
+                    center = Position(longitude = center.longitude, latitude = center.latitude),
+                    zoom = FIT_SINGLE_POINT_ZOOM
+                ),
+                animation = CameraAnimation.Ease.Standard
+            )
+        } else {
+            mapState.fitCameraToBounds(
+                boundingBox = BoundingBox(
+                    west = command.bounds.westLon,
+                    south = command.bounds.southLat,
+                    east = command.bounds.eastLon,
+                    north = command.bounds.northLat
+                ),
+                fit = CameraFit(
+                    fitPadding = DpPadding(
+                        left = FIT_BOUNDS_PADDING_DP.dp,
+                        top = FIT_BOUNDS_PADDING_DP.dp,
+                        right = FIT_BOUNDS_PADDING_DP.dp,
+                        bottom = FIT_BOUNDS_PADDING_DP.dp
+                    )
+                )
+            )
+        }
+        return
+    }
+
+    mapState.animateCamera(
+        update = command.toCameraUpdate(mapState.cameraPosition),
+        animation = CameraAnimation.Ease.Standard
+    )
 }
 
 internal const val OPENFREEMAP_LIBERTY_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
@@ -193,6 +244,8 @@ private const val WAYMARKED_TILE_SIZE = 256
 private const val WAYMARKED_MIN_ZOOM = 0
 private const val WAYMARKED_MAX_ZOOM = 18
 private const val HIKING_ROUTES_OPACITY = 0.85f
+private const val FIT_BOUNDS_PADDING_DP = 32
+private const val FIT_SINGLE_POINT_ZOOM = 14.0
 
 private const val FULL_CIRCLE_DEGREES = 360.0
 private const val MIN_LATITUDE = -90.0
@@ -245,6 +298,10 @@ private fun MapCameraCommand.toCameraUpdate(current: CameraPosition): CameraUpda
         zoom = (zoom ?: current.zoom).coerceIn(MapCameraState.MIN_ZOOM, MapCameraState.MAX_ZOOM),
         bearing = bearing ?: current.bearing,
         pitch = pitch ?: current.pitch
+    )
+
+    is MapCameraCommand.FitBounds -> CameraUpdate(
+        center = Position(longitude = bounds.center.longitude, latitude = bounds.center.latitude)
     )
 
     is MapCameraCommand.ZoomIn -> CameraUpdate(

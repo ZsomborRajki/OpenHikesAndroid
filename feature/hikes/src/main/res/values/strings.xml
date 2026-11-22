@@ -1,0 +1,90 @@
+<resources>
+    <string name="hikes_search_placeholder">Search trails and places</string>
+    <string name="hikes_search_clear_description">Clear search</string>
+    <string name="hikes_settings_description">Settings</string>
+    <string name="hikes_import_gpx">Import GPX</string>
+    <string name="hikes_importing">Importing GPX…</string>
+    <string name="hikes_your_hikes_header">Your Hikes</string>
+
+    <plurals name="hikes_library_count">
+        <item quantity="one">%1$d saved hike</item>
+        <item quantity="other">%1$d saved hikes</item>
+    </plurals>
+
+    <string name="hikes_empty_title">Your hikes stay on this device</string>
+    <string name="hikes_empty_body">Private, local-first, and ready offline. Import a GPX trail to view its route, elevation profile, and statistics.</string>
+    <string name="hikes_search_no_results_title">No saved hikes matching “%1$s”</string>
+    <string name="hikes_search_no_results_body">Try another name, or clear your search to see all saved hikes.</string>
+    <string name="hikes_search_clear_button">Clear search</string>
+
+    <string name="hikes_import_error_multiple_tracks">This GPX file holds more than one track.</string>
+    <string name="hikes_import_error_no_usable_points">No usable track points were found in this file.</string>
+    <string name="hikes_import_error_too_large">This GPX file is too large to import.</string>
+    <string name="hikes_import_error_too_short">This hike needs at least two points to form a route.</string>
+    <string name="hikes_import_error_unreadable">This file couldn’t be read. Check that it’s a valid .gpx file.</string>
+    <string name="hikes_error_dismiss">Dismiss</string>
+
+    <string name="hikes_delete_dialog_title">Delete Hike?</string>
+    <string name="hikes_delete_dialog_body">Remove “%1$s” from your library? This removes its saved route and places from this device.</string>
+    <string name="hikes_delete_confirm">Delete Hike</string>
+    <string name="hikes_delete_cancel">Cancel</string>
+    <string name="hikes_delete_failed_error">Couldn’t delete this hike. Please try again.</string>
+    <string name="hikes_save_failed_error">Couldn’t save your changes. Please try again.</string>
+    <string name="hikes_export_failed_error">Couldn’t export this GPX file. Please try again.</string>
+    <string name="hikes_export_success_message">Saved GPX file.</string>
+
+    <string name="hike_detail_back_description">Back to library</string>
+    <string name="hike_detail_not_found">This hike is no longer in your library.</string>
+    <string name="hike_detail_zoom_to_route">Zoom to Route</string>
+    <string name="hike_detail_export_gpx">Export GPX</string>
+    <string name="hike_detail_stat_distance">Distance</string>
+    <string name="hike_detail_stat_gain">Elevation Gain</string>
+    <string name="hike_detail_stat_duration">Duration</string>
+    <string name="hike_detail_section_statistics">Statistics</string>
+    <string name="hike_detail_stat_moving_time">Moving Time</string>
+    <string name="hike_detail_stat_elevation_loss">Elevation Loss</string>
+    <string name="hike_detail_stat_high_point">Highest Point</string>
+    <string name="hike_detail_stat_low_point">Lowest Point</string>
+    <string name="hike_detail_stat_avg_speed">Avg Speed</string>
+    <string name="hike_detail_stat_moving_speed">Moving Avg Speed</string>
+    <string name="hike_detail_stat_max_speed">Max Speed</string>
+    <string name="hike_detail_stat_points">Track Points</string>
+    <string name="hike_detail_section_about">About</string>
+    <string name="hike_detail_about_description">Description</string>
+    <string name="hike_detail_about_author">Author</string>
+    <string name="hike_detail_about_keywords">Keywords</string>
+    <string name="hike_detail_section_segments">Segments</string>
+    <string name="hike_detail_segment_label">Segment %1$d</string>
+    <plurals name="hike_detail_segment_points">
+        <item quantity="one">%1$s · %2$d point</item>
+        <item quantity="other">%1$s · %2$d points</item>
+    </plurals>
+    <string name="hike_detail_section_on_map">On the Map</string>
+    <string name="hike_detail_route_style">Route Style</string>
+    <string name="hike_detail_rename_hike">Rename Hike</string>
+    <string name="hike_detail_rename_label">Hike Title</string>
+    <string name="hike_detail_rename_save">Save</string>
+    <string name="hike_detail_rename_cancel">Cancel</string>
+    <string name="hike_detail_delete_hike">Delete Hike</string>
+
+    <string name="route_style_title">Route Style</string>
+    <string name="route_style_back_description">Back to hike details</string>
+    <string name="route_style_section_colors">Colors</string>
+    <string name="route_style_line_color">Line Color</string>
+    <string name="route_style_border_color">Border</string>
+    <string name="route_style_section_line">Line</string>
+    <string name="route_style_line_width">Line Width</string>
+    <string name="route_style_width_value">%1$d dp</string>
+    <string name="route_style_pattern_label">Pattern</string>
+    <string name="route_style_color_swatch_description">Select route color %1$s</string>
+    <string name="route_style_border_default">Default border</string>
+    <string name="route_style_border_none">No border</string>
+    <string name="route_style_border_black">Black border</string>
+    <string name="route_style_border_white">White border</string>
+    <string name="route_style_border_charcoal">Charcoal border</string>
+    <string name="route_pattern_solid">Solid</string>
+    <string name="route_pattern_directional">Arrows</string>
+    <string name="route_pattern_dashed">Dashed</string>
+    <string name="route_pattern_dotted">Dotted</string>
+    <string name="route_pattern_arrowheads">Arrowheads</string>
+</resources>

@@ -44,13 +44,18 @@ import app.openhikes.core.common.LaunchConfig
 import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapCameraState
 import app.openhikes.core.map.MapInteractionEvents
+import app.openhikes.core.map.MapRouteHighlight
 import app.openhikes.core.map.TrailMapHost
 import app.openhikes.core.map.TrailMapRenderer
+import app.openhikes.core.model.HikeId
 import app.openhikes.core.ui.navigation.EntryProviderInstaller
+import app.openhikes.core.ui.navigation.HikeDetailRoute
 import app.openhikes.core.ui.navigation.MapHomeRoute
 import app.openhikes.core.ui.navigation.OpenHikesNavigator
 import app.openhikes.core.ui.navigation.SettingsRoute
 import app.openhikes.core.ui.testing.OpenHikesTestTags
+import app.openhikes.feature.hikes.HikeLibraryRoute
+import kotlinx.coroutines.flow.StateFlow
 
 private val SheetPeekViewportInset = 112.dp
 
@@ -65,6 +70,20 @@ private data class ShellNavigationHostState(
 )
 
 /**
+ * Callbacks and reactive search state provided to the root [MapHomeRoute] inside the shell.
+ */
+@Immutable
+data class ShellHomeScope(
+    val searchQueryState: State<String>,
+    val onSearchQueryChange: (String) -> Unit,
+    val onClearSearch: () -> Unit,
+    val onSearchFocusChanged: (Boolean) -> Unit,
+    val onOpenSettings: () -> Unit,
+    val onOpenHike: (HikeId) -> Unit,
+    val onHikeDeleted: (HikeId) -> Unit
+)
+
+/**
  * Stateful adaptive map-first shell hosting the permanent map, floating controls,
  * and a single shared Navigation 3 back stack rendered inside either [MapBottomSheet]
  * or [MapSidePanel] based on [windowSizeClass].
@@ -76,7 +95,18 @@ fun OpenHikesApp(
     launchConfig: LaunchConfig,
     modifier: Modifier = Modifier,
     windowSizeClass: WindowSizeClass = currentWindowAdaptiveInfoV2().windowSizeClass,
-    shellViewModel: MapShellViewModel = hiltViewModel()
+    shellViewModel: MapShellViewModel = hiltViewModel(),
+    homeContent: @Composable (ShellHomeScope) -> Unit = { scope ->
+        HikeLibraryRoute(
+            searchQuery = scope.searchQueryState.value,
+            onSearchQueryChange = scope.onSearchQueryChange,
+            onClearSearch = scope.onClearSearch,
+            onSearchFocusChanged = scope.onSearchFocusChanged,
+            onOpenSettings = scope.onOpenSettings,
+            onOpenHike = scope.onOpenHike,
+            onHikeDeleted = scope.onHikeDeleted
+        )
+    }
 ) {
     val chromeUiState by shellViewModel.chromeUiState.collectAsStateWithLifecycle()
     val searchQueryState = shellViewModel.searchQuery.collectAsStateWithLifecycle()
@@ -92,6 +122,7 @@ fun OpenHikesApp(
         searchQueryState = searchQueryState,
         initialCameraState = shellViewModel.initialCameraState,
         pendingCameraCommand = pendingCameraCommand,
+        routeHighlightState = shellViewModel.routeHighlight,
         onSyncBackStack = shellViewModel::syncBackStack,
         onSearchQueryChange = shellViewModel::onSearchQueryChange,
         onClearSearch = shellViewModel::onClearSearch,
@@ -104,7 +135,8 @@ fun OpenHikesApp(
         onOpenAttributionDialog = shellViewModel::onOpenAttributionDialog,
         onDismissAttributionDialog = shellViewModel::onDismissAttributionDialog,
         onOpenUrl = { url -> runCatching { uriHandler.openUri(url) } },
-        modifier = modifier
+        modifier = modifier,
+        homeContent = homeContent
     )
 }
 
@@ -118,6 +150,7 @@ internal fun OpenHikesShellContent(
     searchQueryState: State<String>,
     initialCameraState: MapCameraState,
     pendingCameraCommand: MapCameraCommand?,
+    routeHighlightState: StateFlow<MapRouteHighlight?>,
     onSyncBackStack: (List<Any>) -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onClearSearch: () -> Unit,
@@ -130,7 +163,8 @@ internal fun OpenHikesShellContent(
     onOpenAttributionDialog: () -> Unit,
     onDismissAttributionDialog: () -> Unit,
     onOpenUrl: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    homeContent: @Composable (ShellHomeScope) -> Unit
 ) {
     val shellLayout = resolveShellLayout(windowSizeClass)
     val navHostState = rememberShellNavigationHost(
@@ -142,7 +176,8 @@ internal fun OpenHikesShellContent(
         onSyncBackStack = onSyncBackStack,
         onSearchQueryChange = onSearchQueryChange,
         onClearSearch = onClearSearch,
-        onDismissAttributionDialog = onDismissAttributionDialog
+        onDismissAttributionDialog = onDismissAttributionDialog,
+        homeContent = homeContent
     )
     OpenHikesShellStage(
         trailMapRenderer = trailMapRenderer,
@@ -151,6 +186,7 @@ internal fun OpenHikesShellContent(
         chromeUiState = chromeUiState,
         initialCameraState = initialCameraState,
         pendingCameraCommand = pendingCameraCommand,
+        routeHighlightState = routeHighlightState,
         onDetentChange = navHostState.onDetentChange,
         onToggleHikingRoutes = onToggleHikingRoutes,
         onZoomIn = onZoomIn,
@@ -166,6 +202,15 @@ internal fun OpenHikesShellContent(
     )
 }
 
+@Immutable
+private data class ShellNavActions(
+    val exitSearch: () -> Unit,
+    val onSearchFocusChanged: (Boolean) -> Unit,
+    val onOpenSettings: () -> Unit,
+    val onOpenHike: (HikeId) -> Unit,
+    val onHikeDeleted: (HikeId) -> Unit
+)
+
 @Composable
 private fun rememberShellNavigationHost(
     launchConfig: LaunchConfig,
@@ -176,35 +221,43 @@ private fun rememberShellNavigationHost(
     onSyncBackStack: (List<Any>) -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onClearSearch: () -> Unit,
-    onDismissAttributionDialog: () -> Unit
+    onDismissAttributionDialog: () -> Unit,
+    homeContent: @Composable (ShellHomeScope) -> Unit
 ): ShellNavigationHostState {
-    val sheetDetentState = rememberSaveable {
+    var sheetDetent by rememberSaveable {
         mutableStateOf(if (launchConfig.startsWithExpandedSheet) SheetDetent.HALF else SheetDetent.PEEK)
     }
-    val detentBeforeSettingsState = rememberSaveable { mutableStateOf<SheetDetent?>(null) }
-    val searchActiveState = rememberSaveable { mutableStateOf(false) }
+    var detentBeforeSettings by rememberSaveable { mutableStateOf<SheetDetent?>(null) }
+    var isSearchActive by rememberSaveable { mutableStateOf(false) }
     val backStack = rememberNavBackStack(MapHomeRoute)
-    val navigator = remember(backStack) { OpenHikesNavigator(backStack) }
-    val focusManager = LocalFocusManager.current
-    val exitSearch = {
-        onClearSearch()
-        searchActiveState.value = false
-        focusManager.clearFocus(force = true)
+    val navigator = remember(backStack) {
+        OpenHikesNavigator(backStack, onCollapseSheet = { sheetDetent = SheetDetent.PEEK })
     }
+    val actions = rememberShellNavActions(
+        navigator = navigator,
+        sheetDetent = sheetDetent,
+        detentBeforeSettings = detentBeforeSettings,
+        isSearchActive = isSearchActive,
+        searchQuery = searchQueryState.value,
+        onClearSearch = onClearSearch,
+        onSetDetent = { sheetDetent = it },
+        onSetSearchActive = { isSearchActive = it },
+        onSetDetentBeforeSettings = { detentBeforeSettings = it }
+    )
     CoordinateShellNavigation(
         backStack = backStack,
         canPop = navigator.canPop,
-        sheetDetent = sheetDetentState.value,
-        detentBeforeSettings = detentBeforeSettingsState.value,
+        sheetDetent = sheetDetent,
+        detentBeforeSettings = detentBeforeSettings,
         showAttributionDialog = showAttributionDialog,
         searchQuery = searchQueryState.value,
-        isSearchActive = searchActiveState.value,
+        isSearchActive = isSearchActive,
         shellLayout = shellLayout,
         onSyncBackStack = onSyncBackStack,
-        onDetentChange = { sheetDetentState.value = it },
-        onClearDetentBeforeSettings = { detentBeforeSettingsState.value = null },
+        onDetentChange = { sheetDetent = it },
+        onClearDetentBeforeSettings = { detentBeforeSettings = null },
         onDismissAttributionDialog = onDismissAttributionDialog,
-        onExitSearch = exitSearch
+        onExitSearch = actions.exitSearch
     )
     val navigationContent = rememberNavigationContent(
         backStack = backStack,
@@ -213,28 +266,63 @@ private fun rememberShellNavigationHost(
         searchQueryState = searchQueryState,
         onSearchQueryChange = onSearchQueryChange,
         onClearSearch = onClearSearch,
+        actions = actions,
+        homeContent = homeContent
+    )
+    return ShellNavigationHostState(
+        sheetDetent = sheetDetent,
+        onDetentChange = { next ->
+            sheetDetent = next
+            if (next == SheetDetent.PEEK && isSearchActive) actions.exitSearch()
+        },
+        navigationContent = navigationContent
+    )
+}
+
+@Composable
+private fun rememberShellNavActions(
+    navigator: OpenHikesNavigator,
+    sheetDetent: SheetDetent,
+    detentBeforeSettings: SheetDetent?,
+    isSearchActive: Boolean,
+    searchQuery: String,
+    onClearSearch: () -> Unit,
+    onSetDetent: (SheetDetent) -> Unit,
+    onSetSearchActive: (Boolean) -> Unit,
+    onSetDetentBeforeSettings: (SheetDetent?) -> Unit
+): ShellNavActions {
+    val focusManager = LocalFocusManager.current
+    val currentSheetDetent by rememberUpdatedState(sheetDetent)
+    val currentDetentBeforeSettings by rememberUpdatedState(detentBeforeSettings)
+    val currentIsSearchActive by rememberUpdatedState(isSearchActive)
+    val currentSearchQuery by rememberUpdatedState(searchQuery)
+    val exitSearch = {
+        onClearSearch()
+        onSetSearchActive(false)
+        focusManager.clearFocus(force = true)
+    }
+    return ShellNavActions(
+        exitSearch = exitSearch,
         onSearchFocusChanged = { focused ->
             if (focused) {
-                searchActiveState.value = true
-                sheetDetentState.value = SheetDetent.EXPANDED
-            } else if (searchQueryState.value.isBlank()) {
-                searchActiveState.value = false
+                onSetSearchActive(true)
+                onSetDetent(SheetDetent.EXPANDED)
+            } else if (currentSearchQuery.isBlank()) {
+                onSetSearchActive(false)
             }
         },
         onOpenSettings = {
-            if (searchActiveState.value) exitSearch()
-            if (detentBeforeSettingsState.value == null) detentBeforeSettingsState.value = sheetDetentState.value
-            sheetDetentState.value = SheetDetent.EXPANDED
+            if (currentIsSearchActive) exitSearch()
+            if (currentDetentBeforeSettings == null) onSetDetentBeforeSettings(currentSheetDetent)
+            onSetDetent(SheetDetent.EXPANDED)
             navigator.navigate(SettingsRoute)
-        }
-    )
-    return ShellNavigationHostState(
-        sheetDetent = sheetDetentState.value,
-        onDetentChange = { next ->
-            sheetDetentState.value = next
-            if (next == SheetDetent.PEEK && searchActiveState.value) exitSearch()
         },
-        navigationContent = navigationContent
+        onOpenHike = { hikeId ->
+            focusManager.clearFocus(force = true)
+            if (currentSheetDetent == SheetDetent.PEEK) onSetDetent(SheetDetent.HALF)
+            navigator.navigate(HikeDetailRoute(hikeId))
+        },
+        onHikeDeleted = { hikeId -> navigator.removeRoutesForHike(hikeId) }
     )
 }
 
@@ -284,6 +372,7 @@ private fun OpenHikesShellStage(
     chromeUiState: MapChromeUiState,
     initialCameraState: MapCameraState,
     pendingCameraCommand: MapCameraCommand?,
+    routeHighlightState: StateFlow<MapRouteHighlight?>,
     onDetentChange: (SheetDetent) -> Unit,
     onToggleHikingRoutes: () -> Unit,
     onZoomIn: () -> Unit,
@@ -319,7 +408,8 @@ private fun OpenHikesShellStage(
             overlayState = chromeUiState.overlayState,
             viewportPadding = metrics.viewportPadding,
             interactions = MapInteractionEvents(onCameraChanged = onCameraChanged),
-            onCameraCommandHandled = onCameraCommandHandled
+            onCameraCommandHandled = onCameraCommandHandled,
+            highlightState = routeHighlightState
         )
         MapFloatingControls(
             shellLayout = shellLayout,
@@ -380,13 +470,13 @@ private fun rememberNavigationContent(
     searchQueryState: State<String>,
     onSearchQueryChange: (String) -> Unit,
     onClearSearch: () -> Unit,
-    onSearchFocusChanged: (Boolean) -> Unit,
-    onOpenSettings: () -> Unit
+    actions: ShellNavActions,
+    homeContent: @Composable (ShellHomeScope) -> Unit
 ): @Composable () -> Unit {
     val currentOnSearchQueryChange by rememberUpdatedState(onSearchQueryChange)
     val currentOnClearSearch by rememberUpdatedState(onClearSearch)
-    val currentOnSearchFocusChanged by rememberUpdatedState(onSearchFocusChanged)
-    val currentOnOpenSettings by rememberUpdatedState(onOpenSettings)
+    val currentActions by rememberUpdatedState(actions)
+    val currentHomeContent by rememberUpdatedState(homeContent)
 
     return remember(backStack, navigator, entryProviderInstallers) {
         movableContentOf {
@@ -399,12 +489,17 @@ private fun rememberNavigationContent(
                 ),
                 entryProvider = entryProvider<NavKey> {
                     entry<MapHomeRoute> {
-                        MapHomeScreen(
-                            searchQuery = searchQueryState.value,
-                            onSearchQueryChange = currentOnSearchQueryChange,
-                            onClearSearch = currentOnClearSearch,
-                            onSearchFocusChanged = currentOnSearchFocusChanged,
-                            onOpenSettings = currentOnOpenSettings
+                        val navActions = currentActions
+                        currentHomeContent(
+                            ShellHomeScope(
+                                searchQueryState = searchQueryState,
+                                onSearchQueryChange = currentOnSearchQueryChange,
+                                onClearSearch = currentOnClearSearch,
+                                onSearchFocusChanged = navActions.onSearchFocusChanged,
+                                onOpenSettings = navActions.onOpenSettings,
+                                onOpenHike = navActions.onOpenHike,
+                                onHikeDeleted = navActions.onHikeDeleted
+                            )
                         )
                     }
                     entryProviderInstallers.forEach { install -> install(navigator) }

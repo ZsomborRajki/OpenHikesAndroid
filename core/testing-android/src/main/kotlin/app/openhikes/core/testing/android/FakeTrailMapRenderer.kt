@@ -15,6 +15,7 @@ import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapCameraState
 import app.openhikes.core.map.MapInteractionEvents
 import app.openhikes.core.map.MapOverlayState
+import app.openhikes.core.map.MapRouteHighlight
 import app.openhikes.core.map.TrailMapRenderer
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 import javax.inject.Inject
@@ -26,18 +27,20 @@ import kotlinx.coroutines.flow.asStateFlow
 /**
  * Lightweight Compose semantic fake for [TrailMapRenderer] used in JVM, screenshot, and UI tests.
  *
- * Records camera state, overlay configuration, viewport padding, and applied commands without
- * initializing MapLibre native libraries or OpenGL surfaces.
+ * Records camera state, overlay configuration, route highlights, viewport padding, and applied
+ * commands without initializing MapLibre native libraries or OpenGL surfaces.
  */
 @Singleton
 class FakeTrailMapRenderer @Inject constructor() : TrailMapRenderer {
     private val cameraStateFlow = MutableStateFlow(MapCameraState())
     private val overlayStateFlow = MutableStateFlow<MapOverlayState?>(null)
+    private val highlightStateFlow = MutableStateFlow<MapRouteHighlight?>(null)
     private val viewportPaddingFlow = MutableStateFlow<PaddingValues?>(null)
     private val handledCommandsFlow = MutableStateFlow<List<MapCameraCommand>>(emptyList())
 
     val lastCameraState: StateFlow<MapCameraState> = cameraStateFlow.asStateFlow()
     val lastOverlayState: StateFlow<MapOverlayState?> = overlayStateFlow.asStateFlow()
+    val lastHighlight: StateFlow<MapRouteHighlight?> = highlightStateFlow.asStateFlow()
     val lastViewportPadding: StateFlow<PaddingValues?> = viewportPaddingFlow.asStateFlow()
     val handledCommands: StateFlow<List<MapCameraCommand>> = handledCommandsFlow.asStateFlow()
 
@@ -49,10 +52,17 @@ class FakeTrailMapRenderer @Inject constructor() : TrailMapRenderer {
         viewportPadding: PaddingValues,
         interactions: MapInteractionEvents,
         onCameraCommandHandled: (Long) -> Unit,
+        highlightState: StateFlow<MapRouteHighlight?>,
         modifier: Modifier
     ) {
         LaunchedEffect(cameraState) {
             cameraStateFlow.value = cameraState
+        }
+
+        LaunchedEffect(highlightState) {
+            highlightState.collect { highlight ->
+                highlightStateFlow.value = highlight
+            }
         }
 
         LaunchedEffect(overlayState, viewportPadding) {
@@ -90,8 +100,17 @@ class FakeTrailMapRenderer @Inject constructor() : TrailMapRenderer {
             pitch = command.pitch ?: current.pitch
         )
 
+        is MapCameraCommand.FitBounds -> current.copy(
+            center = command.bounds.center,
+            zoom = if (command.bounds.isSinglePoint) FIT_POINT_ZOOM else current.zoom
+        )
+
         is MapCameraCommand.ZoomIn -> current.zoomedIn(command.delta)
         is MapCameraCommand.ZoomOut -> current.zoomedOut(command.delta)
         is MapCameraCommand.ResetNorth -> current.resetNorth()
+    }
+
+    private companion object {
+        const val FIT_POINT_ZOOM = 14.0
     }
 }

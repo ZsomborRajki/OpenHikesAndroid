@@ -3,13 +3,14 @@ package app.openhikes.core.ui.navigation
 import androidx.compose.runtime.Stable
 import androidx.navigation3.runtime.NavBackStack
 import androidx.navigation3.runtime.NavKey
+import app.openhikes.core.model.HikeId
 
 /**
  * App-owned Navigation 3 back stack wrapper enforcing duplicate-push prevention,
- * root preservation, and atomic removal of deleted hike routes.
+ * root preservation, sheet collapse coordination, and atomic removal of deleted hike routes.
  */
 @Stable
-class OpenHikesNavigator(val backStack: NavBackStack<NavKey>) {
+class OpenHikesNavigator(val backStack: NavBackStack<NavKey>, private val onCollapseSheet: () -> Unit = {}) {
     val currentRoute: NavKey?
         get() = backStack.lastOrNull()
 
@@ -39,6 +40,22 @@ class OpenHikesNavigator(val backStack: NavBackStack<NavKey>) {
     fun popToRoot() {
         while (backStack.size > 1) {
             backStack.removeAt(backStack.lastIndex)
+        }
+    }
+
+    /**
+     * Requests the bottom sheet (when in portrait/bottom-sheet layout) to collapse to peek.
+     */
+    fun collapseSheet() {
+        onCollapseSheet()
+    }
+
+    /**
+     * Atomically removes all pushed entries associated with [hikeId].
+     */
+    fun removeRoutesForHike(hikeId: HikeId) {
+        removeRoutesMatching { route ->
+            route is HikeScopedRoute && route.hikeId == hikeId
         }
     }
 

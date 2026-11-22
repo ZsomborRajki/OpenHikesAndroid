@@ -27,10 +27,15 @@ import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapCameraState
 import app.openhikes.core.map.MapInteractionEvents
 import app.openhikes.core.map.MapOverlayState
+import app.openhikes.core.map.MapRouteHighlight
 import app.openhikes.core.map.TrailMapRenderer
+import app.openhikes.feature.hikes.HikeLibraryScreen
+import app.openhikes.feature.hikes.HikeLibraryUiState
 import app.openhikes.shell.MapChromeUiState
 import app.openhikes.shell.OpenHikesShellContent
 import com.android.tools.screenshot.PreviewTest
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
 @PreviewTest
 @Preview(name = "Shell Compact Portrait", showBackground = true, widthDp = 411, heightDp = 891)
@@ -65,6 +70,7 @@ private fun ShellPreviewHost(widthDp: Float, heightDp: Float, darkTheme: Boolean
                 viewportPadding: PaddingValues,
                 interactions: MapInteractionEvents,
                 onCameraCommandHandled: (Long) -> Unit,
+                highlightState: StateFlow<MapRouteHighlight?>,
                 modifier: Modifier
             ) {
                 Box(
@@ -111,6 +117,7 @@ private fun ShellPreviewHost(widthDp: Float, heightDp: Float, darkTheme: Boolean
                 searchQueryState = searchQueryState,
                 initialCameraState = MapCameraState(),
                 pendingCameraCommand = null,
+                routeHighlightState = MutableStateFlow(null),
                 onSyncBackStack = {},
                 onSearchQueryChange = {},
                 onClearSearch = {},
@@ -122,7 +129,22 @@ private fun ShellPreviewHost(widthDp: Float, heightDp: Float, darkTheme: Boolean
                 onCameraCommandHandled = {},
                 onOpenAttributionDialog = {},
                 onDismissAttributionDialog = {},
-                onOpenUrl = {}
+                onOpenUrl = {},
+                homeContent = { scope ->
+                    HikeLibraryScreen(
+                        uiState = HikeLibraryUiState(),
+                        searchQuery = scope.searchQueryState.value,
+                        onSearchQueryChange = scope.onSearchQueryChange,
+                        onClearSearch = scope.onClearSearch,
+                        onSearchFocusChanged = scope.onSearchFocusChanged,
+                        onOpenSettings = scope.onOpenSettings,
+                        onImportGpxClick = {},
+                        onOpenHike = scope.onOpenHike,
+                        onRequestDelete = {},
+                        onConfirmDelete = {},
+                        onCancelDelete = {}
+                    )
+                }
             )
         }
     }

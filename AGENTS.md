@@ -17,10 +17,11 @@ Supporting reference docs:
   pyramid, porting `OpenHikesUITests` fixtures/tags, static analysis wiring, and
   Phase 0–4 bootstrap roadmap.
 
-> **Repository status:** Phase 1 complete (Material 3 Expressive adaptive
-> map-first shell, Navigation 3 shared back stack, MapLibre Compose seam +
-> semantic fake, `LaunchConfig` debug harness, and Proto DataStore-backed
-> `:feature:settings`). Phase 2 (Hike Library, GPX Import & Detail) is next.
+> **Repository status:** Phase 2 complete (Room portable vs. device-local storage,
+> pure-JVM GPX 1.1 parser/exporter and route elevation/statistics math, grapheme-safe
+> bounded titles, MapLibre route overlays & scrub highlights, `:feature:hikes` Library /
+> Detail / Route Style screens, and Accessibility/Screenshot coverage). Phase 3 (Live Trail
+> Recording & Crash-Safe Journal) is next.
 
 ---
 
