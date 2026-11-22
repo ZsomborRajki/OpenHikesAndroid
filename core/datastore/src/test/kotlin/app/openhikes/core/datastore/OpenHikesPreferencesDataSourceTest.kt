@@ -9,10 +9,13 @@ import app.openhikes.core.model.UserSettings
 import com.google.common.truth.Truth.assertThat
 import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.IOException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
 import org.junit.Test
@@ -77,6 +80,24 @@ class OpenHikesPreferencesDataSourceTest {
     @Test(expected = CorruptionException::class)
     fun serializerThrowsCorruptionExceptionOnMalformedBytes() = runTest {
         UserPreferencesSerializer.readFrom(ByteArrayInputStream(byteArrayOf(0x00, 0x7F, 0xFF.toByte())))
+    }
+
+    @Test
+    fun fallsBackToDefaultSettingsWhenDataStoreReadThrowsIoException() = runTest {
+        val failingStore = object : DataStore<UserPreferences> {
+            override val data: Flow<UserPreferences> = flow {
+                throw IOException("Simulated disk read error")
+            }
+
+            override suspend fun updateData(
+                transform: suspend (t: UserPreferences) -> UserPreferences
+            ): UserPreferences = throw IOException("Simulated disk write error")
+        }
+        val dataSource = OpenHikesPreferencesDataSource(failingStore)
+
+        val settings = dataSource.userSettings.first()
+
+        assertThat(settings).isEqualTo(UserSettings())
     }
 
     private fun createDataStore(scope: CoroutineScope, file: File): DataStore<UserPreferences> =

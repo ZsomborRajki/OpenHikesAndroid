@@ -5,11 +5,16 @@ import androidx.lifecycle.viewModelScope
 import app.openhikes.core.data.UserSettingsRepository
 import app.openhikes.core.model.AppBuildInfo
 import app.openhikes.core.model.DistanceUnit
+import app.openhikes.core.model.UserSettings
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.io.IOException
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -21,46 +26,81 @@ class SettingsViewModel @Inject constructor(
     private val userSettingsRepository: UserSettingsRepository,
     appBuildInfo: AppBuildInfo
 ) : ViewModel() {
-    val uiState: StateFlow<SettingsUiState> = userSettingsRepository.userSettings
-        .map { settings ->
-            SettingsUiState(
-                settings = settings,
-                appVersion = appBuildInfo.displayVersion,
-                isLoaded = true
-            )
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-            initialValue = SettingsUiState(appVersion = appBuildInfo.displayVersion)
+    private val errorIdGenerator = AtomicLong(0L)
+    private val saveErrorState = MutableStateFlow<SettingsSaveError?>(null)
+    private var lastFailedUpdate: (suspend () -> Unit)? = null
+
+    val uiState: StateFlow<SettingsUiState> = combine(
+        userSettingsRepository.userSettings.catch { exception ->
+            if (exception is IOException) {
+                emit(UserSettings())
+            } else {
+                throw exception
+            }
+        },
+        saveErrorState
+    ) { settings, saveError ->
+        SettingsUiState(
+            settings = settings,
+            appVersion = appBuildInfo.displayVersion,
+            isLoaded = true,
+            saveError = saveError
         )
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = SettingsUiState(appVersion = appBuildInfo.displayVersion)
+    )
 
     fun onDistanceUnitChange(unit: DistanceUnit) {
-        viewModelScope.launch { userSettingsRepository.setDistanceUnit(unit) }
+        persistPreference { userSettingsRepository.setDistanceUnit(unit) }
     }
 
     fun onAutoPauseChange(enabled: Boolean) {
-        viewModelScope.launch { userSettingsRepository.setAutoPauseEnabled(enabled) }
+        persistPreference { userSettingsRepository.setAutoPauseEnabled(enabled) }
     }
 
     fun onHikeRemindersChange(enabled: Boolean) {
-        viewModelScope.launch { userSettingsRepository.setHikeRemindersEnabled(enabled) }
+        persistPreference { userSettingsRepository.setHikeRemindersEnabled(enabled) }
     }
 
     fun onLiveUpdatesChange(enabled: Boolean) {
-        viewModelScope.launch { userSettingsRepository.setLiveUpdatesEnabled(enabled) }
+        persistPreference { userSettingsRepository.setLiveUpdatesEnabled(enabled) }
     }
 
     fun onKeepScreenAwakeChange(enabled: Boolean) {
-        viewModelScope.launch { userSettingsRepository.setKeepScreenAwake(enabled) }
+        persistPreference { userSettingsRepository.setKeepScreenAwake(enabled) }
     }
 
     fun onAutoSaveTilesChange(enabled: Boolean) {
-        viewModelScope.launch { userSettingsRepository.setAutoSaveTilesEnabled(enabled) }
+        persistPreference { userSettingsRepository.setAutoSaveTilesEnabled(enabled) }
     }
 
     fun onSavePhotosToLibraryChange(enabled: Boolean) {
-        viewModelScope.launch { userSettingsRepository.setSavePhotosToLibrary(enabled) }
+        persistPreference { userSettingsRepository.setSavePhotosToLibrary(enabled) }
+    }
+
+    fun onRetrySave() {
+        val pendingRetry = lastFailedUpdate ?: return
+        persistPreference(pendingRetry)
+    }
+
+    fun onDismissSaveError() {
+        saveErrorState.value = null
+        lastFailedUpdate = null
+    }
+
+    private fun persistPreference(update: suspend () -> Unit) {
+        viewModelScope.launch {
+            try {
+                update()
+                lastFailedUpdate = null
+                saveErrorState.value = null
+            } catch (_: IOException) {
+                lastFailedUpdate = update
+                saveErrorState.value = SettingsSaveError(id = errorIdGenerator.incrementAndGet())
+            }
+        }
     }
 
     private companion object {

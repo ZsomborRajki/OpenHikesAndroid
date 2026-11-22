@@ -1,5 +1,6 @@
 package app.openhikes.core.common
 
+import app.openhikes.core.model.GeoCoordinate
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 
@@ -18,5 +19,23 @@ class LaunchConfigTest {
         assertThat(config.offlineCountriesScenarioName).isNull()
         assertThat(config.failsFirstSave).isFalse()
         assertThat(config.refusesHikeDeletion).isFalse()
+    }
+
+    @Test
+    fun holderPublishesInitialAndMergedConfigurations() {
+        val holder = LaunchConfigHolder(LaunchConfig.Production)
+        assertThat(holder.current.value).isEqualTo(LaunchConfig.Production)
+
+        holder.mergeWith { base ->
+            base.copy(
+                isUiTesting = true,
+                simulatesOffline = true,
+                mapStart = GeoCoordinate(latitude = 45.0, longitude = 20.0)
+            )
+        }
+
+        assertThat(holder.current.value.isUiTesting).isTrue()
+        assertThat(holder.current.value.simulatesOffline).isTrue()
+        assertThat(holder.current.value.mapStart).isEqualTo(GeoCoordinate(45.0, 20.0))
     }
 }

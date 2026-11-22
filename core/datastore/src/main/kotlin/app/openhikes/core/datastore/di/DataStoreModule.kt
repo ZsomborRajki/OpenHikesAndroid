@@ -7,7 +7,7 @@ import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import androidx.datastore.dataStoreFile
 import app.openhikes.core.common.ApplicationScope
 import app.openhikes.core.common.IoDispatcher
-import app.openhikes.core.common.LaunchConfig
+import app.openhikes.core.common.LaunchConfigHolder
 import app.openhikes.core.datastore.UserPreferences
 import app.openhikes.core.datastore.UserPreferencesSerializer
 import dagger.Module
@@ -36,13 +36,13 @@ object DataStoreModule {
         @ApplicationContext context: Context,
         @IoDispatcher ioDispatcher: CoroutineDispatcher,
         @ApplicationScope applicationScope: CoroutineScope,
-        launchConfig: LaunchConfig
+        launchConfigHolder: LaunchConfigHolder
     ): DataStore<UserPreferences> = DataStoreFactory.create(
         serializer = UserPreferencesSerializer,
         corruptionHandler = ReplaceFileCorruptionHandler { UserPreferences.getDefaultInstance() },
         scope = CoroutineScope(applicationScope.coroutineContext + ioDispatcher),
         produceFile = {
-            if (launchConfig.useIsolatedDataStore) {
+            if (launchConfigHolder.current.value.useIsolatedDataStore) {
                 File(context.cacheDir, "$ISOLATED_DIR_NAME/user_preferences_${UUID.randomUUID()}.pb")
             } else {
                 context.dataStoreFile(PREFERENCES_FILE_NAME)

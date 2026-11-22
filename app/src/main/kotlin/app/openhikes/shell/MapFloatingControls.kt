@@ -3,11 +3,11 @@ package app.openhikes.shell
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -32,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -39,6 +40,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import app.openhikes.R
@@ -56,7 +58,6 @@ private val AttributionInnerPaddingHorizontal = 14.dp
 private val AttributionInnerPaddingVertical = 8.dp
 private val AttributionClearanceAboveSheet = 56.dp
 private val AttributionMinTopClearance = 88.dp
-private val SidePanelAttributionGap = 24.dp
 private val DialogRowMinHeight = 48.dp
 private val DialogIconSize = 18.dp
 private val DialogSpacing = 8.dp
@@ -71,6 +72,7 @@ fun MapFloatingControls(
     shellLayout: ShellLayout,
     sheetDetent: SheetDetent,
     sheetTopOffsetProvider: () -> Float,
+    sidePanelEdge: Dp,
     overlayState: MapOverlayState,
     showAttributionDialog: Boolean,
     onToggleHikingRoutes: () -> Unit,
@@ -83,9 +85,9 @@ fun MapFloatingControls(
     modifier: Modifier = Modifier
 ) {
     val safePadding = WindowInsets.safeDrawing.asPaddingValues()
+    val layoutDirection = LocalLayoutDirection.current
 
-    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
-        val sidePanelWidth = calculateSidePanelWidth(maxWidth)
+    Box(modifier = modifier.fillMaxSize()) {
         MapActionToolbar(
             showsHikingRoutes = overlayState.showsHikingRoutes,
             onToggleHikingRoutes = onToggleHikingRoutes,
@@ -104,10 +106,11 @@ fun MapFloatingControls(
             AttributionBadge(
                 shellLayout = shellLayout,
                 sheetTopOffsetProvider = sheetTopOffsetProvider,
-                sidePanelOffset = sidePanelWidth + SidePanelAttributionGap,
+                sidePanelOffset = sidePanelEdge + ControlsEdgePadding,
+                safeStart = safePadding.calculateStartPadding(layoutDirection),
+                safeBottom = safePadding.calculateBottomPadding(),
                 compactText = overlayState.attribution.compactText,
-                onClick = onOpenAttributionDialog,
-                modifier = Modifier.padding(safePadding)
+                onClick = onOpenAttributionDialog
             )
         }
     }
@@ -194,7 +197,9 @@ private fun MapActionToolbar(
 private fun AttributionBadge(
     shellLayout: ShellLayout,
     sheetTopOffsetProvider: () -> Float,
-    sidePanelOffset: androidx.compose.ui.unit.Dp,
+    sidePanelOffset: Dp,
+    safeStart: Dp,
+    safeBottom: Dp,
     compactText: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -205,18 +210,17 @@ private fun AttributionBadge(
     val positionedModifier = if (shellLayout == ShellLayout.BOTTOM_SHEET) {
         val clearancePx = with(density) { AttributionClearanceAboveSheet.toPx() }
         val minTopPx = with(density) { AttributionMinTopClearance.toPx() }
-        Modifier
+        modifier
             .fillMaxSize()
-            .padding(start = ControlsEdgePadding)
+            .padding(start = safeStart + ControlsEdgePadding)
             .offset {
                 val y = (sheetTopOffsetProvider() - clearancePx).coerceAtLeast(minTopPx).roundToInt()
                 IntOffset(0, y)
             }
     } else {
-        Modifier
+        modifier
             .fillMaxSize()
-            .then(modifier)
-            .padding(start = sidePanelOffset, bottom = ControlsEdgePadding)
+            .padding(start = sidePanelOffset, bottom = safeBottom + ControlsEdgePadding)
     }
 
     val alignment = if (shellLayout == ShellLayout.BOTTOM_SHEET) {

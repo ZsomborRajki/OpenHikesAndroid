@@ -1,5 +1,6 @@
 package app.openhikes.shell
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,13 +13,18 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 
-private val PanelOuterPadding = 12.dp
+internal val SidePanelOuterPadding = 12.dp
 private val PanelInnerTopPadding = 16.dp
 private val PanelMaxWidth = 360.dp
 private val PanelCornerRadius = 28.dp
@@ -36,12 +42,19 @@ fun calculateSidePanelWidth(availableWidth: Dp): Dp = min(PanelMaxWidth, availab
  * in landscape phone, unfolded foldable, and tablet windows.
  */
 @Composable
-fun MapSidePanel(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+fun MapSidePanel(
+    modifier: Modifier = Modifier,
+    onPanelEdgeChanged: (Dp) -> Unit = {},
+    content: @Composable () -> Unit
+) {
+    val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
+
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .safeDrawingPadding()
-            .padding(PanelOuterPadding),
+            .padding(SidePanelOuterPadding),
         contentAlignment = Alignment.TopStart
     ) {
         val panelWidth = calculateSidePanelWidth(maxWidth)
@@ -52,9 +65,21 @@ fun MapSidePanel(modifier: Modifier = Modifier, content: @Composable () -> Unit)
             modifier = Modifier
                 .width(panelWidth)
                 .fillMaxHeight()
+                .onGloballyPositioned { coordinates ->
+                    val bounds = coordinates.boundsInRoot()
+                    val rootWidth = coordinates.parentLayoutCoordinates?.parentCoordinates?.size?.width
+                        ?: coordinates.parentLayoutCoordinates?.size?.width
+                        ?: 0
+                    val edgePx = if (layoutDirection == LayoutDirection.Rtl) {
+                        (rootWidth.toFloat() - bounds.left).coerceAtLeast(0f)
+                    } else {
+                        bounds.right.coerceAtLeast(0f)
+                    }
+                    onPanelEdgeChanged(with(density) { edgePx.toDp() })
+                }
                 .testTag(OpenHikesTestTags.MAP_SIDE_PANEL)
         ) {
-            androidx.compose.foundation.layout.Box(
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(top = PanelInnerTopPadding)

@@ -20,6 +20,8 @@ object OpenHikesTestTags {
     const val SETTINGS_BUTTON = "settings-button"
     const val SETTINGS_SCREEN = "settings-screen"
     const val SETTINGS_CLOSE = "settings-close"
+    const val SETTINGS_SAVE_ERROR = "settings-save-error"
+    const val SETTINGS_RETRY_SAVE = "settings-retry-save"
     const val DISTANCE_UNIT_METRIC = "distance-unit-metric"
     const val DISTANCE_UNIT_IMPERIAL = "distance-unit-imperial"
     const val AUTO_PAUSE_TOGGLE = "auto-pause-toggle"

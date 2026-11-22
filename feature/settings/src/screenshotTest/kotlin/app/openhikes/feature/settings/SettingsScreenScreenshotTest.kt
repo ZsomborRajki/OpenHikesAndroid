@@ -55,8 +55,7 @@ private fun SettingsPreviewSurface(darkTheme: Boolean) {
                 onKeepScreenAwakeChange = {},
                 onAutoSaveTilesChange = {},
                 onSavePhotosToLibraryChange = {},
-                onOpenUrl = {},
-                languageTag = "en-US"
+                onOpenUrl = {}
             )
         }
     }

@@ -4,17 +4,25 @@ import androidx.datastore.core.DataStore
 import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.MapStyleId
 import app.openhikes.core.model.UserSettings
+import java.io.IOException
 import javax.inject.Inject
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 
 /**
  * Typed Proto DataStore backing for OpenHikes user settings.
  */
 class OpenHikesPreferencesDataSource @Inject constructor(private val userPreferences: DataStore<UserPreferences>) {
-    val userSettings: Flow<UserSettings> = userPreferences.data.map { prefs ->
-        prefs.toUserSettings()
-    }
+    val userSettings: Flow<UserSettings> = userPreferences.data
+        .catch { exception ->
+            if (exception is IOException) {
+                emit(UserPreferences.getDefaultInstance())
+            } else {
+                throw exception
+            }
+        }
+        .map { prefs -> prefs.toUserSettings() }
 
     suspend fun setDistanceUnit(unit: DistanceUnit) {
         userPreferences.updateData { prefs ->

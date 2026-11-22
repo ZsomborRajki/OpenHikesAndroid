@@ -3,7 +3,7 @@ package app.openhikes.shell
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import app.openhikes.core.common.LaunchConfig
+import app.openhikes.core.common.LaunchConfigHolder
 import app.openhikes.core.data.UserSettingsRepository
 import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapCameraState
@@ -11,13 +11,16 @@ import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.map.MapOverlayState
 import app.openhikes.core.model.MapAttribution
 import app.openhikes.core.model.MapStyleId
+import app.openhikes.core.model.UserSettings
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -39,14 +42,14 @@ data class MapChromeUiState(
 class MapShellViewModel @Inject constructor(
     private val userSettingsRepository: UserSettingsRepository,
     private val mapClaimCoordinator: MapClaimCoordinator,
-    launchConfig: LaunchConfig
+    launchConfigHolder: LaunchConfigHolder
 ) : ViewModel() {
     private val commandIdGenerator = AtomicLong(0L)
     private val showAttributionDialog = MutableStateFlow(false)
     private val searchQueryState = MutableStateFlow("")
     private val pendingCameraCommandState = MutableStateFlow<MapCameraCommand?>(null)
     private val cameraStateFlow = MutableStateFlow(
-        MapCameraState(center = launchConfig.mapStart ?: MapCameraState.DEFAULT_CENTER)
+        MapCameraState(center = launchConfigHolder.current.value.mapStart ?: MapCameraState.DEFAULT_CENTER)
     )
 
     val initialCameraState: MapCameraState = cameraStateFlow.value
@@ -55,14 +58,20 @@ class MapShellViewModel @Inject constructor(
     val pendingCameraCommand: StateFlow<MapCameraCommand?> = pendingCameraCommandState.asStateFlow()
 
     val chromeUiState: StateFlow<MapChromeUiState> = combine(
-        userSettingsRepository.userSettings,
+        userSettingsRepository.userSettings.catch { exception ->
+            if (exception is IOException) {
+                emit(UserSettings())
+            } else {
+                throw exception
+            }
+        },
         mapClaimCoordinator.activeClaim,
         showAttributionDialog
     ) { settings, activeClaim, attributionDialogOpen ->
         val defaultOverlay = MapOverlayState(
             mapStyleId = settings.mapStyleId.ifBlank { MapStyleId.OPENHIKES },
             showsHikingRoutes = settings.showsHikingRoutes,
-            attribution = MapAttribution.forOpenHikes(settings.showsHikingRoutes)
+            attribution = MapAttribution.forOpenFreeMap(settings.showsHikingRoutes)
         )
         MapChromeUiState(
             overlayState = activeClaim?.overlayOverride ?: defaultOverlay,
@@ -81,7 +90,11 @@ class MapShellViewModel @Inject constructor(
     fun onToggleHikingRoutes() {
         val nextValue = !chromeUiState.value.overlayState.showsHikingRoutes
         viewModelScope.launch {
-            userSettingsRepository.setShowsHikingRoutes(nextValue)
+            try {
+                userSettingsRepository.setShowsHikingRoutes(nextValue)
+            } catch (_: IOException) {
+                // Keep existing state intact cleanly when storage writes fail.
+            }
         }
     }
 

@@ -5,14 +5,17 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import app.openhikes.core.common.LaunchConfig
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 import javax.inject.Inject
@@ -22,19 +25,46 @@ import kotlinx.coroutines.flow.filterIsInstance
 import org.maplibre.compose.camera.CameraAnimation
 import org.maplibre.compose.camera.CameraPosition
 import org.maplibre.compose.camera.CameraUpdate
+import org.maplibre.compose.expressions.dsl.const
 import org.maplibre.compose.interaction.ClickResult
 import org.maplibre.compose.interaction.MapInteractions
+import org.maplibre.compose.layers.RasterLayer
 import org.maplibre.compose.map.MapEvent
 import org.maplibre.compose.map.MaplibreMap
 import org.maplibre.compose.map.rememberMapState
+import org.maplibre.compose.resource.ConnectivityMode
+import org.maplibre.compose.resource.MapConnectivity
+import org.maplibre.compose.sources.rememberRasterTileSource
 import org.maplibre.compose.style.BaseStyle
 import org.maplibre.spatialk.geojson.Position
+
+internal data class MapStylePlan(val baseStyle: BaseStyle, val hikingRoutesTileUrl: String?)
+
+internal fun resolveMapStylePlan(
+    overlayState: MapOverlayState,
+    allowRemoteRequests: Boolean,
+    hasLoadedRemoteStyle: Boolean
+): MapStylePlan {
+    if (!allowRemoteRequests && !hasLoadedRemoteStyle) {
+        return MapStylePlan(baseStyle = BaseStyle.Empty, hikingRoutesTileUrl = null)
+    }
+    val baseStyle = when (overlayState.mapStyleId) {
+        else -> BaseStyle.Uri(OPENFREEMAP_LIBERTY_STYLE_URL)
+    }
+    val hikingTileUrl = if (overlayState.showsHikingRoutes && (allowRemoteRequests || hasLoadedRemoteStyle)) {
+        WAYMARKED_HIKING_TILES_URL
+    } else {
+        null
+    }
+    return MapStylePlan(baseStyle = baseStyle, hikingRoutesTileUrl = hikingTileUrl)
+}
 
 /**
  * Production [TrailMapRenderer] backed by MapLibre Compose.
  */
 @Singleton
-internal class MapLibreTrailMapRenderer @Inject constructor(private val launchConfig: LaunchConfig) : TrailMapRenderer {
+internal class MapLibreTrailMapRenderer @Inject constructor(private val mapNetworkPolicy: MapNetworkPolicy) :
+    TrailMapRenderer {
     @Composable
     override fun Render(
         cameraState: MapCameraState,
@@ -46,32 +76,36 @@ internal class MapLibreTrailMapRenderer @Inject constructor(private val launchCo
         modifier: Modifier
     ) {
         val currentInteractions by rememberUpdatedState(interactions)
-        val baseStyle = resolveBaseStyle(overlayState)
-        val mapState = rememberMapState(
-            baseStyle = baseStyle,
-            initialCameraPosition = cameraState.toMapLibreCameraPosition()
+        val allowRemoteRequests by mapNetworkPolicy.allowsInteractiveMapRequests.collectAsStateWithLifecycle()
+        var hasLoadedRemoteStyle by remember { mutableStateOf(false) }
+
+        LaunchedEffect(allowRemoteRequests) {
+            MapConnectivity.mode = if (allowRemoteRequests) {
+                ConnectivityMode.Automatic
+            } else {
+                ConnectivityMode.ForceOffline
+            }
+        }
+
+        val stylePlan = resolveMapStylePlan(
+            overlayState = overlayState,
+            allowRemoteRequests = allowRemoteRequests,
+            hasLoadedRemoteStyle = hasLoadedRemoteStyle
+        )
+        val mapState = rememberTrailMapState(
+            stylePlan = stylePlan,
+            initialCameraState = cameraState
         )
 
-        LaunchedEffect(mapState) {
-            mapState.events
-                .filterIsInstance<MapEvent.StyleLoaded>()
-                .collect { currentInteractions.onStyleReady() }
-        }
-
-        LaunchedEffect(mapState) {
-            snapshotFlow { mapState.cameraPosition.toMapCameraState() }
-                .distinctUntilChanged()
-                .collect { currentInteractions.onCameraChanged(it) }
-        }
-
-        LaunchedEffect(cameraCommand?.id) {
-            val command = cameraCommand ?: return@LaunchedEffect
-            mapState.animateCamera(
-                update = command.toCameraUpdate(mapState.cameraPosition),
-                animation = CameraAnimation.Ease.Standard
-            )
-            onCameraCommandHandled(command.id)
-        }
+        BindTrailMapEffects(
+            mapState = mapState,
+            cameraCommand = cameraCommand,
+            allowRemoteRequests = allowRemoteRequests,
+            onRemoteStyleLoaded = { hasLoadedRemoteStyle = true },
+            onStyleReady = { currentInteractions.onStyleReady() },
+            onCameraChanged = { currentInteractions.onCameraChanged(it) },
+            onCameraCommandHandled = onCameraCommandHandled
+        )
 
         val mapContentDescription = stringResource(R.string.trail_map_content_description)
         MaplibreMap(
@@ -87,18 +121,78 @@ internal class MapLibreTrailMapRenderer @Inject constructor(private val launchCo
             overlay = {}
         )
     }
+}
 
-    private fun resolveBaseStyle(overlayState: MapOverlayState): BaseStyle {
-        if (launchConfig.simulatesOffline) return BaseStyle.Empty
-        return when (overlayState.mapStyleId) {
-            else -> BaseStyle.Uri(DEFAULT_FREE_STYLE_URL)
+@Composable
+private fun rememberTrailMapState(stylePlan: MapStylePlan, initialCameraState: MapCameraState) = rememberMapState(
+    baseStyle = stylePlan.baseStyle,
+    initialCameraPosition = initialCameraState.toMapLibreCameraPosition()
+) {
+    stylePlan.hikingRoutesTileUrl?.let { tileUrl ->
+        val hikingSource = rememberRasterTileSource(
+            tiles = listOf(tileUrl),
+            tileSize = WAYMARKED_TILE_SIZE
+        ) {
+            minZoom = WAYMARKED_MIN_ZOOM
+            maxZoom = WAYMARKED_MAX_ZOOM
         }
-    }
-
-    private companion object {
-        const val DEFAULT_FREE_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
+        RasterLayer(
+            id = HIKING_ROUTES_LAYER_ID,
+            source = hikingSource,
+            opacity = const(HIKING_ROUTES_OPACITY)
+        )
     }
 }
+
+@Composable
+private fun BindTrailMapEffects(
+    mapState: org.maplibre.compose.map.MapState,
+    cameraCommand: MapCameraCommand?,
+    allowRemoteRequests: Boolean,
+    onRemoteStyleLoaded: () -> Unit,
+    onStyleReady: () -> Unit,
+    onCameraChanged: (MapCameraState) -> Unit,
+    onCameraCommandHandled: (Long) -> Unit
+) {
+    val currentAllowRemote by rememberUpdatedState(allowRemoteRequests)
+    val currentOnRemoteStyleLoaded by rememberUpdatedState(onRemoteStyleLoaded)
+    val currentOnStyleReady by rememberUpdatedState(onStyleReady)
+    val currentOnCameraChanged by rememberUpdatedState(onCameraChanged)
+
+    LaunchedEffect(mapState) {
+        mapState.events
+            .filterIsInstance<MapEvent.StyleLoaded>()
+            .collect {
+                if (currentAllowRemote) {
+                    currentOnRemoteStyleLoaded()
+                }
+                currentOnStyleReady()
+            }
+    }
+
+    LaunchedEffect(mapState) {
+        snapshotFlow { mapState.cameraPosition.toMapCameraState() }
+            .distinctUntilChanged()
+            .collect { currentOnCameraChanged(it) }
+    }
+
+    LaunchedEffect(cameraCommand?.id) {
+        val command = cameraCommand ?: return@LaunchedEffect
+        mapState.animateCamera(
+            update = command.toCameraUpdate(mapState.cameraPosition),
+            animation = CameraAnimation.Ease.Standard
+        )
+        onCameraCommandHandled(command.id)
+    }
+}
+
+internal const val OPENFREEMAP_LIBERTY_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
+internal const val WAYMARKED_HIKING_TILES_URL = "https://tile.waymarkedtrails.org/hiking/{z}/{x}/{y}.png"
+private const val HIKING_ROUTES_LAYER_ID = "openhikes-waymarked-hiking-routes"
+private const val WAYMARKED_TILE_SIZE = 256
+private const val WAYMARKED_MIN_ZOOM = 0
+private const val WAYMARKED_MAX_ZOOM = 18
+private const val HIKING_ROUTES_OPACITY = 0.85f
 
 private const val FULL_CIRCLE_DEGREES = 360.0
 private const val MIN_LATITUDE = -90.0
