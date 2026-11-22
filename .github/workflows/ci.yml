@@ -34,10 +34,10 @@ jobs:
             yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
           fi
 
-      - name: Run formatting, static analysis, tests, and debug builds
-        run: ./gradlew ktlintCheck detektAll lintDebug test testDebugUnitTest assembleDebug assembleDebugAndroidTest --stacktrace
+      - name: Run formatting, static analysis, tests, screenshot checks, and debug builds
+        run: ./gradlew ktlintCheck detektAll lintDebug test testDebugUnitTest testDebugScreenshotTestDefaultTestSuite assembleDebug assembleDebugAndroidTest --stacktrace
 
-      - name: Verify JVM and Android unit tests executed
+      - name: Verify JVM, Android unit, and screenshot tests executed
         run: |
           python3 - <<'EOF'
           import glob
@@ -47,20 +47,38 @@ jobs:
           def summarize(pattern: str):
               files = sorted(glob.glob(pattern, recursive=True))
               tests = 0
+              skipped = 0
               failures = 0
               errors = 0
               for path in files:
                   root = ET.parse(path).getroot()
                   tests += int(root.attrib.get("tests", 0))
+                  skipped += int(root.attrib.get("skipped", 0))
                   failures += int(root.attrib.get("failures", 0))
                   errors += int(root.attrib.get("errors", 0))
-              return len(files), tests, failures, errors
+              executed = tests - skipped
+              return len(files), tests, skipped, executed, failures, errors
 
-          jvm = summarize("**/build/test-results/test/TEST-*.xml")
-          android = summarize("**/build/test-results/testDebugUnitTest/TEST-*.xml")
-          print(f"JVM test suites={jvm[0]} tests={jvm[1]} failures={jvm[2]} errors={jvm[3]}")
-          print(f"Android unit test suites={android[0]} tests={android[1]} failures={android[2]} errors={android[3]}")
-          if jvm[1] <= 0 or android[1] <= 0 or jvm[2] or jvm[3] or android[2] or android[3]:
+          checks = [
+              ("JVM unit tests", "**/build/test-results/test/TEST-*.xml"),
+              ("Android unit tests", "**/build/test-results/testDebugUnitTest/TEST-*.xml"),
+              (
+                  "Screenshot tests",
+                  "**/build/intermediates/debug/testDebugScreenshotTestDefaultTestSuite/results/TEST-*.xml",
+              ),
+          ]
+
+          failed = False
+          for label, pattern in checks:
+              suites, tests, skipped, executed, failures, errors = summarize(pattern)
+              print(
+                  f"{label}: suites={suites} tests={tests} skipped={skipped} "
+                  f"executed={executed} failures={failures} errors={errors}"
+              )
+              if executed <= 0 or failures > 0 or errors > 0:
+                  failed = True
+
+          if failed:
               sys.exit(1)
           EOF
 
@@ -72,4 +90,5 @@ jobs:
           path: |
             **/build/reports/**
             **/build/test-results/**
+            **/build/intermediates/debug/testDebugScreenshotTestDefaultTestSuite/**
           if-no-files-found: ignore

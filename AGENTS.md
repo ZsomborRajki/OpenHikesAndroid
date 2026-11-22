@@ -314,7 +314,7 @@ strategy and static analysis details.)*
 ./gradlew allDevicesDebugAndroidTest
 
 # Full local & CI verification gate before opening a PR
-./gradlew ktlintCheck detektAll lintDebug test testDebugUnitTest assembleDebug
+./gradlew ktlintCheck detektAll lintDebug test testDebugUnitTest testDebugScreenshotTestDefaultTestSuite assembleDebug assembleDebugAndroidTest
 ```
 
 ---

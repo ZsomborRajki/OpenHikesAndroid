@@ -17,5 +17,4 @@ dependencies {
     api(libs.androidx.compose.ui.test.junit4)
     api(libs.androidx.compose.ui.test.junit4.accessibility)
     api(libs.hilt.android.testing)
-    api(libs.robolectric)
 }

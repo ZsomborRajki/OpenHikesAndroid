@@ -9,13 +9,13 @@ internal fun configureGradleManagedDevices(commonExtension: CommonExtension) {
         val phone = localDevices.create("pixelPhoneApi36") {
             device = "Pixel 8"
             sdkVersion = 36
-            systemImageSource = "aosp-atd"
+            systemImageSource = "google"
             pageAlignment = ManagedVirtualDevice.PageAlignment.FORCE_16KB_PAGES
         }
         val tablet = localDevices.create("pixelTabletApi36") {
             device = "Pixel Tablet"
             sdkVersion = 36
-            systemImageSource = "aosp-atd"
+            systemImageSource = "google"
             pageAlignment = ManagedVirtualDevice.PageAlignment.FORCE_16KB_PAGES
         }
         groups.create("allDevices") {
