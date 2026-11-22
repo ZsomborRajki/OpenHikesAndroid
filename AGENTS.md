@@ -17,9 +17,10 @@ Supporting reference docs:
   pyramid, porting `OpenHikesUITests` fixtures/tags, static analysis wiring, and
   Phase 0–4 bootstrap roadmap.
 
-> **Repository status:** Greenfield bootstrap. Commands and module paths below
-> define the target harness that Phase 0 scaffolding must establish. Keep this
-> file updated as rules harden; remove obsolete notes once scaffolded.
+> **Repository status:** Phase 0 harness scaffolded (Gradle 9.9.2, AGP 9.5.2,
+> `build-logic` conventions, core/app modules, static analysis, native
+> `screenshotTest` suite, and GitHub Actions CI). Phase 1 (Adaptive Map-First
+> Shell & Settings) is next.
 
 ---
 
@@ -283,9 +284,9 @@ contracts across every slice:
 
 ## Build, lint, and test commands
 
-*(Target Gradle harness to be wired in Phase 0; CI gates map 1:1 to these
-commands. See [docs/testing-and-roadmap.md](docs/testing-and-roadmap.md) for the
-3-tier test strategy and static analysis details.)*
+*(CI gates in `.github/workflows/ci.yml` map 1:1 to these commands. See
+[docs/testing-and-roadmap.md](docs/testing-and-roadmap.md) for the 3-tier test
+strategy and static analysis details.)*
 
 ```sh
 # Format check (Ktlint) and auto-format
@@ -305,8 +306,8 @@ commands. See [docs/testing-and-roadmap.md](docs/testing-and-roadmap.md) for the
 ./gradlew :feature:hikes:testDebugUnitTest --tests "*.HikeLibraryScreenTest"
 
 # AGP 9.5+ native Compose screenshot test suite (suite: screenshotTest, target: default, variant: debug)
-./gradlew testScreenshotTestDefaultDebugTestSuite
-./gradlew updateScreenshotTestDefaultDebugTestSuite
+./gradlew testDebugScreenshotTestDefaultTestSuite
+./gradlew updateDebugScreenshotTestDefaultTestSuite
 
 # Tier 3: Instrumented E2E & accessibility tests on Gradle Managed Devices
 ./gradlew pixelPhoneApi36DebugAndroidTest
