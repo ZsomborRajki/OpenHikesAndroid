@@ -74,7 +74,8 @@ From Phase 0, configure `app/src/main/AndroidManifest.xml` with:
 
 Rules for `res/xml/data_extraction_rules.xml` and on-disk storage:
 - **`<cloud-backup>`:** Exclude all domains (`root`, `file`, `database`,
-  `sharedpref`, `external`) so a hiker’s private library, preferences, and local
+  `sharedpref`, `external`, `device_root`, `device_file`, `device_database`,
+  `device_sharedpref`) so a hiker’s private library, preferences, and local
   drafts are never automatically uploaded to cloud backup.
 - **`<device-transfer>`:** Exclude all device-bound state — active recording
   drafts (`TrackJournal`), `HikeLocalState` (walk progress, draft ownership,

@@ -31,6 +31,7 @@ class AndroidFeatureConventionPlugin : Plugin<Project> {
 
                 add("testImplementation", project(":core:testing"))
                 add("testImplementation", project(":core:testing-android"))
+                add("testImplementation", libs.findLibrary("robolectric").get())
                 add("androidTestImplementation", project(":core:testing"))
                 add("androidTestImplementation", project(":core:testing-android"))
             }

@@ -111,7 +111,7 @@ GitHub issues once created.)*
      `dataExtractionRules="@xml/data_extraction_rules"`).
    - Ktlint, type-resolved `detektAll`, Android Lint + Slack Compose lints,
      AGP native `screenshotTest` suite wiring, GitHub Actions CI running
-     `ktlintCheck detektAll lintDebug test testDebugUnitTest assembleDebug`, and
+     `ktlintCheck detektAll lintDebug test testDebugUnitTest testDebugScreenshotTestDefaultTestSuite assembleDebug assembleDebugAndroidTest`, and
      passing pure-JVM + Android smoke tests.
 2. **Phase 1 — Adaptive Map-First Shell & Settings (Slice 1):**
    - `MaterialExpressiveTheme` (dynamic + outdoor nature fallback).

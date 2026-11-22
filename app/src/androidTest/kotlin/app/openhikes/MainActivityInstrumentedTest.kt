@@ -5,6 +5,8 @@ import androidx.compose.ui.test.junit4.accessibility.enableAccessibilityChecks
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.tryPerformAccessibilityChecks
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 import dagger.hilt.android.testing.HiltAndroidRule
 import dagger.hilt.android.testing.HiltAndroidTest
@@ -30,5 +32,6 @@ class MainActivityInstrumentedTest {
     fun launchesWithAccessibleRootShell() {
         composeRule.onNodeWithTag(OpenHikesTestTags.APP_ROOT).assertExists()
         composeRule.onNodeWithText("OpenHikes").assertIsDisplayed()
+        composeRule.onRoot().tryPerformAccessibilityChecks()
     }
 }
