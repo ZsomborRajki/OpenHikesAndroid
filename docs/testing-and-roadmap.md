@@ -28,8 +28,8 @@ OpenHikes’s `OpenHikesUITests`:
      Robolectric’s API 36/37 runtimes.
    - Paired with **AGP 9.5+ native Compose screenshot test suites**
      (`src/screenshotTest/kotlin`, suite `screenshotTest`, default target,
-     `debug` variant) executed via `./gradlew testScreenshotTestDefaultDebugTestSuite`
-     and refreshed via `./gradlew updateScreenshotTestDefaultDebugTestSuite`
+     `debug` variant) executed via `./gradlew testDebugScreenshotTestDefaultTestSuite`
+     and refreshed via `./gradlew updateDebugScreenshotTestDefaultTestSuite`
      across light/dark themes, compact phone + expanded tablet windows, and up
      to `200%` font scale.
 3. **Tier 3 — Instrumented E2E & Accessibility Tests (`src/androidTest` on Gradle Managed Devices):**
