@@ -1,6 +1,7 @@
 package app.openhikes.core.map
 
 import androidx.compose.runtime.Immutable
+import app.openhikes.core.model.GeoBoundingBox
 import app.openhikes.core.model.GeoCoordinate
 
 /**
@@ -17,6 +18,8 @@ sealed interface MapCameraCommand {
         val bearing: Double? = null,
         val pitch: Double? = null
     ) : MapCameraCommand
+
+    data class FitBounds(override val id: Long, val bounds: GeoBoundingBox) : MapCameraCommand
 
     data class ZoomIn(override val id: Long, val delta: Double = MapCameraState.DEFAULT_ZOOM_STEP) : MapCameraCommand
 

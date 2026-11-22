@@ -3,6 +3,7 @@ package app.openhikes.core.map
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Abstraction over the map rendering engine so production binds MapLibre Compose and
@@ -17,6 +18,7 @@ interface TrailMapRenderer {
         viewportPadding: PaddingValues,
         interactions: MapInteractionEvents,
         onCameraCommandHandled: (Long) -> Unit,
+        highlightState: StateFlow<MapRouteHighlight?>,
         modifier: Modifier
     )
 }

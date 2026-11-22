@@ -2,7 +2,10 @@ package app.openhikes.core.map
 
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
 /**
  * Single public map surface entry point hosted permanently underneath adaptive sheets/panels.
@@ -16,7 +19,8 @@ fun TrailMapHost(
     viewportPadding: PaddingValues,
     interactions: MapInteractionEvents,
     onCameraCommandHandled: (Long) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    highlightState: StateFlow<MapRouteHighlight?> = remember { MutableStateFlow(null) }
 ) {
     renderer.Render(
         cameraState = cameraState,
@@ -25,6 +29,7 @@ fun TrailMapHost(
         viewportPadding = viewportPadding,
         interactions = interactions,
         onCameraCommandHandled = onCameraCommandHandled,
+        highlightState = highlightState,
         modifier = modifier
     )
 }

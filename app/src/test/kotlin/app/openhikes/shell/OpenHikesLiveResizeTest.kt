@@ -19,16 +19,21 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.window.core.layout.WindowSizeClass
 import androidx.window.core.layout.computeWindowSizeClass
+import app.openhikes.core.common.DefaultOpenHikesDispatchers
 import app.openhikes.core.common.LaunchConfig
 import app.openhikes.core.common.LaunchConfigHolder
 import app.openhikes.core.designsystem.theme.OpenHikesTheme
 import app.openhikes.core.map.MapClaimCoordinator
+import app.openhikes.core.map.RouteHighlightState
 import app.openhikes.core.model.AppBuildInfo
+import app.openhikes.core.testing.android.FakeHikeRepository
 import app.openhikes.core.testing.android.FakeTrailMapRenderer
 import app.openhikes.core.testing.android.FakeUserSettingsRepository
 import app.openhikes.core.ui.navigation.EntryProviderInstaller
 import app.openhikes.core.ui.navigation.SettingsRoute
 import app.openhikes.core.ui.testing.OpenHikesTestTags
+import app.openhikes.feature.hikes.HikeLibraryScreen
+import app.openhikes.feature.hikes.HikeLibraryUiState
 import app.openhikes.feature.settings.SettingsScreen
 import app.openhikes.feature.settings.SettingsViewModel
 import com.google.common.truth.Truth.assertThat
@@ -50,8 +55,11 @@ class OpenHikesLiveResizeTest {
         val launchConfig = LaunchConfig(isUiTesting = true, simulatesOffline = true)
         val shellViewModel = MapShellViewModel(
             userSettingsRepository = settingsRepo,
+            hikeRepository = FakeHikeRepository(),
             mapClaimCoordinator = MapClaimCoordinator(),
-            launchConfigHolder = LaunchConfigHolder(launchConfig)
+            routeHighlightState = RouteHighlightState(),
+            launchConfigHolder = LaunchConfigHolder(launchConfig),
+            defaultDispatcher = DefaultOpenHikesDispatchers().default
         )
         val settingsInstaller = createSettingsInstaller(settingsRepo)
         var windowSizeClass by mutableStateOf(
@@ -65,7 +73,22 @@ class OpenHikesLiveResizeTest {
                     entryProviderInstallers = setOf(settingsInstaller),
                     launchConfig = launchConfig,
                     windowSizeClass = windowSizeClass,
-                    shellViewModel = shellViewModel
+                    shellViewModel = shellViewModel,
+                    homeContent = { scope ->
+                        HikeLibraryScreen(
+                            uiState = HikeLibraryUiState(),
+                            searchQuery = scope.searchQueryState.value,
+                            onSearchQueryChange = scope.onSearchQueryChange,
+                            onClearSearch = scope.onClearSearch,
+                            onSearchFocusChanged = scope.onSearchFocusChanged,
+                            onOpenSettings = scope.onOpenSettings,
+                            onImportGpxClick = {},
+                            onOpenHike = scope.onOpenHike,
+                            onRequestDelete = {},
+                            onConfirmDelete = {},
+                            onCancelDelete = {}
+                        )
+                    }
                 )
             }
         }

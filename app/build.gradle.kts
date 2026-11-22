@@ -41,7 +41,9 @@ dependencies {
     implementation(projects.core.designsystem)
     implementation(projects.core.ui)
     implementation(projects.core.data)
+    implementation(projects.core.database)
     implementation(projects.core.map)
+    implementation(projects.feature.hikes)
     implementation(projects.feature.settings)
 
     implementation(libs.androidx.core.ktx)

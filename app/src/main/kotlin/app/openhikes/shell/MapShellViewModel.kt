@@ -3,25 +3,31 @@ package app.openhikes.shell
 import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.openhikes.core.common.DefaultDispatcher
 import app.openhikes.core.common.LaunchConfigHolder
+import app.openhikes.core.data.HikeRepository
 import app.openhikes.core.data.UserSettingsRepository
 import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapCameraState
 import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.map.MapOverlayState
+import app.openhikes.core.map.MapRouteHighlight
+import app.openhikes.core.map.RouteHighlightState
+import app.openhikes.core.map.toMapRouteOverlay
 import app.openhikes.core.model.MapAttribution
 import app.openhikes.core.model.MapStyleId
 import app.openhikes.core.model.UserSettings
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.IOException
-import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -36,18 +42,19 @@ data class MapChromeUiState(
 )
 
 /**
- * Root ViewModel coordinating map chrome, search query, and route-owned map claims.
+ * Root ViewModel coordinating map chrome, route overlays, search query, and route-owned map claims.
  */
 @HiltViewModel
 class MapShellViewModel @Inject constructor(
     private val userSettingsRepository: UserSettingsRepository,
+    private val hikeRepository: HikeRepository,
     private val mapClaimCoordinator: MapClaimCoordinator,
-    launchConfigHolder: LaunchConfigHolder
+    routeHighlightState: RouteHighlightState,
+    launchConfigHolder: LaunchConfigHolder,
+    @DefaultDispatcher defaultDispatcher: CoroutineDispatcher
 ) : ViewModel() {
-    private val commandIdGenerator = AtomicLong(0L)
     private val showAttributionDialog = MutableStateFlow(false)
     private val searchQueryState = MutableStateFlow("")
-    private val pendingCameraCommandState = MutableStateFlow<MapCameraCommand?>(null)
     private val cameraStateFlow = MutableStateFlow(
         MapCameraState(center = launchConfigHolder.current.value.mapStart ?: MapCameraState.DEFAULT_CENTER)
     )
@@ -55,7 +62,24 @@ class MapShellViewModel @Inject constructor(
     val initialCameraState: MapCameraState = cameraStateFlow.value
     val latestCameraState: StateFlow<MapCameraState> = cameraStateFlow.asStateFlow()
     val searchQuery: StateFlow<String> = searchQueryState.asStateFlow()
-    val pendingCameraCommand: StateFlow<MapCameraCommand?> = pendingCameraCommandState.asStateFlow()
+    val pendingCameraCommand: StateFlow<MapCameraCommand?> = mapClaimCoordinator.pendingCameraCommand
+    val routeHighlight: StateFlow<MapRouteHighlight?> = routeHighlightState.highlight
+
+    init {
+        viewModelScope.launch {
+            hikeRepository.seedFixtureIfConfigured()
+        }
+    }
+
+    private val routeOverlaysFlow = combine(
+        hikeRepository.mapRoutes,
+        mapClaimCoordinator.activeClaim
+    ) { routes, activeClaim ->
+        val selectedHikeId = activeClaim?.selectedHikeId
+        routes.map { route ->
+            route.toMapRouteOverlay(isSelected = route.hikeId == selectedHikeId)
+        }
+    }.flowOn(defaultDispatcher)
 
     val chromeUiState: StateFlow<MapChromeUiState> = combine(
         userSettingsRepository.userSettings.catch { exception ->
@@ -66,12 +90,14 @@ class MapShellViewModel @Inject constructor(
             }
         },
         mapClaimCoordinator.activeClaim,
+        routeOverlaysFlow,
         showAttributionDialog
-    ) { settings, activeClaim, attributionDialogOpen ->
+    ) { settings, activeClaim, routeOverlays, attributionDialogOpen ->
         val defaultOverlay = MapOverlayState(
             mapStyleId = settings.mapStyleId.ifBlank { MapStyleId.OPENHIKES },
             showsHikingRoutes = settings.showsHikingRoutes,
-            attribution = MapAttribution.forOpenFreeMap(settings.showsHikingRoutes)
+            attribution = MapAttribution.forOpenFreeMap(settings.showsHikingRoutes),
+            routes = routeOverlays
         )
         MapChromeUiState(
             overlayState = activeClaim?.overlayOverride ?: defaultOverlay,
@@ -99,27 +125,28 @@ class MapShellViewModel @Inject constructor(
     }
 
     fun onZoomIn() {
-        pendingCameraCommandState.value = MapCameraCommand.ZoomIn(
-            id = commandIdGenerator.incrementAndGet()
+        mapClaimCoordinator.requestCameraCommand(
+            routeKey = MapClaimCoordinator.ROOT_CAMERA_KEY,
+            command = MapCameraCommand.ZoomIn(id = mapClaimCoordinator.nextCommandId())
         )
     }
 
     fun onZoomOut() {
-        pendingCameraCommandState.value = MapCameraCommand.ZoomOut(
-            id = commandIdGenerator.incrementAndGet()
+        mapClaimCoordinator.requestCameraCommand(
+            routeKey = MapClaimCoordinator.ROOT_CAMERA_KEY,
+            command = MapCameraCommand.ZoomOut(id = mapClaimCoordinator.nextCommandId())
         )
     }
 
     fun onResetNorth() {
-        pendingCameraCommandState.value = MapCameraCommand.ResetNorth(
-            id = commandIdGenerator.incrementAndGet()
+        mapClaimCoordinator.requestCameraCommand(
+            routeKey = MapClaimCoordinator.ROOT_CAMERA_KEY,
+            command = MapCameraCommand.ResetNorth(id = mapClaimCoordinator.nextCommandId())
         )
     }
 
     fun onCameraCommandHandled(commandId: Long) {
-        if (pendingCameraCommandState.value?.id == commandId) {
-            pendingCameraCommandState.value = null
-        }
+        mapClaimCoordinator.consumeCameraCommand(commandId)
     }
 
     fun onCameraChanged(cameraState: MapCameraState) {
