@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+option java_package = "app.openhikes.core.datastore";
+option java_multiple_files = true;
+
+enum DistanceUnitProto {
+    DISTANCE_UNIT_UNSPECIFIED = 0;
+    DISTANCE_UNIT_METRIC = 1;
+    DISTANCE_UNIT_IMPERIAL = 2;
+}
+
+message UserPreferences {
+    DistanceUnitProto distance_unit = 1;
+    optional bool shows_hiking_routes = 2;
+    optional bool auto_pause_enabled = 3;
+    optional bool hike_reminders_enabled = 4;
+    optional bool live_updates_enabled = 5;
+    bool keep_screen_awake = 6;
+    bool auto_save_tiles_enabled = 7;
+    bool save_photos_to_library = 8;
+    string map_style_id = 9;
+}

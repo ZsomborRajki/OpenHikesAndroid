@@ -17,10 +17,10 @@ Supporting reference docs:
   pyramid, porting `OpenHikesUITests` fixtures/tags, static analysis wiring, and
   Phase 0–4 bootstrap roadmap.
 
-> **Repository status:** Phase 0 harness scaffolded (Gradle 9.9.2, AGP 9.5.2,
-> `build-logic` conventions, core/app modules, static analysis, native
-> `screenshotTest` suite, and GitHub Actions CI). Phase 1 (Adaptive Map-First
-> Shell & Settings) is next.
+> **Repository status:** Phase 1 complete (Material 3 Expressive adaptive
+> map-first shell, Navigation 3 shared back stack, MapLibre Compose seam +
+> semantic fake, `LaunchConfig` debug harness, and Proto DataStore-backed
+> `:feature:settings`). Phase 2 (Hike Library, GPX Import & Detail) is next.
 
 ---
 

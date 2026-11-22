@@ -1,0 +1,34 @@
+<resources>
+    <string name="settings_title">Settings</string>
+    <string name="settings_close_content_description">Close settings</string>
+
+    <string name="settings_section_units">Units</string>
+    <string name="settings_unit_metric">Metric</string>
+    <string name="settings_unit_metric_detail">km, m</string>
+    <string name="settings_unit_imperial">Imperial</string>
+    <string name="settings_unit_imperial_detail">mi, ft</string>
+
+    <string name="settings_section_recording">Recording &amp; Trail</string>
+    <string name="settings_auto_pause_title">Auto-Pause</string>
+    <string name="settings_auto_pause_summary">Pauses a recording when you stop for five minutes, and resumes when you walk on.</string>
+    <string name="settings_hike_reminders_title">Hike Reminders</string>
+    <string name="settings_hike_reminders_summary">Notifies you when you set off while paused, stay stopped, or drift off the trail.</string>
+    <string name="settings_live_updates_title">Live Updates</string>
+    <string name="settings_live_updates_summary">Shows distance, elapsed time, and trail progress as an ongoing notification while recording or following.</string>
+    <string name="settings_keep_screen_awake_title">Keep the Screen On</string>
+    <string name="settings_keep_screen_awake_summary">Keeps the display awake while a hike is active in the foreground. Uses more battery.</string>
+
+    <string name="settings_section_offline_photos">Offline Maps &amp; Photos</string>
+    <string name="settings_auto_save_tiles_title">Auto-Save Tiles</string>
+    <string name="settings_auto_save_tiles_summary">Keeps map tiles along the selected hike as you browse. Country downloads are independent.</string>
+    <string name="settings_save_photos_title">Also Save to Photos</string>
+    <string name="settings_save_photos_summary">Photos stay with each hike either way. Turn this on to also export a copy to your device library.</string>
+
+    <string name="settings_section_about">About</string>
+    <string name="settings_privacy_policy">Privacy Policy</string>
+    <string name="settings_terms">Terms &amp; Conditions</string>
+    <string name="settings_github">Project on GitHub</string>
+    <string name="settings_open_external_link">Opens in browser</string>
+    <string name="settings_version_label">Version</string>
+    <string name="settings_about_footer">Share feedback or report an issue on GitHub. Please include the version above.</string>
+</resources>

@@ -1,11 +1,17 @@
 plugins {
     id("openhikes.android.application.compose")
+    id("openhikes.android.screenshot")
     id("openhikes.hilt")
     id("openhikes.lint")
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
     namespace = "app.openhikes"
+
+    buildFeatures {
+        buildConfig = true
+    }
 
     defaultConfig {
         applicationId = "app.openhikes"
@@ -34,10 +40,24 @@ dependencies {
     implementation(projects.core.common)
     implementation(projects.core.designsystem)
     implementation(projects.core.ui)
+    implementation(projects.core.data)
+    implementation(projects.core.map)
+    implementation(projects.feature.settings)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.lifecycle.viewmodel.navigation3)
+    implementation(libs.androidx.hilt.lifecycle.viewmodel.compose)
+    implementation(libs.androidx.navigation3.runtime)
+    implementation(libs.androidx.navigation3.ui)
+    implementation(libs.androidx.compose.material3.adaptive)
+    implementation(libs.androidx.compose.material3.adaptive.layout)
+    implementation(libs.androidx.compose.material3.adaptive.navigation3)
+    implementation(libs.androidx.window.core)
     implementation(libs.kotlinx.coroutines.android)
+    implementation(libs.kotlinx.serialization.json)
 
     testImplementation(projects.core.testing)
     testImplementation(projects.core.testingAndroid)

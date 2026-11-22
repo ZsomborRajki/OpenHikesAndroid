@@ -1,4 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">OpenHikes</string>
+    <string name="map_search_placeholder">Search trails and places</string>
+    <string name="map_search_clear_content_description">Clear search</string>
+    <string name="map_settings_content_description">Settings</string>
+    <string name="map_empty_library_title">Your hikes stay on this device</string>
+    <string name="map_empty_library_body">Private, local-first, and ready offline. Hike library import and trail recording join in the next slices.</string>
+    <string name="map_search_no_results_title">No local hikes matching “%1$s”</string>
+    <string name="map_search_no_results_body">Your library is empty. Saved trails and place search appear here once added.</string>
+    <string name="map_search_clear_button">Clear search</string>
+    <string name="map_hiking_routes_show_description">Show hiking routes overlay</string>
+    <string name="map_hiking_routes_hide_description">Hide hiking routes overlay</string>
+    <string name="map_zoom_in_description">Zoom in</string>
+    <string name="map_zoom_out_description">Zoom out</string>
+    <string name="map_reset_north_description">Reset map north</string>
+    <string name="map_attribution_button_description">Map data attribution: %1$s</string>
+    <string name="map_attribution_dialog_title">Map Attribution</string>
+    <string name="map_attribution_dialog_close">Close</string>
+    <string name="map_sheet_expand_action">Expand sheet</string>
+    <string name="map_sheet_collapse_action">Collapse sheet</string>
 </resources>
