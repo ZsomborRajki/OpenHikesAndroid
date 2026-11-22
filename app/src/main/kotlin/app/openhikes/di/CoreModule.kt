@@ -1,5 +1,6 @@
 package app.openhikes.di
 
+import app.openhikes.BuildConfig
 import app.openhikes.core.common.ApplicationScope
 import app.openhikes.core.common.DefaultDispatcher
 import app.openhikes.core.common.DefaultOpenHikesDispatchers
@@ -8,6 +9,7 @@ import app.openhikes.core.common.MainDispatcher
 import app.openhikes.core.common.OpenHikesClock
 import app.openhikes.core.common.OpenHikesDispatchers
 import app.openhikes.core.common.SystemOpenHikesClock
+import app.openhikes.core.model.AppBuildInfo
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -62,4 +64,11 @@ object CoreModule {
     @Provides
     @Singleton
     fun provideClock(): OpenHikesClock = SystemOpenHikesClock()
+
+    @Provides
+    @Singleton
+    fun provideAppBuildInfo(): AppBuildInfo = AppBuildInfo(
+        versionName = BuildConfig.VERSION_NAME,
+        versionCode = BuildConfig.VERSION_CODE
+    )
 }

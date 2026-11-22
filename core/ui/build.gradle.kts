@@ -1,6 +1,7 @@
 plugins {
     id("openhikes.android.library.compose")
     id("openhikes.lint")
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -10,6 +11,8 @@ android {
 dependencies {
     api(projects.core.designsystem)
     api(projects.core.model)
+    api(libs.androidx.navigation3.runtime)
+    implementation(libs.kotlinx.serialization.json)
 
     testImplementation(libs.junit4)
     testImplementation(libs.truth)

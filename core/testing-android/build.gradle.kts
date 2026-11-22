@@ -11,10 +11,13 @@ android {
 dependencies {
     api(projects.core.testing)
     api(projects.core.ui)
+    api(projects.core.data)
+    api(projects.core.map)
     api(libs.androidx.test.runner)
     api(libs.androidx.test.ext.junit)
     api(libs.androidx.test.espresso.core)
     api(libs.androidx.compose.ui.test.junit4)
     api(libs.androidx.compose.ui.test.junit4.accessibility)
     api(libs.hilt.android.testing)
+    testImplementation(libs.robolectric)
 }

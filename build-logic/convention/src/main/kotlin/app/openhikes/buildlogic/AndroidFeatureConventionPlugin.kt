@@ -22,6 +22,7 @@ class AndroidFeatureConventionPlugin : Plugin<Project> {
                 add("implementation", libs.findLibrary("androidx-lifecycle-runtime-compose").get())
                 add("implementation", libs.findLibrary("androidx-lifecycle-viewmodel-compose").get())
                 add("implementation", libs.findLibrary("androidx-lifecycle-viewmodel-navigation3").get())
+                add("implementation", libs.findLibrary("androidx-hilt-lifecycle-viewmodel-compose").get())
                 add("implementation", libs.findLibrary("androidx-navigation3-runtime").get())
                 add("implementation", libs.findLibrary("androidx-navigation3-ui").get())
                 add("implementation", libs.findLibrary("androidx-compose-material3-adaptive").get())

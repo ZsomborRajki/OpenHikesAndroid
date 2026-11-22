@@ -28,6 +28,12 @@ private val StoneLightOnSurface = Color(0xFF171D19)
 private val StoneLightSurfaceVariant = Color(0xFFDCE5DC)
 private val StoneLightOnSurfaceVariant = Color(0xFF404942)
 private val StoneLightOutline = Color(0xFF707971)
+private val StoneLightOutlineVariant = Color(0xFFC0C9C0)
+private val StoneLightSurfaceContainerLowest = Color(0xFFFFFFFF)
+private val StoneLightSurfaceContainerLow = Color(0xFFF0F5EE)
+private val StoneLightSurfaceContainer = Color(0xFFEAEFE8)
+private val StoneLightSurfaceContainerHigh = Color(0xFFE5EAE3)
+private val StoneLightSurfaceContainerHighest = Color(0xFFDFE4DD)
 
 private val PineDarkPrimary = Color(0xFF8BD5A5)
 private val PineDarkOnPrimary = Color(0xFF00391D)
@@ -51,6 +57,12 @@ private val StoneDarkOnSurface = Color(0xFFDFE4DD)
 private val StoneDarkSurfaceVariant = Color(0xFF404942)
 private val StoneDarkOnSurfaceVariant = Color(0xFFC0C9C0)
 private val StoneDarkOutline = Color(0xFF8A938B)
+private val StoneDarkOutlineVariant = Color(0xFF404942)
+private val StoneDarkSurfaceContainerLowest = Color(0xFF0A0F0C)
+private val StoneDarkSurfaceContainerLow = Color(0xFF171D19)
+private val StoneDarkSurfaceContainer = Color(0xFF1B211D)
+private val StoneDarkSurfaceContainerHigh = Color(0xFF252B27)
+private val StoneDarkSurfaceContainerHighest = Color(0xFF303632)
 
 val OpenHikesLightColorScheme: ColorScheme = lightColorScheme(
     primary = PineLightPrimary,
@@ -71,7 +83,13 @@ val OpenHikesLightColorScheme: ColorScheme = lightColorScheme(
     onSurface = StoneLightOnSurface,
     surfaceVariant = StoneLightSurfaceVariant,
     onSurfaceVariant = StoneLightOnSurfaceVariant,
-    outline = StoneLightOutline
+    outline = StoneLightOutline,
+    outlineVariant = StoneLightOutlineVariant,
+    surfaceContainerLowest = StoneLightSurfaceContainerLowest,
+    surfaceContainerLow = StoneLightSurfaceContainerLow,
+    surfaceContainer = StoneLightSurfaceContainer,
+    surfaceContainerHigh = StoneLightSurfaceContainerHigh,
+    surfaceContainerHighest = StoneLightSurfaceContainerHighest
 )
 
 val OpenHikesDarkColorScheme: ColorScheme = darkColorScheme(
@@ -93,5 +111,11 @@ val OpenHikesDarkColorScheme: ColorScheme = darkColorScheme(
     onSurface = StoneDarkOnSurface,
     surfaceVariant = StoneDarkSurfaceVariant,
     onSurfaceVariant = StoneDarkOnSurfaceVariant,
-    outline = StoneDarkOutline
+    outline = StoneDarkOutline,
+    outlineVariant = StoneDarkOutlineVariant,
+    surfaceContainerLowest = StoneDarkSurfaceContainerLowest,
+    surfaceContainerLow = StoneDarkSurfaceContainerLow,
+    surfaceContainer = StoneDarkSurfaceContainer,
+    surfaceContainerHigh = StoneDarkSurfaceContainerHigh,
+    surfaceContainerHighest = StoneDarkSurfaceContainerHighest
 )
