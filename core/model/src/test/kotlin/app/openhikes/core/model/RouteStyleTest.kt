@@ -30,4 +30,25 @@ class RouteStyleTest {
         val update = RouteStyleUpdate(RouteTint.DEFAULT_HEX, RouteBorder.NONE_HEX, 99.0, RouteLinePattern.SOLID)
         assertThat(update.clampedWidthDp).isEqualTo(RouteStyleUpdate.MAX_ROUTE_WIDTH_DP)
     }
+
+    @Test
+    fun chevronMetricsAndContrastShadeMatchLinePatternContract() {
+        assertThat(RouteLinePattern.SOLID.chevronMetrics(4.0)).isNull()
+        assertThat(RouteLinePattern.DASHED.chevronMetrics(4.0)).isNull()
+        assertThat(RouteLinePattern.DOTTED.chevronMetrics(4.0)).isNull()
+
+        val directional = RouteLinePattern.DIRECTIONAL.chevronMetrics(4.0)!!
+        assertThat(directional.spacingDp).isEqualTo(55.0)
+        assertThat(directional.halfLengthDp).isWithin(1e-6).of(4.4)
+        assertThat(directional.halfWidthDp).isWithin(1e-6).of(4.0)
+        assertThat(directional.strokeWidthDp).isWithin(1e-6).of(2.2)
+
+        val arrowheads = RouteLinePattern.ARROWHEADS.chevronMetrics(4.0)!!
+        assertThat(arrowheads.spacingDp).isEqualTo(38.0)
+        assertThat(arrowheads.halfLengthDp).isGreaterThan(directional.halfLengthDp)
+        assertThat(arrowheads.strokeWidthDp).isGreaterThan(directional.strokeWidthDp)
+
+        assertThat(RouteChevronShade.contrastingGray(0.9f)).isWithin(1e-5f).of(0.15f)
+        assertThat(RouteChevronShade.contrastingGray(0.2f)).isWithin(1e-5f).of(1.0f)
+    }
 }

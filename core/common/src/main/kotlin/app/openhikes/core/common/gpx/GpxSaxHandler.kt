@@ -40,6 +40,7 @@ private enum class PointKind {
 private data class PendingPoint(
     val kind: PointKind,
     val element: String,
+    val depth: Int,
     var latitude: Double?,
     var longitude: Double?,
     var elevationMeters: Double? = null,
@@ -47,17 +48,7 @@ private data class PendingPoint(
     var name: String? = null,
     var symbol: String? = null,
     var note: String? = null
-) {
-    fun toRawPoint(): RawGpxPoint = RawGpxPoint(
-        latitude = latitude,
-        longitude = longitude,
-        elevationMeters = elevationMeters,
-        timestampEpochMillis = timestampEpochMillis,
-        name = name,
-        symbol = symbol,
-        note = note
-    )
-}
+)
 
 internal class GpxSaxHandler(private val maximumPointCount: Int) : DefaultHandler() {
     val document = ParsedGpxDocument()
@@ -68,43 +59,48 @@ internal class GpxSaxHandler(private val maximumPointCount: Int) : DefaultHandle
     private var currentRouteIndex = -1
     private var hasOpenTrackSegment = false
     private var hasOpenRouteSegment = false
+    private var ignoredSubtreeDepth = 0
     private var pendingPoint: PendingPoint? = null
     private var parsedPointCount = 0
 
     override fun startElement(uri: String?, localName: String?, qName: String?, attributes: Attributes?) {
+        if (ignoredSubtreeDepth > 0) {
+            ignoredSubtreeDepth += 1
+            return
+        }
         val element = resolveElementName(localName, qName)
+        val inGpxNamespace = uri.isNullOrEmpty() || uri == GPX_1_1_NAMESPACE || uri == GPX_1_0_NAMESPACE
+        if (!inGpxNamespace || element == ELEM_EXTENSIONS) {
+            ignoredSubtreeDepth = 1
+            return
+        }
+
         path.add(element)
         textBuffer.setLength(0)
-
-        when (element) {
-            ELEM_TRACK -> {
-                currentTrackIndex += 1
-                hasOpenTrackSegment = false
-            }
-            ELEM_TRACK_SEGMENT -> openTrackSegment()
-            ELEM_ROUTE -> {
-                currentRouteIndex += 1
-                hasOpenRouteSegment = false
-                openRouteSegment()
-            }
-            ELEM_TRACK_POINT -> startPoint(PointKind.TRACK, element, attributes)
-            ELEM_ROUTE_POINT -> startPoint(PointKind.ROUTE, element, attributes)
-            ELEM_WAYPOINT -> startPoint(PointKind.WAYPOINT, element, attributes)
-        }
+        dispatchStartElement(element, attributes)
     }
 
     override fun characters(ch: CharArray, start: Int, length: Int) {
+        if (ignoredSubtreeDepth > 0) return
         textBuffer.append(ch, start, length)
     }
 
     override fun endElement(uri: String?, localName: String?, qName: String?) {
+        if (ignoredSubtreeDepth > 0) {
+            ignoredSubtreeDepth -= 1
+            if (ignoredSubtreeDepth == 0) {
+                textBuffer.setLength(0)
+            }
+            return
+        }
         val element = resolveElementName(localName, qName)
         val value = textBuffer.toString().trim()
         updatePendingPoint(element, value)
         applyElementValue(element, value)
-        when (element) {
-            ELEM_TRACK_SEGMENT, ELEM_TRACK -> hasOpenTrackSegment = false
-            ELEM_ROUTE -> hasOpenRouteSegment = false
+        if (isPath(ELEM_GPX, ELEM_TRACK, ELEM_TRACK_SEGMENT) || isPath(ELEM_GPX, ELEM_TRACK)) {
+            hasOpenTrackSegment = false
+        } else if (isPath(ELEM_GPX, ELEM_ROUTE)) {
+            hasOpenRouteSegment = false
         }
         if (path.isNotEmpty()) {
             path.removeAt(path.lastIndex)
@@ -115,19 +111,51 @@ internal class GpxSaxHandler(private val maximumPointCount: Int) : DefaultHandle
         }
     }
 
-    private fun startPoint(kind: PointKind, element: String, attributes: Attributes?) {
+    private fun dispatchStartElement(element: String, attributes: Attributes?) {
+        when (element) {
+            ELEM_TRACK -> if (isPath(ELEM_GPX, ELEM_TRACK)) {
+                currentTrackIndex += 1
+                hasOpenTrackSegment = false
+            }
+            ELEM_TRACK_SEGMENT -> if (isPath(ELEM_GPX, ELEM_TRACK, ELEM_TRACK_SEGMENT)) {
+                openTrackSegment()
+            }
+            ELEM_ROUTE -> if (isPath(ELEM_GPX, ELEM_ROUTE)) {
+                currentRouteIndex += 1
+                hasOpenRouteSegment = true
+                document.routeSegments.add(ParsedSegment(containerIndex = currentRouteIndex))
+            }
+            ELEM_TRACK_POINT, ELEM_ROUTE_POINT, ELEM_WAYPOINT -> maybeStartPoint(element, attributes)
+        }
+    }
+
+    private fun maybeStartPoint(element: String, attributes: Attributes?) {
+        if (pendingPoint != null) return
+        val isTrackPoint = element == ELEM_TRACK_POINT &&
+            (
+                isPath(ELEM_GPX, ELEM_TRACK, ELEM_TRACK_SEGMENT, ELEM_TRACK_POINT) ||
+                    isPath(ELEM_GPX, ELEM_TRACK, ELEM_TRACK_POINT)
+                )
+        val kind = when {
+            isTrackPoint -> PointKind.TRACK
+            element == ELEM_ROUTE_POINT && isPath(ELEM_GPX, ELEM_ROUTE, ELEM_ROUTE_POINT) -> PointKind.ROUTE
+            element == ELEM_WAYPOINT && isPath(ELEM_GPX, ELEM_WAYPOINT) -> PointKind.WAYPOINT
+            else -> null
+        } ?: return
+        val rawLat = attributes?.getValue("", ATTR_LAT) ?: attributes?.getValue(ATTR_LAT)
+        val rawLon = attributes?.getValue("", ATTR_LON) ?: attributes?.getValue(ATTR_LON)
         pendingPoint = PendingPoint(
             kind = kind,
             element = element,
-            latitude = attributes?.getValue(ATTR_LAT)?.toDoubleOrNull(),
-            longitude = attributes?.getValue(ATTR_LON)?.toDoubleOrNull()
+            depth = path.size,
+            latitude = rawLat?.toDoubleOrNull(),
+            longitude = rawLon?.toDoubleOrNull()
         )
     }
 
     private fun updatePendingPoint(element: String, value: String) {
         val point = pendingPoint ?: return
-        val parent = path.getOrNull(path.lastIndex - 1)
-        if (parent != point.element) return
+        if (path.size != point.depth + 1 || path[path.lastIndex - 1] != point.element) return
         when (element) {
             ELEM_ELEVATION -> point.elevationMeters = value.toDoubleOrNull()
             ELEM_TIME -> point.timestampEpochMillis = parseIsoTimestamp(value)
@@ -139,11 +167,11 @@ internal class GpxSaxHandler(private val maximumPointCount: Int) : DefaultHandle
 
     private fun applyElementValue(element: String, value: String) {
         when {
-            element == ELEM_NAME && isDirectChildOf(ELEM_METADATA) -> document.metadataName = value
-            element == ELEM_DESCRIPTION && isDirectChildOf(ELEM_METADATA) -> document.metadataDescription = value
-            element == ELEM_NAME && isMetadataAuthorChild() -> document.metadataAuthor = value
-            element == ELEM_KEYWORDS && isDirectChildOf(ELEM_METADATA) -> document.metadataKeywords = value
-            element == ELEM_TIME && isDirectChildOf(ELEM_METADATA) ->
+            isPath(ELEM_GPX, ELEM_METADATA, ELEM_NAME) -> document.metadataName = value
+            isPath(ELEM_GPX, ELEM_METADATA, ELEM_DESCRIPTION) -> document.metadataDescription = value
+            isPath(ELEM_GPX, ELEM_METADATA, ELEM_AUTHOR, ELEM_NAME) -> document.metadataAuthor = value
+            isPath(ELEM_GPX, ELEM_METADATA, ELEM_KEYWORDS) -> document.metadataKeywords = value
+            isPath(ELEM_GPX, ELEM_METADATA, ELEM_TIME) ->
                 document.metadataTimeEpochMillis = parseIsoTimestamp(value)
             element == ELEM_TRACK_POINT || element == ELEM_ROUTE_POINT || element == ELEM_WAYPOINT ->
                 finishPoint(element)
@@ -153,12 +181,13 @@ internal class GpxSaxHandler(private val maximumPointCount: Int) : DefaultHandle
 
     private fun applyContainerWord(element: String, value: String) {
         if (element != ELEM_NAME && element != ELEM_DESCRIPTION && element != ELEM_COMMENT) return
-        val map = when {
-            isDirectChildOf(ELEM_TRACK) && currentTrackIndex >= 0 -> document.trackWords
-            isDirectChildOf(ELEM_ROUTE) && currentRouteIndex >= 0 -> document.routeWords
+        val isTrackWord = isPath(ELEM_GPX, ELEM_TRACK, element) && currentTrackIndex >= 0
+        val isRouteWord = isPath(ELEM_GPX, ELEM_ROUTE, element) && currentRouteIndex >= 0
+        val (map, key) = when {
+            isTrackWord -> document.trackWords to currentTrackIndex
+            isRouteWord -> document.routeWords to currentRouteIndex
             else -> return
         }
-        val key = if (isDirectChildOf(ELEM_TRACK)) currentTrackIndex else currentRouteIndex
         val words = map.getOrPut(key) { ContainerWords() }
         when (element) {
             ELEM_NAME -> words.name = value
@@ -169,30 +198,35 @@ internal class GpxSaxHandler(private val maximumPointCount: Int) : DefaultHandle
 
     private fun finishPoint(element: String) {
         val point = pendingPoint
-        if (point != null && point.element == element) {
-            pendingPoint = null
-            parsedPointCount += 1
-            if (parsedPointCount <= maximumPointCount) {
-                val raw = point.toRawPoint()
-                when (point.kind) {
-                    PointKind.TRACK -> appendTrackPoint(raw)
-                    PointKind.ROUTE -> appendRoutePoint(raw)
-                    PointKind.WAYPOINT -> document.waypoints.add(raw)
-                }
+        if (point == null || point.element != element || path.size != point.depth) return
+        pendingPoint = null
+        parsedPointCount += 1
+        if (parsedPointCount > maximumPointCount) return
+        val raw = RawGpxPoint(
+            latitude = point.latitude,
+            longitude = point.longitude,
+            elevationMeters = point.elevationMeters,
+            timestampEpochMillis = point.timestampEpochMillis,
+            name = point.name,
+            symbol = point.symbol,
+            note = point.note
+        )
+        when (point.kind) {
+            PointKind.TRACK -> {
+                if (currentTrackIndex < 0) currentTrackIndex = 0
+                if (!hasOpenTrackSegment) openTrackSegment()
+                document.trackSegments.lastOrNull()?.points?.add(raw)
             }
+            PointKind.ROUTE -> {
+                if (currentRouteIndex < 0) currentRouteIndex = 0
+                if (!hasOpenRouteSegment) {
+                    hasOpenRouteSegment = true
+                    document.routeSegments.add(ParsedSegment(containerIndex = currentRouteIndex))
+                }
+                document.routeSegments.lastOrNull()?.points?.add(raw)
+            }
+            PointKind.WAYPOINT -> document.waypoints.add(raw)
         }
-    }
-
-    private fun appendTrackPoint(raw: RawGpxPoint) {
-        if (currentTrackIndex < 0) currentTrackIndex = 0
-        if (!hasOpenTrackSegment) openTrackSegment()
-        document.trackSegments.lastOrNull()?.points?.add(raw)
-    }
-
-    private fun appendRoutePoint(raw: RawGpxPoint) {
-        if (currentRouteIndex < 0) currentRouteIndex = 0
-        if (!hasOpenRouteSegment) openRouteSegment()
-        document.routeSegments.lastOrNull()?.points?.add(raw)
     }
 
     private fun openTrackSegment() {
@@ -201,18 +235,18 @@ internal class GpxSaxHandler(private val maximumPointCount: Int) : DefaultHandle
         document.trackSegments.add(ParsedSegment(containerIndex = currentTrackIndex))
     }
 
-    private fun openRouteSegment() {
-        if (currentRouteIndex < 0) return
-        hasOpenRouteSegment = true
-        document.routeSegments.add(ParsedSegment(containerIndex = currentRouteIndex))
+    private fun isPath(first: String, second: String, third: String? = null, fourth: String? = null): Boolean {
+        val expectedDepth = when {
+            fourth != null -> DEPTH_FOUR
+            third != null -> DEPTH_THREE
+            else -> DEPTH_TWO
+        }
+        if (path.size != expectedDepth) return false
+        return path[0] == first &&
+            path[1] == second &&
+            (third == null || path[DEPTH_TWO] == third) &&
+            (fourth == null || path[DEPTH_THREE] == fourth)
     }
-
-    private fun isDirectChildOf(parentElement: String): Boolean =
-        path.size >= 2 && path[path.lastIndex - 1] == parentElement
-
-    private fun isMetadataAuthorChild(): Boolean = path.size >= AUTHOR_PATH_DEPTH &&
-        path[path.lastIndex - 2] == ELEM_METADATA &&
-        path[path.lastIndex - 1] == ELEM_AUTHOR
 
     private fun resolveElementName(localName: String?, qName: String?): String = when {
         !localName.isNullOrEmpty() -> localName
@@ -221,9 +255,15 @@ internal class GpxSaxHandler(private val maximumPointCount: Int) : DefaultHandle
     }
 
     companion object {
-        private const val AUTHOR_PATH_DEPTH = 3
+        private const val GPX_1_1_NAMESPACE = "http://www.topografix.com/GPX/1/1"
+        private const val GPX_1_0_NAMESPACE = "http://www.topografix.com/GPX/1/0"
+        private const val DEPTH_TWO = 2
+        private const val DEPTH_THREE = 3
+        private const val DEPTH_FOUR = 4
         private const val ATTR_LAT = "lat"
         private const val ATTR_LON = "lon"
+        private const val ELEM_GPX = "gpx"
+        private const val ELEM_EXTENSIONS = "extensions"
         private const val ELEM_TRACK = "trk"
         private const val ELEM_TRACK_SEGMENT = "trkseg"
         private const val ELEM_TRACK_POINT = "trkpt"

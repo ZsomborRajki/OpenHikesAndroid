@@ -1,7 +1,13 @@
 package app.openhikes.core.ui.components
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.remember
@@ -15,6 +21,7 @@ import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.unit.dp
 import app.openhikes.core.designsystem.theme.OpenHikesTheme
 import app.openhikes.core.model.DistanceUnit
@@ -34,14 +41,7 @@ class ElevationProfileChartTest {
 
     @Test
     fun tapDragAndAccessibilityActionsUpdateAndRetainScrubPosition() {
-        val route = (0..10).map { idx ->
-            RouteCoordinate(
-                latitude = 47.70 + idx * 0.001,
-                longitude = 12.80,
-                elevationMeters = 500.0 + idx * 10.0
-            )
-        }
-        val profile = RouteProfile.from(route)
+        val profile = sampleProfile()
         var latestDistance = 0.0
 
         composeRule.setContent {
@@ -96,4 +96,68 @@ class ElevationProfileChartTest {
         composeRule.waitForIdle()
         assertThat(latestDistance).isLessThan(beforeStep)
     }
+
+    @Test
+    fun verticalSwipeOverChartScrollsParentLazyColumnWhileHorizontalDragScrubs() {
+        val profile = sampleProfile()
+        var latestDistance = 0.0
+        lateinit var listState: LazyListState
+
+        composeRule.setContent {
+            OpenHikesTheme(dynamicColor = false) {
+                var scrubDistance by remember { mutableDoubleStateOf(0.0) }
+                listState = rememberLazyListState()
+                LazyColumn(state = listState, modifier = Modifier.width(360.dp).height(280.dp)) {
+                    item(key = "chart") {
+                        ElevationProfileChart(
+                            profile = profile,
+                            distanceUnit = DistanceUnit.METRIC,
+                            tintHex = "#1B7F3B",
+                            scrubDistanceProvider = { scrubDistance },
+                            onScrubDistance = {
+                                scrubDistance = it
+                                latestDistance = it
+                            }
+                        )
+                    }
+                    items(5) { idx ->
+                        Box(modifier = Modifier.fillMaxWidth().height(200.dp)) {
+                            Text("Detail section $idx")
+                        }
+                    }
+                }
+            }
+        }
+
+        val chart = composeRule.onNodeWithTag(OpenHikesTestTags.ELEVATION_CHART)
+        chart.assertIsDisplayed()
+        chart.performTouchInput { swipeUp(startY = bottom - 12f, endY = top + 12f) }
+        composeRule.waitForIdle()
+        assertThat(listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0).isTrue()
+        assertThat(latestDistance).isEqualTo(0.0)
+
+        composeRule.runOnUiThread { listState.requestScrollToItem(0) }
+        composeRule.waitForIdle()
+
+        chart.performTouchInput {
+            down(Offset(width * 0.2f, centerY))
+            moveTo(Offset(width * 0.8f, centerY))
+            up()
+        }
+        composeRule.waitForIdle()
+        assertThat(latestDistance).isWithin(profile.totalDistanceMeters * 0.1)
+            .of(profile.totalDistanceMeters * 0.8)
+        assertThat(listState.firstVisibleItemIndex).isEqualTo(0)
+        assertThat(listState.firstVisibleItemScrollOffset).isEqualTo(0)
+    }
+
+    private fun sampleProfile(): RouteProfile = RouteProfile.from(
+        (0..10).map { idx ->
+            RouteCoordinate(
+                latitude = 47.70 + idx * 0.001,
+                longitude = 12.80,
+                elevationMeters = 500.0 + idx * 10.0
+            )
+        }
+    )
 }

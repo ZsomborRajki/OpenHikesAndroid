@@ -132,4 +132,89 @@ class GpxParserTest {
         assertThat(track.route).hasSize(2)
         assertThat(track.places).isEmpty()
     }
+
+    @Test
+    fun ignoresForeignNamespaceAndExtensionsSubtreesWithoutCorruptingPointsOrNames() {
+        val gpx = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <gpx version="1.1"
+                 xmlns="http://www.topografix.com/GPX/1/1"
+                 xmlns:vendor="https://example.com/vendor/gpx">
+              <metadata>
+                <name>True Ridge</name>
+                <extensions>
+                  <name>Vendor Metadata Override</name>
+                  <wpt lat="1.0" lon="1.0"><name>Fake Extension Place</name></wpt>
+                </extensions>
+              </metadata>
+              <trk>
+                <name>Alpine Ridge</name>
+                <extensions>
+                  <name>Vendor Track Override</name>
+                </extensions>
+                <trkseg>
+                  <trkpt lat="47.7180" lon="12.8300">
+                    <ele>530.0</ele>
+                    <extensions>
+                      <vendor:trkpt lat="1.0" lon="1.0">
+                        <vendor:ele>9999.0</vendor:ele>
+                      </vendor:trkpt>
+                      <trkpt lat="2.0" lon="2.0"/>
+                    </extensions>
+                    <time>2026-01-01T08:00:00Z</time>
+                  </trkpt>
+                  <trkpt lat="47.7190" lon="12.8310">
+                    <ele>545.0</ele>
+                    <vendor:trkpt lat="3.0" lon="3.0"/>
+                    <time>2026-01-01T08:05:00Z</time>
+                  </trkpt>
+                </trkseg>
+              </trk>
+            </gpx>
+        """.trimIndent().encodeToByteArray()
+
+        val track = (GpxParser.parseSingle(gpx) as GpxParseResult.Success).value
+        assertThat(track.name).isEqualTo("Alpine Ridge")
+        assertThat(track.places).isEmpty()
+        assertThat(track.route).hasSize(2)
+        assertThat(track.route[0].latitude).isWithin(1e-6).of(47.7180)
+        assertThat(track.route[0].longitude).isWithin(1e-6).of(12.8300)
+        assertThat(track.route[0].elevationMeters).isEqualTo(530.0)
+        assertThat(track.route[0].timestampEpochMillis).isEqualTo(1_767_254_400_000L)
+        assertThat(track.route[1].latitude).isWithin(1e-6).of(47.7190)
+        assertThat(track.distanceMeters).isLessThan(200.0)
+    }
+
+    @Test
+    fun parsesPrefixedGpxNamespaceAndUnnamespacedGpxDocuments() {
+        val prefixedGpx = """
+            <gpx:gpx version="1.1" xmlns:gpx="http://www.topografix.com/GPX/1/1">
+              <gpx:trk>
+                <gpx:name>Prefixed Walk</gpx:name>
+                <gpx:trkseg>
+                  <gpx:trkpt lat="47.71" lon="12.83"><gpx:ele>500</gpx:ele></gpx:trkpt>
+                  <gpx:trkpt lat="47.72" lon="12.84"><gpx:ele>520</gpx:ele></gpx:trkpt>
+                </gpx:trkseg>
+              </gpx:trk>
+            </gpx:gpx>
+        """.trimIndent().encodeToByteArray()
+        val unnamespacedGpx = """
+            <gpx version="1.1">
+              <trk>
+                <name>Plain Walk</name>
+                <trkseg>
+                  <trkpt lat="47.71" lon="12.83"/>
+                  <trkpt lat="47.72" lon="12.84"/>
+                </trkseg>
+              </trk>
+            </gpx>
+        """.trimIndent().encodeToByteArray()
+
+        val prefixedTrack = (GpxParser.parseSingle(prefixedGpx) as GpxParseResult.Success).value
+        val plainTrack = (GpxParser.parseSingle(unnamespacedGpx) as GpxParseResult.Success).value
+        assertThat(prefixedTrack.name).isEqualTo("Prefixed Walk")
+        assertThat(prefixedTrack.route).hasSize(2)
+        assertThat(plainTrack.name).isEqualTo("Plain Walk")
+        assertThat(plainTrack.route).hasSize(2)
+    }
 }

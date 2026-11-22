@@ -98,4 +98,44 @@ class GpxExporterTest {
         assertThat(fileName).doesNotContain("?")
         assertThat(fileName).endsWith("-2026-01-01.gpx")
     }
+
+    @Test
+    fun preservesSupplementaryUnicodeCharactersIncludingLowSurrogateBitPattern() {
+        val cjkSupplementary = "\uD876\uDC40" // U+2D840 (low 16 bits 0xD840 fall in surrogate range!)
+        val bootEmoji = "\uD83E\uDD7E" // U+1F97E
+        val titleWithSupplementary = "Mount $cjkSupplementary $bootEmoji"
+        val hike = Hike(
+            id = HikeId("h3"),
+            title = "$titleWithSupplementary\u0007\uFFFE\uFFFF",
+            distanceMeters = 500.0,
+            dateEpochMillis = 1_767_225_600_000L,
+            trackDescription = "Pass $cjkSupplementary",
+            route = listOf(
+                RouteCoordinate(47.718420, 12.831774, elevationMeters = 533.5),
+                RouteCoordinate(47.719219, 12.830877, elevationMeters = 542.0)
+            ),
+            places = listOf(
+                TrailPoint(
+                    id = "w1",
+                    hikeId = HikeId("h3"),
+                    coordinate = GeoCoordinate(47.7185, 12.8318),
+                    name = "Spring $cjkSupplementary",
+                    note = "Note $bootEmoji"
+                )
+            )
+        )
+
+        val exported = GpxExporter.export(hike, ZoneOffset.UTC)
+        assertThat(exported.xml).contains(titleWithSupplementary)
+        assertThat(exported.xml).contains("Pass $cjkSupplementary")
+        assertThat(exported.xml).doesNotContain("\u0007")
+        assertThat(exported.xml).doesNotContain("\uFFFE")
+        assertThat(exported.xml).doesNotContain("\uFFFF")
+
+        val reparsed = (GpxParser.parseSingle(exported.xml.encodeToByteArray()) as GpxParseResult.Success).value
+        assertThat(reparsed.name).isEqualTo(titleWithSupplementary)
+        assertThat(reparsed.trackDescription).isEqualTo("Pass $cjkSupplementary")
+        assertThat(reparsed.places.single().name).isEqualTo("Spring $cjkSupplementary")
+        assertThat(reparsed.places.single().note).isEqualTo("Note $bootEmoji")
+    }
 }

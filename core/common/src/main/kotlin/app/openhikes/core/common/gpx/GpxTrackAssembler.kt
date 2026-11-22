@@ -2,7 +2,6 @@ package app.openhikes.core.common.gpx
 
 import app.openhikes.core.common.BoundedText
 import app.openhikes.core.common.TextBound
-import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.GpxTrack
 import app.openhikes.core.model.GpxWaypoint
 import app.openhikes.core.model.RouteBoundary
@@ -11,7 +10,6 @@ import app.openhikes.core.model.RouteGeometry
 
 internal object GpxTrackAssembler {
     private const val PHOTOGRAPH_MARKER = "Photo"
-    private const val WAYPOINT_ASSIGNMENT_THRESHOLD_METERS = 150.0
 
     fun buildSingleTrack(
         document: ParsedGpxDocument,
@@ -98,43 +96,7 @@ internal object GpxTrackAssembler {
         places: List<GpxWaypoint>,
         routes: List<List<RouteCoordinate>>,
         maxPlaces: Int
-    ): List<List<GpxWaypoint>> {
-        val buckets = List(routes.size) { ArrayList<GpxWaypoint>() }
-        places.asSequence()
-            .mapNotNull { place -> nearestTrackIndex(place, routes)?.let { it to place } }
-            .take(maxPlaces)
-            .forEach { (trackIndex, place) -> buckets[trackIndex].add(place) }
-        return buckets
-    }
-
-    private fun nearestTrackIndex(place: GpxWaypoint, routes: List<List<RouteCoordinate>>): Int? {
-        var bestTrackIndex: Int? = null
-        var bestDistance = WAYPOINT_ASSIGNMENT_THRESHOLD_METERS
-        routes.forEachIndexed { trackIndex, route ->
-            val dist = minDistanceToRoute(place.coordinate, route)
-            if (dist <= bestDistance) {
-                bestDistance = dist
-                bestTrackIndex = trackIndex
-            }
-        }
-        return bestTrackIndex
-    }
-
-    private fun minDistanceToRoute(coord: GeoCoordinate, route: List<RouteCoordinate>): Double = when {
-        route.isEmpty() -> Double.POSITIVE_INFINITY
-        route.size == 1 -> RouteGeometry.distanceMeters(coord, route.first().coordinate)
-        else -> {
-            var best = Double.POSITIVE_INFINITY
-            for (i in 0 until route.lastIndex) {
-                val next = route[i + 1]
-                if (!next.isPauseBoundary) {
-                    val proj = RouteGeometry.project(coord, route[i].coordinate, next.coordinate)
-                    if (proj.offRouteMeters < best) best = proj.offRouteMeters
-                }
-            }
-            best
-        }
-    }
+    ): List<List<GpxWaypoint>> = GpxWaypointSpatialIndex.assignPlaces(places, routes, maxPlaces)
 
     private fun buildRoute(segments: List<List<ValidatedGpxPoint>>): List<RouteCoordinate> {
         val total = segments.sumOf { it.size }
