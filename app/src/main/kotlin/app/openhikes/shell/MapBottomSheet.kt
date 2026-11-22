@@ -34,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -98,6 +99,7 @@ fun MapBottomSheet(
             detent = detent,
             draggableState = draggableState,
             sheetHeight = sheetHeightDp,
+            fullHeightPx = fullHeightPx,
             bottomPadding = bottomPadding,
             offsetProvider = currentTopPx,
             onDetentChange = onDetentChange,
@@ -154,6 +156,7 @@ private fun MapBottomSheetSurface(
     detent: SheetDetent,
     draggableState: AnchoredDraggableState<SheetDetent>,
     sheetHeight: Dp,
+    fullHeightPx: Float,
     bottomPadding: Dp,
     offsetProvider: () -> Float,
     onDetentChange: (SheetDetent) -> Unit,
@@ -180,24 +183,47 @@ private fun MapBottomSheetSurface(
             )
             .testTag(OpenHikesTestTags.MAP_SHEET)
     ) {
-        Column(modifier = Modifier.fillMaxSize().padding(bottom = bottomPadding)) {
-            SheetDragHandle(
-                detent = detent,
-                onCycleDetent = {
-                    val next = when (detent) {
-                        SheetDetent.PEEK -> SheetDetent.HALF
-                        SheetDetent.HALF -> SheetDetent.EXPANDED
-                        SheetDetent.EXPANDED -> SheetDetent.PEEK
-                    }
-                    onDetentChange(next)
-                },
-                onExpand = { onDetentChange(SheetDetent.EXPANDED) },
-                onCollapse = { onDetentChange(SheetDetent.PEEK) }
-            )
-            Box(modifier = Modifier.weight(1f)) { content() }
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.TopStart
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .visibleSheetHeight(fullHeightPx = fullHeightPx, offsetProvider = offsetProvider)
+                    .padding(bottom = bottomPadding)
+            ) {
+                SheetDragHandle(
+                    detent = detent,
+                    onCycleDetent = {
+                        val next = when (detent) {
+                            SheetDetent.PEEK -> SheetDetent.HALF
+                            SheetDetent.HALF -> SheetDetent.EXPANDED
+                            SheetDetent.EXPANDED -> SheetDetent.PEEK
+                        }
+                        onDetentChange(next)
+                    },
+                    onExpand = { onDetentChange(SheetDetent.EXPANDED) },
+                    onCollapse = { onDetentChange(SheetDetent.PEEK) }
+                )
+                Box(modifier = Modifier.weight(1f)) { content() }
+            }
         }
     }
 }
+
+private fun Modifier.visibleSheetHeight(fullHeightPx: Float, offsetProvider: () -> Float): Modifier =
+    layout { measurable, constraints ->
+        val visibleHeight = (fullHeightPx - offsetProvider())
+            .roundToInt()
+            .coerceIn(0, constraints.maxHeight)
+        val placeable = measurable.measure(
+            constraints.copy(minHeight = visibleHeight, maxHeight = visibleHeight)
+        )
+        layout(placeable.width, placeable.height) {
+            placeable.place(0, 0)
+        }
+    }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

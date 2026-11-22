@@ -2,6 +2,8 @@ package app.openhikes
 
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasTestTag
@@ -14,6 +16,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToKey
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.unit.height
 import androidx.compose.ui.unit.width
 import app.openhikes.core.map.TrailMapRenderer
 import app.openhikes.core.testing.android.FakeTrailMapRenderer
@@ -98,7 +101,7 @@ class OpenHikesAdaptiveShellTest {
     }
 
     @Test
-    fun floatingMapControlsAndBackNavigationDriveMapStateAndSheetChrome() {
+    fun floatingMapControlsAndBackNavigationDriveMapStateAndSearchFocus() {
         val fakeRenderer = trailMapRenderer as FakeTrailMapRenderer
         val initialZoom = fakeRenderer.lastCameraState.value.zoom
 
@@ -121,20 +124,50 @@ class OpenHikesAdaptiveShellTest {
         )
         composeRule.waitForIdle()
         assertThat(fakeRenderer.lastOverlayState.value?.showsHikingRoutes).isFalse()
-        composeRule.onNodeWithText("© OpenStreetMap, ESA WorldCover").assertIsDisplayed()
+        composeRule.onNodeWithText("© OpenFreeMap, OpenMapTiles, OpenStreetMap").assertIsDisplayed()
 
         composeRule.onNodeWithTag(OpenHikesTestTags.MAP_ATTRIBUTION).performClick()
         composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.MAP_ATTRIBUTION_DIALOG))
-        composeRule.activityRule.scenario.onActivity {
-            it.onBackPressedDispatcher.onBackPressed()
-        }
+        composeRule.onNodeWithText("© OpenMapTiles").assertIsDisplayed()
+        composeRule.onNodeWithText("https://www.openmaptiles.org/").assertIsDisplayed()
+        composeRule.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
         composeRule.onNodeWithTag(OpenHikesTestTags.MAP_ATTRIBUTION_DIALOG).assertDoesNotExist()
 
         composeRule.onNodeWithTag(OpenHikesTestTags.MAP_SEARCH).performTextInput("Thumsee")
+        composeRule.onNodeWithTag(OpenHikesTestTags.MAP_SEARCH).assertIsFocused()
         composeRule.onNodeWithTag(OpenHikesTestTags.CLEAR_SEARCH_BUTTON).assertIsDisplayed()
-        composeRule.activityRule.scenario.onActivity {
-            it.onBackPressedDispatcher.onBackPressed()
-        }
+
+        // First Back closes search and releases focus; tapping search again re-focuses and expands.
+        composeRule.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        composeRule.waitForIdle()
         composeRule.onNodeWithTag(OpenHikesTestTags.CLEAR_SEARCH_BUTTON).assertDoesNotExist()
+        composeRule.onNodeWithTag(OpenHikesTestTags.MAP_SEARCH).assertIsNotFocused()
+
+        composeRule.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag(OpenHikesTestTags.MAP_SEARCH).performClick()
+        composeRule.onNodeWithTag(OpenHikesTestTags.MAP_SEARCH).assertIsFocused()
+    }
+
+    @Test
+    fun settingsAtHalfDetentKeepsVersionRowWithinVisibleSheetBounds() {
+        composeRule.onNodeWithTag(OpenHikesTestTags.SETTINGS_BUTTON).performClick()
+        composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.SETTINGS_SCREEN))
+
+        // Settings opens at EXPANDED; cycling handle twice moves EXPANDED -> PEEK -> HALF.
+        composeRule.onNodeWithTag(OpenHikesTestTags.SHEET_DRAG_HANDLE).performClick()
+        composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.MAP_ATTRIBUTION))
+        composeRule.onNodeWithTag(OpenHikesTestTags.SHEET_DRAG_HANDLE).performClick()
+        composeRule.waitForIdle()
+
+        val rootBounds = composeRule.onNodeWithTag(OpenHikesTestTags.APP_ROOT).getUnclippedBoundsInRoot()
+        val sheetBounds = composeRule.onNodeWithTag(OpenHikesTestTags.MAP_SHEET).getUnclippedBoundsInRoot()
+        assertThat(sheetBounds.top).isGreaterThan(rootBounds.height * 0.3f)
+        assertThat(sheetBounds.top).isLessThan(rootBounds.height * 0.65f)
+
+        composeRule.onNodeWithTag(OpenHikesTestTags.SETTINGS_SCREEN).performScrollToKey("about")
+        composeRule.onNodeWithTag(OpenHikesTestTags.APP_VERSION_ROW).performScrollTo().assertIsDisplayed()
+        val versionBounds = composeRule.onNodeWithTag(OpenHikesTestTags.APP_VERSION_ROW).getUnclippedBoundsInRoot()
+        assertThat(versionBounds.bottom).isAtMost(rootBounds.bottom)
     }
 }

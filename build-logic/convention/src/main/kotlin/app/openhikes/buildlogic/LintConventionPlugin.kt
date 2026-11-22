@@ -6,9 +6,11 @@ import dev.detekt.gradle.extensions.DetektExtension
 import dev.detekt.gradle.extensions.FailOnSeverity
 import org.gradle.api.Plugin
 import org.gradle.api.Project
+import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.kotlin.dsl.configure
 import org.gradle.kotlin.dsl.dependencies
 import org.gradle.kotlin.dsl.withType
+import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 import org.jlleitschuh.gradle.ktlint.KtlintExtension
 
 class LintConventionPlugin : Plugin<Project> {
@@ -64,6 +66,35 @@ class LintConventionPlugin : Plugin<Project> {
                                 task.name == "detektDebugAndroidTest"
                         },
                     )
+                }
+
+                tasks.withType<Detekt>().configureEach {
+                    if (name == "detektDebug" || name == "detektDebugUnitTest" || name == "detektDebugAndroidTest") {
+                        val suffix = name.removePrefix("detekt")
+                        val kotlinCompile = tasks.withType<KotlinJvmCompile>().matching {
+                            it.name == "compile${suffix}Kotlin"
+                        }
+                        val javaCompile = tasks.withType<JavaCompile>().matching {
+                            it.name == "compile${suffix}JavaWithJavac"
+                        }
+                        classpath.from(
+                            kotlinCompile.map { it.destinationDirectory },
+                            kotlinCompile.map { it.libraries },
+                            javaCompile.map { it.destinationDirectory },
+                        )
+                        if (suffix != "Debug") {
+                            val debugKotlinCompile = tasks.withType<KotlinJvmCompile>().matching {
+                                it.name == "compileDebugKotlin"
+                            }
+                            val debugJavaCompile = tasks.withType<JavaCompile>().matching {
+                                it.name == "compileDebugJavaWithJavac"
+                            }
+                            classpath.from(
+                                debugKotlinCompile.map { it.destinationDirectory },
+                                debugJavaCompile.map { it.destinationDirectory },
+                            )
+                        }
+                    }
                 }
 
                 dependencies {

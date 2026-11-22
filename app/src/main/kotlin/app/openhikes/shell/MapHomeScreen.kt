@@ -54,7 +54,7 @@ fun MapHomeScreen(
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     onClearSearch: () -> Unit,
-    onSearchFocused: () -> Unit,
+    onSearchFocusChanged: (Boolean) -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -67,7 +67,7 @@ fun MapHomeScreen(
             searchQuery = searchQuery,
             onSearchQueryChange = onSearchQueryChange,
             onClearSearch = onClearSearch,
-            onSearchFocused = onSearchFocused,
+            onSearchFocusChanged = onSearchFocusChanged,
             onOpenSettings = onOpenSettings
         )
         Spacer(modifier = Modifier.height(ContentSpacing))
@@ -92,7 +92,7 @@ private fun SearchAndSettingsRow(
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     onClearSearch: () -> Unit,
-    onSearchFocused: () -> Unit,
+    onSearchFocusChanged: (Boolean) -> Unit,
     onOpenSettings: () -> Unit
 ) {
     Row(
@@ -104,7 +104,7 @@ private fun SearchAndSettingsRow(
             searchQuery = searchQuery,
             onSearchQueryChange = onSearchQueryChange,
             onClearSearch = onClearSearch,
-            onSearchFocused = onSearchFocused,
+            onSearchFocusChanged = onSearchFocusChanged,
             modifier = Modifier.weight(1f)
         )
         FilledTonalIconButton(
@@ -129,7 +129,7 @@ private fun SearchPillField(
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
     onClearSearch: () -> Unit,
-    onSearchFocused: () -> Unit,
+    onSearchFocusChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -179,7 +179,7 @@ private fun SearchPillField(
             modifier = Modifier
                 .fillMaxWidth()
                 .onFocusChanged { focusState ->
-                    if (focusState.isFocused) onSearchFocused()
+                    onSearchFocusChanged(focusState.isFocused)
                 }
                 .testTag(OpenHikesTestTags.MAP_SEARCH)
         )

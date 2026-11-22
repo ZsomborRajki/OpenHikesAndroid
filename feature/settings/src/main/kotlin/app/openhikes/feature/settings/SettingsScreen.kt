@@ -50,7 +50,6 @@ import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.LegalLinks
 import app.openhikes.core.model.UserSettings
 import app.openhikes.core.ui.testing.OpenHikesTestTags
-import java.util.Locale
 
 private val ScreenHorizontalPadding = 16.dp
 private val SectionSpacing = 20.dp
@@ -81,6 +80,8 @@ fun SettingsRoute(onClose: () -> Unit, modifier: Modifier = Modifier, viewModel:
         onKeepScreenAwakeChange = viewModel::onKeepScreenAwakeChange,
         onAutoSaveTilesChange = viewModel::onAutoSaveTilesChange,
         onSavePhotosToLibraryChange = viewModel::onSavePhotosToLibraryChange,
+        onRetrySave = viewModel::onRetrySave,
+        onDismissSaveError = viewModel::onDismissSaveError,
         onOpenUrl = { url -> runCatching { uriHandler.openUri(url) } },
         modifier = modifier
     )
@@ -102,50 +103,84 @@ fun SettingsScreen(
     onSavePhotosToLibraryChange: (Boolean) -> Unit,
     onOpenUrl: (String) -> Unit,
     modifier: Modifier = Modifier,
-    languageTag: String = Locale.getDefault().toLanguageTag()
+    onRetrySave: () -> Unit = {},
+    onDismissSaveError: () -> Unit = {}
 ) {
     Column(modifier = modifier.fillMaxSize()) {
         SettingsTopBar(onClose = onClose)
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .testTag(OpenHikesTestTags.SETTINGS_SCREEN),
-            contentPadding = PaddingValues(
-                start = ScreenHorizontalPadding,
-                end = ScreenHorizontalPadding,
-                bottom = SectionSpacing
-            ),
-            verticalArrangement = Arrangement.spacedBy(SectionSpacing)
-        ) {
-            item(key = "units") {
-                SettingsUnitsSection(
-                    selectedUnit = uiState.settings.distanceUnit,
-                    onDistanceUnitChange = onDistanceUnitChange
-                )
-            }
-            item(key = "recording") {
-                SettingsRecordingSection(
-                    settings = uiState.settings,
-                    onAutoPauseChange = onAutoPauseChange,
-                    onHikeRemindersChange = onHikeRemindersChange,
-                    onLiveUpdatesChange = onLiveUpdatesChange,
-                    onKeepScreenAwakeChange = onKeepScreenAwakeChange
-                )
-            }
-            item(key = "offline_photos") {
-                SettingsOfflineAndPhotosSection(
-                    settings = uiState.settings,
-                    onAutoSaveTilesChange = onAutoSaveTilesChange,
-                    onSavePhotosToLibraryChange = onSavePhotosToLibraryChange
-                )
-            }
-            item(key = "about") {
-                SettingsAboutSection(
-                    appVersion = uiState.appVersion,
-                    languageTag = languageTag,
-                    onOpenUrl = onOpenUrl
-                )
-            }
+        if (uiState.saveError != null) {
+            SettingsSaveErrorBanner(
+                onRetry = onRetrySave,
+                onDismiss = onDismissSaveError,
+                modifier = Modifier.padding(horizontal = ScreenHorizontalPadding, vertical = RowVerticalPadding)
+            )
+        }
+        SettingsPreferenceList(
+            uiState = uiState,
+            onDistanceUnitChange = onDistanceUnitChange,
+            onAutoPauseChange = onAutoPauseChange,
+            onHikeRemindersChange = onHikeRemindersChange,
+            onLiveUpdatesChange = onLiveUpdatesChange,
+            onKeepScreenAwakeChange = onKeepScreenAwakeChange,
+            onAutoSaveTilesChange = onAutoSaveTilesChange,
+            onSavePhotosToLibraryChange = onSavePhotosToLibraryChange,
+            onOpenUrl = onOpenUrl,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun SettingsPreferenceList(
+    uiState: SettingsUiState,
+    onDistanceUnitChange: (DistanceUnit) -> Unit,
+    onAutoPauseChange: (Boolean) -> Unit,
+    onHikeRemindersChange: (Boolean) -> Unit,
+    onLiveUpdatesChange: (Boolean) -> Unit,
+    onKeepScreenAwakeChange: (Boolean) -> Unit,
+    onAutoSaveTilesChange: (Boolean) -> Unit,
+    onSavePhotosToLibraryChange: (Boolean) -> Unit,
+    onOpenUrl: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(
+        modifier = modifier
+            .fillMaxSize()
+            .testTag(OpenHikesTestTags.SETTINGS_SCREEN),
+        contentPadding = PaddingValues(
+            start = ScreenHorizontalPadding,
+            end = ScreenHorizontalPadding,
+            bottom = SectionSpacing
+        ),
+        verticalArrangement = Arrangement.spacedBy(SectionSpacing)
+    ) {
+        item(key = "units") {
+            SettingsUnitsSection(
+                selectedUnit = uiState.settings.distanceUnit,
+                onDistanceUnitChange = onDistanceUnitChange
+            )
+        }
+        item(key = "recording") {
+            SettingsRecordingSection(
+                settings = uiState.settings,
+                onAutoPauseChange = onAutoPauseChange,
+                onHikeRemindersChange = onHikeRemindersChange,
+                onLiveUpdatesChange = onLiveUpdatesChange,
+                onKeepScreenAwakeChange = onKeepScreenAwakeChange
+            )
+        }
+        item(key = "offline_photos") {
+            SettingsOfflineAndPhotosSection(
+                settings = uiState.settings,
+                onAutoSaveTilesChange = onAutoSaveTilesChange,
+                onSavePhotosToLibraryChange = onSavePhotosToLibraryChange
+            )
+        }
+        item(key = "about") {
+            SettingsAboutSection(
+                appVersion = uiState.appVersion,
+                onOpenUrl = onOpenUrl
+            )
         }
     }
 }
@@ -249,18 +284,13 @@ private fun UnitToggleButton(
         interactionSource = interactionSource,
         modifier = modifier.defaultMinSize(minHeight = TouchTargetMinSize)
     ) {
-        DistanceUnitButtonLabel(title = title, detail = detail)
-    }
-}
-
-@Composable
-private fun DistanceUnitButtonLabel(title: String, detail: String) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(ToggleButtonDefaults.IconSpacing)
-    ) {
-        Text(text = title, style = MaterialTheme.typography.labelLarge)
-        Text(text = detail, style = MaterialTheme.typography.labelMedium)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(ToggleButtonDefaults.IconSpacing)
+        ) {
+            Text(text = title, style = MaterialTheme.typography.labelLarge)
+            Text(text = detail, style = MaterialTheme.typography.labelMedium)
+        }
     }
 }
 
@@ -333,23 +363,20 @@ private fun SettingsOfflineAndPhotosSection(
 }
 
 @Composable
-private fun SettingsAboutSection(appVersion: String, languageTag: String, onOpenUrl: (String) -> Unit) {
-    val privacyUrl = remember(languageTag) { LegalLinks.privacyPolicyUrl(languageTag) }
-    val termsUrl = remember(languageTag) { LegalLinks.termsUrl(languageTag) }
-
+private fun SettingsAboutSection(appVersion: String, onOpenUrl: (String) -> Unit) {
     SettingsSection(
         title = stringResource(R.string.settings_section_about),
         footer = stringResource(R.string.settings_about_footer)
     ) {
         SettingsLinkRow(
             title = stringResource(R.string.settings_privacy_policy),
-            onClick = { onOpenUrl(privacyUrl) },
+            onClick = { onOpenUrl(LegalLinks.privacyPolicyUrl()) },
             testTag = OpenHikesTestTags.PRIVACY_POLICY_LINK
         )
         SectionDivider()
         SettingsLinkRow(
             title = stringResource(R.string.settings_terms),
-            onClick = { onOpenUrl(termsUrl) },
+            onClick = { onOpenUrl(LegalLinks.termsUrl()) },
             testTag = OpenHikesTestTags.TERMS_LINK
         )
         SectionDivider()

@@ -1,11 +1,17 @@
 package app.openhikes.shell
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
@@ -16,10 +22,13 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -43,8 +52,17 @@ import app.openhikes.core.ui.navigation.OpenHikesNavigator
 import app.openhikes.core.ui.navigation.SettingsRoute
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 
-private val SidePanelViewportInset = 360.dp
 private val SheetPeekViewportInset = 112.dp
+
+@Immutable
+private data class ViewportChromeMetrics(val sidePanelEdge: Dp, val viewportPadding: PaddingValues)
+
+@Immutable
+private data class ShellNavigationHostState(
+    val sheetDetent: SheetDetent,
+    val onDetentChange: (SheetDetent) -> Unit,
+    val navigationContent: @Composable () -> Unit
+)
 
 /**
  * Stateful adaptive map-first shell hosting the permanent map, floating controls,
@@ -115,40 +133,25 @@ internal fun OpenHikesShellContent(
     modifier: Modifier = Modifier
 ) {
     val shellLayout = resolveShellLayout(windowSizeClass)
-    val initialDetent = if (launchConfig.startsWithExpandedSheet) SheetDetent.HALF else SheetDetent.PEEK
-    val sheetDetentState = rememberSaveable { mutableStateOf(initialDetent) }
-    val detentBeforeSettingsState = rememberSaveable { mutableStateOf<SheetDetent?>(null) }
-    var sheetTopOffsetProvider by remember { mutableStateOf<() -> Float>({ 0f }) }
-    val backStack = rememberNavBackStack(MapHomeRoute)
-    val navigator = remember(backStack) { OpenHikesNavigator(backStack) }
-
-    val navigationContent = rememberShellNavigation(
-        backStack = backStack,
-        navigator = navigator,
-        entryProviderInstallers = entryProviderInstallers,
+    val navHostState = rememberShellNavigationHost(
+        launchConfig = launchConfig,
         shellLayout = shellLayout,
-        sheetDetent = sheetDetentState.value,
-        detentBeforeSettings = detentBeforeSettingsState.value,
+        entryProviderInstallers = entryProviderInstallers,
         showAttributionDialog = chromeUiState.showAttributionDialog,
         searchQueryState = searchQueryState,
         onSyncBackStack = onSyncBackStack,
-        onDetentChange = { sheetDetentState.value = it },
-        onDetentBeforeSettingsChange = { detentBeforeSettingsState.value = it },
         onSearchQueryChange = onSearchQueryChange,
         onClearSearch = onClearSearch,
         onDismissAttributionDialog = onDismissAttributionDialog
     )
-
     OpenHikesShellStage(
         trailMapRenderer = trailMapRenderer,
         shellLayout = shellLayout,
-        sheetDetent = sheetDetentState.value,
-        sheetTopOffsetProvider = sheetTopOffsetProvider,
+        sheetDetent = navHostState.sheetDetent,
         chromeUiState = chromeUiState,
         initialCameraState = initialCameraState,
         pendingCameraCommand = pendingCameraCommand,
-        onDetentChange = { sheetDetentState.value = it },
-        onSheetTopOffsetChange = { sheetTopOffsetProvider = it },
+        onDetentChange = navHostState.onDetentChange,
         onToggleHikingRoutes = onToggleHikingRoutes,
         onZoomIn = onZoomIn,
         onZoomOut = onZoomOut,
@@ -158,55 +161,80 @@ internal fun OpenHikesShellContent(
         onOpenAttributionDialog = onOpenAttributionDialog,
         onDismissAttributionDialog = onDismissAttributionDialog,
         onOpenUrl = onOpenUrl,
-        navigationContent = navigationContent,
+        navigationContent = navHostState.navigationContent,
         modifier = modifier
     )
 }
 
 @Composable
-private fun rememberShellNavigation(
-    backStack: NavBackStack<NavKey>,
-    navigator: OpenHikesNavigator,
-    entryProviderInstallers: Set<EntryProviderInstaller>,
+private fun rememberShellNavigationHost(
+    launchConfig: LaunchConfig,
     shellLayout: ShellLayout,
-    sheetDetent: SheetDetent,
-    detentBeforeSettings: SheetDetent?,
+    entryProviderInstallers: Set<EntryProviderInstaller>,
     showAttributionDialog: Boolean,
     searchQueryState: State<String>,
     onSyncBackStack: (List<Any>) -> Unit,
-    onDetentChange: (SheetDetent) -> Unit,
-    onDetentBeforeSettingsChange: (SheetDetent?) -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onClearSearch: () -> Unit,
     onDismissAttributionDialog: () -> Unit
-): @Composable () -> Unit {
+): ShellNavigationHostState {
+    val sheetDetentState = rememberSaveable {
+        mutableStateOf(if (launchConfig.startsWithExpandedSheet) SheetDetent.HALF else SheetDetent.PEEK)
+    }
+    val detentBeforeSettingsState = rememberSaveable { mutableStateOf<SheetDetent?>(null) }
+    val searchActiveState = rememberSaveable { mutableStateOf(false) }
+    val backStack = rememberNavBackStack(MapHomeRoute)
+    val navigator = remember(backStack) { OpenHikesNavigator(backStack) }
+    val focusManager = LocalFocusManager.current
+    val exitSearch = {
+        onClearSearch()
+        searchActiveState.value = false
+        focusManager.clearFocus(force = true)
+    }
     CoordinateShellNavigation(
         backStack = backStack,
         canPop = navigator.canPop,
-        sheetDetent = sheetDetent,
-        detentBeforeSettings = detentBeforeSettings,
+        sheetDetent = sheetDetentState.value,
+        detentBeforeSettings = detentBeforeSettingsState.value,
         showAttributionDialog = showAttributionDialog,
         searchQuery = searchQueryState.value,
+        isSearchActive = searchActiveState.value,
         shellLayout = shellLayout,
         onSyncBackStack = onSyncBackStack,
-        onDetentChange = onDetentChange,
-        onClearDetentBeforeSettings = { onDetentBeforeSettingsChange(null) },
+        onDetentChange = { sheetDetentState.value = it },
+        onClearDetentBeforeSettings = { detentBeforeSettingsState.value = null },
         onDismissAttributionDialog = onDismissAttributionDialog,
-        onClearSearch = onClearSearch
+        onExitSearch = exitSearch
     )
-    return rememberNavigationContent(
+    val navigationContent = rememberNavigationContent(
         backStack = backStack,
         navigator = navigator,
         entryProviderInstallers = entryProviderInstallers,
         searchQueryState = searchQueryState,
         onSearchQueryChange = onSearchQueryChange,
         onClearSearch = onClearSearch,
-        onSearchFocused = { onDetentChange(SheetDetent.EXPANDED) },
+        onSearchFocusChanged = { focused ->
+            if (focused) {
+                searchActiveState.value = true
+                sheetDetentState.value = SheetDetent.EXPANDED
+            } else if (searchQueryState.value.isBlank()) {
+                searchActiveState.value = false
+            }
+        },
         onOpenSettings = {
-            if (detentBeforeSettings == null) onDetentBeforeSettingsChange(sheetDetent)
-            onDetentChange(SheetDetent.EXPANDED)
+            if (searchActiveState.value) exitSearch()
+            if (detentBeforeSettingsState.value == null) detentBeforeSettingsState.value = sheetDetentState.value
+            sheetDetentState.value = SheetDetent.EXPANDED
             navigator.navigate(SettingsRoute)
         }
+    )
+    return ShellNavigationHostState(
+        sheetDetent = sheetDetentState.value,
+        onDetentChange = { next ->
+            sheetDetentState.value = next
+            if (next == SheetDetent.PEEK && searchActiveState.value) exitSearch()
+        },
+        navigationContent = navigationContent
     )
 }
 
@@ -218,12 +246,13 @@ private fun CoordinateShellNavigation(
     detentBeforeSettings: SheetDetent?,
     showAttributionDialog: Boolean,
     searchQuery: String,
+    isSearchActive: Boolean,
     shellLayout: ShellLayout,
     onSyncBackStack: (List<Any>) -> Unit,
     onDetentChange: (SheetDetent) -> Unit,
     onClearDetentBeforeSettings: () -> Unit,
     onDismissAttributionDialog: () -> Unit,
-    onClearSearch: () -> Unit
+    onExitSearch: () -> Unit
 ) {
     LaunchedEffect(backStack.toList()) {
         onSyncBackStack(backStack.toList())
@@ -238,10 +267,11 @@ private fun CoordinateShellNavigation(
         canPop = canPop,
         showAttributionDialog = showAttributionDialog,
         searchQuery = searchQuery,
+        isSearchActive = isSearchActive,
         shellLayout = shellLayout,
         sheetDetent = sheetDetent,
         onDismissAttributionDialog = onDismissAttributionDialog,
-        onClearSearch = onClearSearch,
+        onExitSearch = onExitSearch,
         onCollapseSheet = { onDetentChange(SheetDetent.PEEK) }
     )
 }
@@ -251,12 +281,10 @@ private fun OpenHikesShellStage(
     trailMapRenderer: TrailMapRenderer,
     shellLayout: ShellLayout,
     sheetDetent: SheetDetent,
-    sheetTopOffsetProvider: () -> Float,
     chromeUiState: MapChromeUiState,
     initialCameraState: MapCameraState,
     pendingCameraCommand: MapCameraCommand?,
     onDetentChange: (SheetDetent) -> Unit,
-    onSheetTopOffsetChange: (() -> Float) -> Unit,
     onToggleHikingRoutes: () -> Unit,
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
@@ -269,22 +297,27 @@ private fun OpenHikesShellStage(
     navigationContent: @Composable () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Box(
+    var sheetTopOffsetProvider by remember { mutableStateOf<() -> Float>({ 0f }) }
+
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .semantics { testTagsAsResourceId = true }
             .testTag(OpenHikesTestTags.APP_ROOT)
     ) {
+        var measuredPanelEdge by remember(maxWidth, shellLayout) { mutableStateOf<Dp?>(null) }
+        val metrics = rememberViewportChromeMetrics(
+            availableWidth = maxWidth,
+            shellLayout = shellLayout,
+            measuredPanelEdge = measuredPanelEdge
+        )
+
         TrailMapHost(
             renderer = trailMapRenderer,
             cameraState = initialCameraState,
             cameraCommand = pendingCameraCommand,
             overlayState = chromeUiState.overlayState,
-            viewportPadding = if (shellLayout == ShellLayout.SIDE_PANEL) {
-                PaddingValues(start = SidePanelViewportInset)
-            } else {
-                PaddingValues(bottom = SheetPeekViewportInset)
-            },
+            viewportPadding = metrics.viewportPadding,
             interactions = MapInteractionEvents(onCameraChanged = onCameraChanged),
             onCameraCommandHandled = onCameraCommandHandled
         )
@@ -292,6 +325,7 @@ private fun OpenHikesShellStage(
             shellLayout = shellLayout,
             sheetDetent = sheetDetent,
             sheetTopOffsetProvider = sheetTopOffsetProvider,
+            sidePanelEdge = metrics.sidePanelEdge,
             overlayState = chromeUiState.overlayState,
             showAttributionDialog = chromeUiState.showAttributionDialog,
             onToggleHikingRoutes = onToggleHikingRoutes,
@@ -306,10 +340,36 @@ private fun OpenHikesShellStage(
             shellLayout = shellLayout,
             sheetDetent = sheetDetent,
             onDetentChange = onDetentChange,
-            onSheetTopOffsetChange = onSheetTopOffsetChange,
+            onSheetTopOffsetChange = { sheetTopOffsetProvider = it },
+            onPanelEdgeChanged = { measuredPanelEdge = it },
             navigationContent = navigationContent
         )
     }
+}
+
+@Composable
+private fun rememberViewportChromeMetrics(
+    availableWidth: Dp,
+    shellLayout: ShellLayout,
+    measuredPanelEdge: Dp?
+): ViewportChromeMetrics {
+    val safePadding = WindowInsets.safeDrawing.asPaddingValues()
+    val layoutDirection = LocalLayoutDirection.current
+    val safeStart = safePadding.calculateStartPadding(layoutDirection)
+    val safeTop = safePadding.calculateTopPadding()
+    val safeEnd = safePadding.calculateEndPadding(layoutDirection)
+    val safeBottom = safePadding.calculateBottomPadding()
+
+    val panelAvailableWidth = (availableWidth - safeStart - safeEnd - SidePanelOuterPadding * 2).coerceAtLeast(0.dp)
+    val calculatedPanelEdge = safeStart + SidePanelOuterPadding + calculateSidePanelWidth(panelAvailableWidth)
+    val effectivePanelEdge = (measuredPanelEdge ?: calculatedPanelEdge).coerceAtMost(availableWidth)
+
+    val viewportPadding = if (shellLayout == ShellLayout.SIDE_PANEL) {
+        PaddingValues(start = effectivePanelEdge, top = safeTop, end = safeEnd, bottom = safeBottom)
+    } else {
+        PaddingValues(start = safeStart, top = safeTop, end = safeEnd, bottom = SheetPeekViewportInset + safeBottom)
+    }
+    return ViewportChromeMetrics(sidePanelEdge = effectivePanelEdge, viewportPadding = viewportPadding)
 }
 
 @Composable
@@ -320,12 +380,12 @@ private fun rememberNavigationContent(
     searchQueryState: State<String>,
     onSearchQueryChange: (String) -> Unit,
     onClearSearch: () -> Unit,
-    onSearchFocused: () -> Unit,
+    onSearchFocusChanged: (Boolean) -> Unit,
     onOpenSettings: () -> Unit
 ): @Composable () -> Unit {
     val currentOnSearchQueryChange by rememberUpdatedState(onSearchQueryChange)
     val currentOnClearSearch by rememberUpdatedState(onClearSearch)
-    val currentOnSearchFocused by rememberUpdatedState(onSearchFocused)
+    val currentOnSearchFocusChanged by rememberUpdatedState(onSearchFocusChanged)
     val currentOnOpenSettings by rememberUpdatedState(onOpenSettings)
 
     return remember(backStack, navigator, entryProviderInstallers) {
@@ -343,7 +403,7 @@ private fun rememberNavigationContent(
                             searchQuery = searchQueryState.value,
                             onSearchQueryChange = currentOnSearchQueryChange,
                             onClearSearch = currentOnClearSearch,
-                            onSearchFocused = currentOnSearchFocused,
+                            onSearchFocusChanged = currentOnSearchFocusChanged,
                             onOpenSettings = currentOnOpenSettings
                         )
                     }
@@ -360,10 +420,11 @@ private fun AdaptiveChromeHost(
     sheetDetent: SheetDetent,
     onDetentChange: (SheetDetent) -> Unit,
     onSheetTopOffsetChange: (() -> Float) -> Unit,
+    onPanelEdgeChanged: (Dp) -> Unit,
     navigationContent: @Composable () -> Unit
 ) {
     if (shellLayout == ShellLayout.SIDE_PANEL) {
-        MapSidePanel { navigationContent() }
+        MapSidePanel(onPanelEdgeChanged = onPanelEdgeChanged) { navigationContent() }
     } else {
         MapBottomSheet(
             detent = sheetDetent,
@@ -380,20 +441,22 @@ private fun ShellBackHandlers(
     canPop: Boolean,
     showAttributionDialog: Boolean,
     searchQuery: String,
+    isSearchActive: Boolean,
     shellLayout: ShellLayout,
     sheetDetent: SheetDetent,
     onDismissAttributionDialog: () -> Unit,
-    onClearSearch: () -> Unit,
+    onExitSearch: () -> Unit,
     onCollapseSheet: () -> Unit
 ) {
     BackHandler(enabled = !canPop && showAttributionDialog, onBack = onDismissAttributionDialog)
     BackHandler(
-        enabled = !canPop && !showAttributionDialog && searchQuery.isNotBlank(),
-        onBack = onClearSearch
+        enabled = !canPop && !showAttributionDialog && (isSearchActive || searchQuery.isNotBlank()),
+        onBack = onExitSearch
     )
     BackHandler(
         enabled = !canPop &&
             !showAttributionDialog &&
+            !isSearchActive &&
             searchQuery.isBlank() &&
             shellLayout == ShellLayout.BOTTOM_SHEET &&
             sheetDetent != SheetDetent.PEEK,

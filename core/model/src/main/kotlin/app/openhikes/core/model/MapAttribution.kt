@@ -28,6 +28,20 @@ data class MapAttribution(val credits: List<MapAttributionCredit>) {
         }
 
     companion object {
+        private val openFreeMap = MapAttributionCredit(
+            title = "OpenFreeMap",
+            prefix = "Maps ©",
+            url = "https://openfreemap.org",
+            compactTitle = "OpenFreeMap"
+        )
+
+        private val openMapTiles = MapAttributionCredit(
+            title = "OpenMapTiles",
+            prefix = "©",
+            url = "https://www.openmaptiles.org/",
+            compactTitle = "OpenMapTiles"
+        )
+
         private val openStreetMap = MapAttributionCredit(
             title = "OpenStreetMap contributors",
             prefix = "Data ©",
@@ -48,6 +62,18 @@ data class MapAttribution(val credits: List<MapAttributionCredit>) {
             url = "https://hiking.waymarkedtrails.org",
             compactTitle = "Waymarked Trails"
         )
+
+        fun forOpenFreeMap(showsHikingRoutes: Boolean): MapAttribution {
+            val list = buildList {
+                add(openFreeMap)
+                add(openMapTiles)
+                add(openStreetMap)
+                if (showsHikingRoutes) {
+                    add(waymarkedTrails)
+                }
+            }
+            return MapAttribution(list)
+        }
 
         fun forOpenHikes(showsHikingRoutes: Boolean): MapAttribution {
             val list = buildList {

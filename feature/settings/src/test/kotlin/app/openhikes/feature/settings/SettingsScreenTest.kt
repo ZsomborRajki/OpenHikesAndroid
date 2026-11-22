@@ -11,6 +11,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToKey
 import app.openhikes.core.designsystem.theme.OpenHikesTheme
 import app.openhikes.core.model.DistanceUnit
+import app.openhikes.core.model.LegalLinks
 import app.openhikes.core.model.UserSettings
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 import com.google.common.truth.Truth.assertThat
@@ -86,7 +87,7 @@ class SettingsScreenTest {
     }
 
     @Test
-    fun aboutSectionExposesLocalizedLegalLinksRepositoryAndVersion() {
+    fun aboutSectionExposesAndroidLegalLinksRepositoryAndVersion() {
         val openedUrls = mutableListOf<String>()
 
         composeRule.setContent {
@@ -105,8 +106,7 @@ class SettingsScreenTest {
                     onKeepScreenAwakeChange = {},
                     onAutoSaveTilesChange = {},
                     onSavePhotosToLibraryChange = {},
-                    onOpenUrl = { openedUrls.add(it) },
-                    languageTag = "de-AT"
+                    onOpenUrl = { openedUrls.add(it) }
                 )
             }
         }
@@ -119,9 +119,46 @@ class SettingsScreenTest {
         composeRule.onNodeWithText("0.1.0 (1)").assertIsDisplayed()
 
         assertThat(openedUrls).containsExactly(
-            "https://zsomborrajki.github.io/OpenHikes/de/privacy/",
-            "https://zsomborrajki.github.io/OpenHikes/de/terms/",
-            "https://github.com/ZsomborRajki/OpenHikesAndroid"
+            LegalLinks.PRIVACY_POLICY_URL,
+            LegalLinks.TERMS_URL,
+            LegalLinks.GITHUB_REPOSITORY_URL
         ).inOrder()
+    }
+
+    @Test
+    fun displaysSaveErrorBannerAndTriggersRetryAndDismissCallbacks() {
+        var retried = false
+        var dismissed = false
+
+        composeRule.setContent {
+            OpenHikesTheme(dynamicColor = false) {
+                SettingsScreen(
+                    uiState = SettingsUiState(
+                        settings = UserSettings(),
+                        appVersion = "0.1.0 (1)",
+                        isLoaded = true,
+                        saveError = SettingsSaveError(id = 1L)
+                    ),
+                    onClose = {},
+                    onDistanceUnitChange = {},
+                    onAutoPauseChange = {},
+                    onHikeRemindersChange = {},
+                    onLiveUpdatesChange = {},
+                    onKeepScreenAwakeChange = {},
+                    onAutoSaveTilesChange = {},
+                    onSavePhotosToLibraryChange = {},
+                    onRetrySave = { retried = true },
+                    onDismissSaveError = { dismissed = true },
+                    onOpenUrl = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(OpenHikesTestTags.SETTINGS_SAVE_ERROR).assertIsDisplayed()
+        composeRule.onNodeWithTag(OpenHikesTestTags.SETTINGS_RETRY_SAVE).performClick()
+        assertThat(retried).isTrue()
+
+        composeRule.onNodeWithText("Dismiss").performClick()
+        assertThat(dismissed).isTrue()
     }
 }
