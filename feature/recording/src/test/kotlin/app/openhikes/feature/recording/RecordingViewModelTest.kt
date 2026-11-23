@@ -21,8 +21,10 @@ import app.openhikes.core.testing.android.FakeUserSettingsRepository
 import app.openhikes.core.ui.navigation.RecordingRoute
 import com.google.common.truth.Truth.assertThat
 import java.io.IOException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
 import org.junit.Test
@@ -150,5 +152,59 @@ class RecordingViewModelTest {
             assertThat(saved.savedHikeId).isNotNull()
             cancelAndIgnoreRemainingEvents()
         }
+    }
+
+    @Test
+    fun reopenedViewModelObservesConfirmedStopCompletingAfterBackNavigation() = runTest {
+        val gate = CompletableDeferred<Unit>()
+        val controller = FakeRecordingController(externalScope = backgroundScope).apply {
+            stopGate = gate
+        }
+        val firstVm = RecordingViewModel(
+            recordingController = controller,
+            recordingEntryCoordinator = RecordingEntryCoordinator(),
+            userSettingsRepository = FakeUserSettingsRepository(),
+            mapClaimCoordinator = MapClaimCoordinator(),
+            launchConfigHolder = LaunchConfigHolder(LaunchConfig(isUiTesting = true, enableSimulatedLocation = true))
+        )
+        val firstStore = ViewModelStore().apply { put("first", firstVm) }
+        firstVm.onAction(RecordingAction.Start)
+        advanceUntilIdle()
+        val sessionId = checkNotNull(controller.state.value.sessionId)
+        controller.emitStats(RecordingStatsSnapshot(distanceMeters = 120.0, pointCount = 2))
+        controller.emitTrace(
+            RecordingTraceSnapshot(
+                hikeId = HikeId(sessionId),
+                points = listOf(RouteCoordinate(47.71842, 12.83177), RouteCoordinate(47.71920, 12.83090))
+            )
+        )
+
+        firstVm.onAction(RecordingAction.Stop)
+        advanceUntilIdle()
+        firstVm.onAction(RecordingAction.ConfirmStopSave)
+        runCurrent()
+        assertThat(controller.state.value.phase).isEqualTo(RecordingPhase.SAVING)
+
+        // Pressing Back clears the first ViewModel while finalization is suspended on applicationScope.
+        firstStore.clear()
+
+        val secondVm = RecordingViewModel(
+            recordingController = controller,
+            recordingEntryCoordinator = RecordingEntryCoordinator(),
+            userSettingsRepository = FakeUserSettingsRepository(),
+            mapClaimCoordinator = MapClaimCoordinator(),
+            launchConfigHolder = LaunchConfigHolder(LaunchConfig(isUiTesting = true, enableSimulatedLocation = true))
+        )
+        val secondStore = ViewModelStore().apply { put("second", secondVm) }
+        secondVm.uiState.test {
+            assertThat(expectMostRecentItem().session.phase).isEqualTo(RecordingPhase.SAVING)
+            gate.complete(Unit)
+            advanceUntilIdle()
+            val settled = expectMostRecentItem()
+            assertThat(settled.session.phase).isEqualTo(RecordingPhase.IDLE)
+            assertThat(settled.savedHikeId).isEqualTo(HikeId(sessionId))
+            cancelAndIgnoreRemainingEvents()
+        }
+        secondStore.clear()
     }
 }

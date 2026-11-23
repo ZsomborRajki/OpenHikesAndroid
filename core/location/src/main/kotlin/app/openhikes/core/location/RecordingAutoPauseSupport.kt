@@ -7,9 +7,11 @@ import app.openhikes.core.model.AutoPausePolicy
 import app.openhikes.core.model.AutoPauseWatch
 import app.openhikes.core.model.LocationFix
 import app.openhikes.core.model.LocationFixPolicy
+import app.openhikes.core.model.RecordingFailure
 import app.openhikes.core.model.RecordingFixWindow
 import app.openhikes.core.model.RecordingPhase
 import app.openhikes.core.model.RecordingPreparation
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -191,7 +193,17 @@ internal class RecordingAutoPauseSupport(
         runtime.applyEnergyProfile(isAutoPaused = true)
         runtime.publishLiveUpdate(runtime.stateFlow.value, runtime.statsFlow.value)
         journalQueue.enqueue {
-            journal.pauseDiscardingPointsAfter(atEpochMillis = stoppedAtMillis, cutoffEpochMillis = stoppedAtMillis)
+            try {
+                journal.pauseDiscardingPointsAfter(
+                    atEpochMillis = stoppedAtMillis,
+                    cutoffEpochMillis = stoppedAtMillis
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: TrackJournalException) {
+                needsLiveRebuild = false
+                runtime.fail(RecordingFailure.Storage(error.message ?: "Auto-pause journal write failed"))
+            }
         }
         refreshJob?.cancel()
         refreshJob = scope.launch {
@@ -199,7 +211,9 @@ internal class RecordingAutoPauseSupport(
             val loaded = runCatching { journal.loadSession() }.getOrNull() ?: return@launch
             val normalized = RecordingPreparation.normalizedPoints(loaded.points)
             engineMutex.withLock {
-                if (needsLiveRebuild && runtime.stateFlow.value.sessionId == sessionId) {
+                val canRebuild = runtime.stateFlow.value.sessionId == sessionId &&
+                    runtime.stateFlow.value.phase != RecordingPhase.FAILED
+                if (needsLiveRebuild && canRebuild) {
                     needsLiveRebuild = false
                     runtime.rebuildLiveState(normalized)
                 }
@@ -235,7 +249,13 @@ internal class RecordingAutoPauseSupport(
         )
         runtime.applyEnergyProfile(isAutoPaused = false)
         journalQueue.enqueue {
-            journal.resume(resumedAtMillis)
+            try {
+                journal.resume(resumedAtMillis)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: TrackJournalException) {
+                runtime.fail(RecordingFailure.Storage(error.message ?: "Auto-resume journal write failed"))
+            }
         }
         runtime.publishLiveUpdate(runtime.stateFlow.value, runtime.statsFlow.value)
         for (held in walkedAway) {

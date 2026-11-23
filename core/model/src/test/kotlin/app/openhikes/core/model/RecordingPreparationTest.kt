@@ -46,4 +46,35 @@ class RecordingPreparationTest {
         assertThat(RecordingPreparation.prepare(listOf(points.last()), baseMillis))
             .isEqualTo(RecordingPreparationResult.TooShort)
     }
+
+    @Test
+    fun requiresAtLeastOneUnpausedDrawableLegToPrepareOrOfferSave() {
+        val first = RecordingPoint(47.71800, 12.83100, baseMillis, 5.0)
+        val resumedElsewhere = RecordingPoint(
+            latitude = 47.71950,
+            longitude = 12.83100,
+            timestampEpochMillis = baseMillis + 60_000L,
+            horizontalAccuracyMeters = 5.0,
+            flags = RecordingPointFlags.RESUMED
+        )
+        val separatedPair = listOf(first, resumedElsewhere)
+
+        assertThat(RecordingPreparation.hasDrawableLeg(separatedPair)).isFalse()
+        assertThat(RecordingPreparation.hasDrawableRouteLeg(separatedPair.map { it.toRouteCoordinate() })).isFalse()
+        assertThat(
+            RecordingPreparation.prepare(separatedPair, baseMillis)
+        ).isEqualTo(RecordingPreparationResult.TooShort)
+        assertThat(
+            RecordingStopStep.resolve(
+                hasDrawableLeg = RecordingPreparation.hasDrawableLeg(separatedPair),
+                holdsKeepsakes = false
+            )
+        ).isEqualTo(RecordingStopStep.END_EMPTY)
+
+        val continuedLeg = separatedPair + RecordingPoint(47.72010, 12.83100, baseMillis + 70_000L, 5.0)
+        assertThat(RecordingPreparation.hasDrawableLeg(continuedLeg)).isTrue()
+        assertThat(RecordingPreparation.hasDrawableRouteLeg(continuedLeg.map { it.toRouteCoordinate() })).isTrue()
+        assertThat(RecordingPreparation.prepare(continuedLeg, baseMillis))
+            .isInstanceOf(RecordingPreparationResult.Success::class.java)
+    }
 }

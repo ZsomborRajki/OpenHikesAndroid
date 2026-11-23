@@ -23,6 +23,7 @@ import app.openhikes.core.model.RecordingRecoveryState
 import app.openhikes.core.model.RecordingStopStep
 import app.openhikes.core.model.TrackJournalSession
 import java.util.UUID
+import kotlinx.coroutines.CancellationException
 
 /**
  * Encapsulates recording lifecycle transitions: session activation, fix ingestion, pause/resume,
@@ -147,7 +148,11 @@ internal class RecordingLifecycleSupport(
         runtime.applyEnergyProfile(isAutoPaused = false)
         runtime.publishLiveUpdate(runtime.stateFlow.value, runtime.statsFlow.value)
         journalQueue.enqueue {
-            runCatching { journal.pause(pausedAtMillis) }.onFailure { error ->
+            try {
+                journal.pause(pausedAtMillis)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: TrackJournalException) {
                 runtime.fail(RecordingFailure.Storage(error.message ?: "Pause failed"))
             }
         }
@@ -173,7 +178,7 @@ internal class RecordingLifecycleSupport(
         }
     }
 
-    private fun activateResumedSession(resumedAtMillis: Long) {
+    private suspend fun activateResumedSession(resumedAtMillis: Long) {
         runtime.pendingResumeFlag = true
         runtime.lastAcceptedPoint = null
         runtime.fixWindow?.reopen(resumedAtMillis) ?: run { runtime.fixWindow = RecordingFixWindow(resumedAtMillis) }
@@ -184,19 +189,19 @@ internal class RecordingLifecycleSupport(
             recoveryState = RecordingRecoveryState.Absent,
             failure = null
         )
+        if (!startForegroundServiceOrFail(pauseJournalOnFailure = true)) return
         motionFeed.start()
         locationFeed.startUpdates(runtime.applyEnergyProfile(isAutoPaused = false))
-        serviceBridge.ensureStarted()
         runtime.publishLiveUpdate(runtime.stateFlow.value, runtime.statsFlow.value)
     }
 
     suspend fun settledStopStep(): RecordingStopStep? {
         val current = runtime.stateFlow.value
-        val liveCount = runtime.statsFlow.value.pointCount
+        val hasLiveDrawableLeg = RecordingPreparation.hasDrawableRouteLeg(runtime.tracePoints)
         return when {
             !current.isStoppable -> null
-            liveCount >= RecordingPreparation.MINIMUM_POINT_COUNT -> RecordingStopStep.resolve(
-                pointCount = liveCount,
+            hasLiveDrawableLeg -> RecordingStopStep.resolve(
+                hasDrawableLeg = true,
                 holdsKeepsakes = false
             )
             else -> {
@@ -204,11 +209,11 @@ internal class RecordingLifecycleSupport(
                 journalQueue.drain()
                 runCatching {
                     val points = journal.loadSession()?.points.orEmpty()
-                    RecordingPreparation.normalizedPoints(points).size
+                    RecordingPreparation.hasDrawableLeg(RecordingPreparation.normalizedPoints(points))
                 }.fold(
-                    onSuccess = { journalCount ->
+                    onSuccess = { hasDrawableLeg ->
                         RecordingStopStep.resolve(
-                            pointCount = maxOf(liveCount, journalCount),
+                            hasDrawableLeg = hasDrawableLeg,
                             holdsKeepsakes = false
                         )
                     },
@@ -242,12 +247,19 @@ internal class RecordingLifecycleSupport(
         motionFeed.stop()
 
         val endedAtMillis = clock.now().toEpochMilli()
+        val resolvedTitle = offeredTitle?.takeIf(String::isNotBlank) ?: current.draftTitle
+        val resolvedCustomName = RecordingStopName.typed(customName.orEmpty(), offeredTitle)
         return try {
-            journal.finish(endedAtMillis)
+            journal.reopenForAppending()
+            journal.finish(
+                atEpochMillis = endedAtMillis,
+                title = resolvedTitle,
+                customName = resolvedCustomName
+            )
             val session = journal.loadSession() ?: throw TrackJournalException.Io("Missing track journal at Stop")
             finishPreparedSession(
                 session = session,
-                customName = RecordingStopName.typed(customName.orEmpty(), offeredTitle)
+                customName = resolvedCustomName
             )
         } catch (error: TrackJournalException) {
             runtime.fail(RecordingFailure.Storage(error.message ?: "Stop failed"), endLocationUpdates = false)
@@ -353,7 +365,11 @@ internal class RecordingLifecycleSupport(
         return result.fold(
             onSuccess = { saved ->
                 runCatching { journal.discard() }
-                runtime.resetSession()
+                runtime.resetSession(preserveCompletedSave = true)
+                runtime.completedSaveFlow.value = CompletedRecordingSave(
+                    sessionId = sessionId,
+                    hikeId = saved.id
+                )
                 Result.success(saved)
             },
             onFailure = { error ->
@@ -363,7 +379,7 @@ internal class RecordingLifecycleSupport(
         )
     }
 
-    private fun initializeActiveSession(sessionId: String, startedAtMillis: Long, draftTitle: String) {
+    private suspend fun initializeActiveSession(sessionId: String, startedAtMillis: Long, draftTitle: String) {
         autoPauseSupport.reset()
         runtime.pendingPreparedSave = null
         runtime.lastOfferedTitle = null
@@ -380,10 +396,39 @@ internal class RecordingLifecycleSupport(
             sessionStartedAtEpochMillis = startedAtMillis,
             draftTitle = draftTitle
         )
+        if (!startForegroundServiceOrFail(pauseJournalOnFailure = true)) return
         motionFeed.start()
         locationFeed.startUpdates(runtime.applyEnergyProfile(isAutoPaused = false))
-        serviceBridge.ensureStarted()
         runtime.publishSnapshots()
+    }
+
+    private suspend fun startForegroundServiceOrFail(pauseJournalOnFailure: Boolean): Boolean = try {
+        serviceBridge.ensureStarted()
+        true
+    } catch (error: IllegalStateException) {
+        handleForegroundServiceStartFailure(error, pauseJournalOnFailure)
+        false
+    } catch (error: SecurityException) {
+        handleForegroundServiceStartFailure(error, pauseJournalOnFailure)
+        false
+    }
+
+    private suspend fun handleForegroundServiceStartFailure(error: RuntimeException, pauseJournalOnFailure: Boolean) {
+        locationFeed.stopUpdates()
+        motionFeed.stop()
+        if (pauseJournalOnFailure) {
+            try {
+                journal.pause(clock.now().toEpochMilli())
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: TrackJournalException) {
+                // Keep the draft session on disk even if marking the pause interval fails.
+            }
+        }
+        runtime.fail(
+            RecordingFailure.Storage(error.message ?: "Unable to start location service"),
+            endLocationUpdates = true
+        )
     }
 
     private fun keepAcceptedPoint(point: RecordingPoint) {
@@ -398,7 +443,11 @@ internal class RecordingLifecycleSupport(
         runtime.applyEnergyProfile(isAutoPaused = false)
         runtime.publishSnapshots()
         journalQueue.enqueue {
-            runCatching { journal.append(point) }.onFailure { error ->
+            try {
+                journal.append(point)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: TrackJournalException) {
                 runtime.fail(RecordingFailure.Storage(error.message ?: "Failed to journal track point"))
             }
         }

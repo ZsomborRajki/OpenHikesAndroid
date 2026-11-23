@@ -130,7 +130,8 @@ data class TrackJournalMetadata(
     val endedAtEpochMillis: Long? = null,
     val lastUpdatedAtEpochMillis: Long,
     val pausedIntervals: List<RecordingPauseInterval> = emptyList(),
-    val title: String? = null
+    val title: String? = null,
+    val customName: String? = null
 )
 
 /**
@@ -170,11 +171,16 @@ enum class RecordingStopStep {
     companion object {
         private const val MINIMUM_LINE_POINTS = 2
 
-        fun resolve(pointCount: Int, holdsKeepsakes: Boolean): RecordingStopStep = when {
-            pointCount >= MINIMUM_LINE_POINTS -> ASK_NAME
+        fun resolve(hasDrawableLeg: Boolean, holdsKeepsakes: Boolean): RecordingStopStep = when {
+            hasDrawableLeg -> ASK_NAME
             holdsKeepsakes -> CONFIRM_DISCARD
             else -> END_EMPTY
         }
+
+        fun resolve(pointCount: Int, holdsKeepsakes: Boolean): RecordingStopStep = resolve(
+            hasDrawableLeg = pointCount >= MINIMUM_LINE_POINTS,
+            holdsKeepsakes = holdsKeepsakes
+        )
     }
 }
 

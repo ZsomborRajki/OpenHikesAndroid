@@ -13,6 +13,7 @@ import app.openhikes.core.model.RecordingPreparation
 import app.openhikes.core.model.RecordingRecoveryState
 import app.openhikes.core.model.RecordingRecoverySummary
 import app.openhikes.core.model.TrackJournalSession
+import kotlinx.coroutines.CancellationException
 
 /**
  * Restores interrupted recording sessions from disk [TrackJournal] across app restarts and process death.
@@ -47,7 +48,11 @@ internal class RecordingRecoverySupport(
                 val normalized = RecordingPreparation.normalizedPoints(loadedSession.points)
                 runtime.rebuildLiveState(normalized)
                 if (loadedSession.metadata.endedAtEpochMillis != null) {
-                    finalizeSession(loadedSession.copy(points = normalized), null)
+                    runtime.lastOfferedTitle = loadedSession.metadata.title
+                    finalizeSession(
+                        loadedSession.copy(points = normalized),
+                        loadedSession.metadata.customName
+                    )
                 } else {
                     finishActiveRecovery(loadedSession, normalized, automaticallyResume)
                 }
@@ -101,30 +106,75 @@ internal class RecordingRecoverySupport(
             locationFeed.permissionStatus.value == LocationPermissionStatus.GRANTED_FINE
 
         if (canAutoResume) {
+            tryAutoResumeRecovery(session, normalized)
+        } else {
+            enterNeedsDecisionRecovery(session, normalized)
+        }
+    }
+
+    private suspend fun tryAutoResumeRecovery(session: TrackJournalSession, normalized: List<RecordingPoint>) {
+        val reopened = try {
             journal.reopenForAppending()
-            val phase = if (normalized.isEmpty()) RecordingPhase.WAITING_FOR_FIX else RecordingPhase.RECORDING
-            runtime.stateFlow.value = runtime.stateFlow.value.copy(
-                phase = phase,
-                recoveryState = RecordingRecoveryState.Resumed
+            true
+        } catch (error: TrackJournalException) {
+            runtime.fail(
+                RecordingFailure.Storage(error.message ?: "Recovery reopen failed"),
+                endLocationUpdates = false
             )
-            motionFeed.start()
-            val profile = runtime.applyEnergyProfile(isAutoPaused = false)
-            locationFeed.startUpdates(profile)
+            false
+        }
+        if (!reopened) return
+
+        val recoveredAtMillis = clock.now().toEpochMilli()
+        runtime.fixWindow = RecordingFixWindow(recoveredAtMillis)
+        runtime.lastAcceptedPoint = null
+        runtime.pendingResumeFlag = normalized.isNotEmpty()
+        val phase = if (normalized.isEmpty()) RecordingPhase.WAITING_FOR_FIX else RecordingPhase.RECORDING
+        runtime.stateFlow.value = runtime.stateFlow.value.copy(
+            phase = phase,
+            recoveryState = RecordingRecoveryState.Resumed
+        )
+        val profile = runtime.applyEnergyProfile(isAutoPaused = false)
+        val serviceStarted = try {
             serviceBridge.ensureStarted()
+            true
+        } catch (_: IllegalStateException) {
+            false
+        } catch (_: SecurityException) {
+            false
+        }
+        if (serviceStarted) {
+            motionFeed.start()
+            locationFeed.startUpdates(profile)
             runtime.publishSnapshots()
         } else {
-            val summary = RecordingRecoverySummary(
-                startedAtEpochMillis = session.metadata.startedAtEpochMillis,
-                lastUpdatedAtEpochMillis = session.metadata.lastUpdatedAtEpochMillis,
-                distanceMeters = runtime.accumulator.distanceMeters,
-                pointCount = normalized.size
-            )
-            runtime.stateFlow.value = runtime.stateFlow.value.copy(
-                phase = RecordingPhase.PAUSED,
-                recoveryState = RecordingRecoveryState.NeedsDecision(summary)
-            )
-            runtime.publishSnapshots()
+            locationFeed.stopUpdates()
+            motionFeed.stop()
+            try {
+                journal.pause(recoveredAtMillis)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: TrackJournalException) {
+                // Surface recovered draft as NeedsDecision even if pause metadata write fails.
+            }
+            runtime.pendingResumeFlag = false
+            runtime.lastAcceptedPoint = normalized.lastOrNull()
+            enterNeedsDecisionRecovery(session, normalized)
         }
+    }
+
+    private fun enterNeedsDecisionRecovery(session: TrackJournalSession, normalized: List<RecordingPoint>) {
+        val summary = RecordingRecoverySummary(
+            startedAtEpochMillis = session.metadata.startedAtEpochMillis,
+            lastUpdatedAtEpochMillis = session.metadata.lastUpdatedAtEpochMillis,
+            distanceMeters = runtime.accumulator.distanceMeters,
+            pointCount = normalized.size
+        )
+        runtime.stateFlow.value = runtime.stateFlow.value.copy(
+            phase = RecordingPhase.PAUSED,
+            recoveryState = RecordingRecoveryState.NeedsDecision(summary)
+        )
+        runtime.publishSnapshots()
     }
 
     private companion object {

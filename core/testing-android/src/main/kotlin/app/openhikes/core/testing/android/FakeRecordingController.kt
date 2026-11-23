@@ -2,6 +2,7 @@ package app.openhikes.core.testing.android
 
 import app.openhikes.core.common.RecordingStopName
 import app.openhikes.core.common.RecordingTitle
+import app.openhikes.core.location.CompletedRecordingSave
 import app.openhikes.core.location.RecordingController
 import app.openhikes.core.location.RecordingSessionState
 import app.openhikes.core.model.Hike
@@ -9,6 +10,7 @@ import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeSummary
 import app.openhikes.core.model.RecordingFailure
 import app.openhikes.core.model.RecordingPhase
+import app.openhikes.core.model.RecordingPreparation
 import app.openhikes.core.model.RecordingRecoveryState
 import app.openhikes.core.model.RecordingRecoverySummary
 import app.openhikes.core.model.RecordingStatsSnapshot
@@ -19,6 +21,9 @@ import app.openhikes.core.model.RouteLinePattern
 import app.openhikes.core.model.RouteTint
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,24 +33,29 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 @Singleton
 @Suppress("TooManyFunctions")
-class FakeRecordingController(private val defaultStartEpochMillis: Long = DEFAULT_SUGGESTED_EPOCH_MILLIS) :
-    RecordingController {
+class FakeRecordingController(
+    private val defaultStartEpochMillis: Long = DEFAULT_SUGGESTED_EPOCH_MILLIS,
+    private val externalScope: CoroutineScope? = null
+) : RecordingController {
     @Inject
-    constructor() : this(DEFAULT_SUGGESTED_EPOCH_MILLIS)
+    constructor() : this(DEFAULT_SUGGESTED_EPOCH_MILLIS, null)
 
     private val stateFlow = MutableStateFlow(RecordingSessionState())
     private val statsFlow = MutableStateFlow(RecordingStatsSnapshot())
     private val traceFlow = MutableStateFlow(RecordingTraceSnapshot())
+    private val completedSaveFlow = MutableStateFlow<CompletedRecordingSave?>(null)
 
     override val state: StateFlow<RecordingSessionState> = stateFlow.asStateFlow()
     override val stats: StateFlow<RecordingStatsSnapshot> = statsFlow.asStateFlow()
     override val trace: StateFlow<RecordingTraceSnapshot> = traceFlow.asStateFlow()
+    override val completedSave: StateFlow<CompletedRecordingSave?> = completedSaveFlow.asStateFlow()
 
     var grantedFinePermission: Boolean = true
     var simulatedElapsedSeconds: Double = 0.0
     var holdsKeepsakesForStop: Boolean = false
     var nextStopStepOverride: RecordingStopStep? = null
     var nextStopFailure: Throwable? = null
+    var stopGate: CompletableDeferred<Unit>? = null
 
     var startCount: Int = 0
         private set
@@ -72,8 +82,15 @@ class FakeRecordingController(private val defaultStartEpochMillis: Long = DEFAUL
 
     override fun elapsedSeconds(): Double = simulatedElapsedSeconds
 
+    override fun consumeCompletedSave(hikeId: HikeId) {
+        if (completedSaveFlow.value?.hikeId == hikeId) {
+            completedSaveFlow.value = null
+        }
+    }
+
     override suspend fun start() {
         startCount += 1
+        completedSaveFlow.value = null
         if (!grantedFinePermission) {
             stateFlow.value = stateFlow.value.copy(
                 phase = RecordingPhase.FAILED,
@@ -130,8 +147,14 @@ class FakeRecordingController(private val defaultStartEpochMillis: Long = DEFAUL
 
     override suspend fun settledStopStep(): RecordingStopStep? {
         if (!stateFlow.value.isStoppable) return null
+        val points = traceFlow.value.points
+        val hasDrawableLeg = if (points.isNotEmpty()) {
+            RecordingPreparation.hasDrawableRouteLeg(points)
+        } else {
+            statsFlow.value.pointCount >= MINIMUM_SAVE_POINTS
+        }
         return nextStopStepOverride ?: RecordingStopStep.resolve(
-            pointCount = statsFlow.value.pointCount,
+            hasDrawableLeg = hasDrawableLeg,
             holdsKeepsakes = holdsKeepsakesForStop
         )
     }
@@ -141,13 +164,29 @@ class FakeRecordingController(private val defaultStartEpochMillis: Long = DEFAUL
     )
 
     override suspend fun stop(customName: String?, offeredTitle: String?): Result<Hike> {
+        val targetScope = externalScope
+        return if (targetScope != null) {
+            targetScope.async { executeStop(customName, offeredTitle) }.await()
+        } else {
+            executeStop(customName, offeredTitle)
+        }
+    }
+
+    private suspend fun executeStop(customName: String?, offeredTitle: String?): Result<Hike> {
         stopCount += 1
         lastCustomName = customName
         lastOfferedTitle = offeredTitle
+        stateFlow.value = stateFlow.value.copy(phase = RecordingPhase.SAVING, isAutoPaused = false)
+        stopGate?.await()
         val points = traceFlow.value.points
+        val hasDrawableLeg = if (points.isNotEmpty()) {
+            RecordingPreparation.hasDrawableRouteLeg(points)
+        } else {
+            points.size >= MINIMUM_SAVE_POINTS
+        }
         val injectedError = nextStopFailure
         return when {
-            points.size < MINIMUM_SAVE_POINTS -> {
+            !hasDrawableLeg -> {
                 discard()
                 Result.failure(
                     IllegalStateException("Recording discarded with fewer than $MINIMUM_SAVE_POINTS points")
@@ -167,7 +206,18 @@ class FakeRecordingController(private val defaultStartEpochMillis: Long = DEFAUL
     }
 
     override suspend fun retrySave(): Result<Hike> {
+        val targetScope = externalScope
+        return if (targetScope != null) {
+            targetScope.async { executeRetrySave() }.await()
+        } else {
+            executeRetrySave()
+        }
+    }
+
+    private suspend fun executeRetrySave(): Result<Hike> {
         retrySaveCount += 1
+        stateFlow.value = stateFlow.value.copy(phase = RecordingPhase.SAVING, failure = null)
+        stopGate?.await()
         val injectedError = nextStopFailure
         if (injectedError != null) {
             nextStopFailure = null
@@ -183,7 +233,7 @@ class FakeRecordingController(private val defaultStartEpochMillis: Long = DEFAUL
 
     override suspend fun discard() {
         discardCount += 1
-        resetState()
+        resetState(preserveCompletedSave = false)
     }
 
     override fun dismissFailure() {
@@ -257,8 +307,10 @@ class FakeRecordingController(private val defaultStartEpochMillis: Long = DEFAUL
         val resolvedCustomName = customName?.let {
             if (offeredTitle != null) RecordingStopName.typed(it, offeredTitle) else it.takeIf(String::isNotBlank)
         }
+        val sessionId = current.sessionId ?: "fake-hike"
+        val hikeId = HikeId(sessionId)
         val saved = Hike(
-            id = HikeId(current.sessionId ?: "fake-hike"),
+            id = hikeId,
             title = resolvedTitle,
             customName = resolvedCustomName,
             distanceMeters = statsFlow.value.distanceMeters,
@@ -270,12 +322,16 @@ class FakeRecordingController(private val defaultStartEpochMillis: Long = DEFAUL
             routeBorderHex = RouteBorder.NONE_HEX,
             route = traceFlow.value.points
         )
-        resetState()
+        completedSaveFlow.value = CompletedRecordingSave(sessionId = sessionId, hikeId = hikeId)
+        resetState(preserveCompletedSave = true)
         return Result.success(saved)
     }
 
-    private fun resetState() {
+    private fun resetState(preserveCompletedSave: Boolean = false) {
         simulatedElapsedSeconds = 0.0
+        if (!preserveCompletedSave) {
+            completedSaveFlow.value = null
+        }
         stateFlow.value = RecordingSessionState()
         statsFlow.value = RecordingStatsSnapshot()
         traceFlow.value = RecordingTraceSnapshot()

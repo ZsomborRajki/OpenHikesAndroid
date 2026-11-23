@@ -10,6 +10,7 @@ import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapClaim
 import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.RecordingPhase
 import app.openhikes.core.model.RecordingStatsSnapshot
 import app.openhikes.core.model.RecordingStopStep
 import app.openhikes.core.model.UserSettings
@@ -42,6 +43,7 @@ class RecordingViewModel @Inject constructor(
     private val launchConfigHolder: LaunchConfigHolder
 ) : ViewModel() {
     private val dialogState = MutableStateFlow(RecordingDialogState())
+    private var pendingSaveSessionId: String? = null
 
     val stats: StateFlow<RecordingStatsSnapshot> = recordingController.stats
 
@@ -76,9 +78,14 @@ class RecordingViewModel @Inject constructor(
     )
 
     init {
+        val initialState = recordingController.state.value
+        if (initialState.phase == RecordingPhase.SAVING && initialState.sessionId != null) {
+            pendingSaveSessionId = initialState.sessionId
+        }
         mapClaimCoordinator.registerClaim(MapClaim(routeKey = RecordingRoute, depth = DEFAULT_CLAIM_DEPTH))
         observeLiveCameraTracking()
-        if (recordingEntryCoordinator.consumeAutoStart() && !recordingController.state.value.isActive) {
+        observeCompletedSaves()
+        if (recordingEntryCoordinator.consumeAutoStart() && !initialState.isActive) {
             dispatchStart()
         }
     }
@@ -110,8 +117,13 @@ class RecordingViewModel @Inject constructor(
             RecordingAction.DismissDiscardDialog -> dialogState.update { it.copy(showDiscardDialog = false) }
             RecordingAction.RetrySave -> retrySave()
             RecordingAction.TryAgain -> {
+                val hasExistingSession = recordingController.state.value.sessionId != null
                 recordingController.dismissFailure()
-                dispatchStart()
+                if (hasExistingSession) {
+                    viewModelScope.launch { recordingController.resume() }
+                } else {
+                    dispatchStart()
+                }
             }
             RecordingAction.DismissFailure -> recordingController.dismissFailure()
             RecordingAction.DismissRecoveryNotice -> recordingController.dismissRecoveryNotice()
@@ -133,6 +145,27 @@ class RecordingViewModel @Inject constructor(
                             zoom = FOLLOW_ZOOM
                         )
                     )
+                }
+        }
+    }
+
+    private fun observeCompletedSaves() {
+        viewModelScope.launch {
+            recordingController.state.collect { session ->
+                if (session.phase == RecordingPhase.SAVING && session.sessionId != null) {
+                    pendingSaveSessionId = session.sessionId
+                }
+            }
+        }
+        viewModelScope.launch {
+            recordingController.completedSave
+                .filterNotNull()
+                .collect { completed ->
+                    if (pendingSaveSessionId == completed.sessionId) {
+                        pendingSaveSessionId = null
+                        recordingController.consumeCompletedSave(completed.hikeId)
+                        dialogState.update { it.copy(savedHikeId = completed.hikeId) }
+                    }
                 }
         }
     }
@@ -177,19 +210,23 @@ class RecordingViewModel @Inject constructor(
 
     private fun confirmStopSave() {
         val current = dialogState.value
+        pendingSaveSessionId = recordingController.state.value.sessionId
         dialogState.update { it.copy(stopDialogStep = null) }
         viewModelScope.launch {
-            val saved = recordingController.stop(
+            recordingController.stop(
                 customName = current.stopNameDraft,
                 offeredTitle = current.offeredTitle
-            )
-            saved.onSuccess { hike ->
-                dialogState.update { it.copy(savedHikeId = hike.id) }
+            ).onFailure {
+                val state = recordingController.state.value
+                if (!state.canRetrySave && state.phase != RecordingPhase.SAVING) {
+                    pendingSaveSessionId = null
+                }
             }
         }
     }
 
     private fun confirmDiscard() {
+        pendingSaveSessionId = null
         dialogState.update { it.copy(stopDialogStep = null, showDiscardDialog = false) }
         viewModelScope.launch {
             recordingController.discard()
@@ -198,10 +235,9 @@ class RecordingViewModel @Inject constructor(
     }
 
     private fun retrySave() {
+        pendingSaveSessionId = recordingController.state.value.sessionId
         viewModelScope.launch {
-            recordingController.retrySave().onSuccess { hike ->
-                dialogState.update { it.copy(savedHikeId = hike.id) }
-            }
+            recordingController.retrySave()
         }
     }
 

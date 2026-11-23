@@ -67,24 +67,46 @@ class LiveUpdateNotificationController @Inject constructor(
     private var liveUpdatesEnabled: Boolean = true
     private var distanceUnit: DistanceUnit = DistanceUnit.METRIC
     private var lastDisplayedPayload: LiveUpdatePayload? = null
+    private var latestRecordingPayload: LiveUpdatePayload? = null
 
-    fun buildInitialForegroundNotification(title: String, sessionId: String = "pending"): Notification {
-        val payload = LiveUpdatePayload(
+    fun buildInitialForegroundNotification(
+        title: String,
+        sessionId: String = "pending",
+        fallbackPayload: LiveUpdatePayload? = null
+    ): Notification {
+        val defaultPayload = LiveUpdatePayload(
             kind = LiveUpdateKind.RECORDING,
             sessionId = sessionId,
             title = title,
             runState = LiveUpdateRunState.FINDING_GPS,
             distanceMeters = 0.0
         )
-        return synchronized(lock) {
-            lastDisplayedPayload = payload
-            arbiter.submit(payload, clock.now().toEpochMilli())
-            builder.build(
-                payload = payload,
-                distanceUnit = distanceUnit,
-                requestPromoted = liveUpdatesEnabled && poster.canPostPromotedNotifications()
+        val (payload, unit, promoted) = synchronized(lock) {
+            val existing = latestRecordingPayload?.takeIf { it.sessionId == sessionId }
+                ?: lastDisplayedPayload?.takeIf {
+                    it.kind == LiveUpdateKind.RECORDING && it.sessionId == sessionId
+                }
+            val resolved = if (existing != null) {
+                lastDisplayedPayload = existing
+                existing
+            } else {
+                val initial = fallbackPayload?.copy(kind = LiveUpdateKind.RECORDING) ?: defaultPayload
+                latestRecordingPayload = initial
+                lastDisplayedPayload = initial
+                arbiter.submit(initial, clock.now().toEpochMilli())
+                initial
+            }
+            Triple(
+                resolved,
+                distanceUnit,
+                liveUpdatesEnabled && poster.canPostPromotedNotifications()
             )
         }
+        return builder.build(
+            payload = payload,
+            distanceUnit = unit,
+            requestPromoted = promoted
+        )
     }
 
     fun onRecordingUpdate(payload: LiveUpdatePayload) {
@@ -121,6 +143,9 @@ class LiveUpdateNotificationController @Inject constructor(
 
     private fun submit(payload: LiveUpdatePayload) {
         val decision = synchronized(lock) {
+            if (payload.kind == LiveUpdateKind.RECORDING) {
+                latestRecordingPayload = payload
+            }
             val result = arbiter.submit(payload, clock.now().toEpochMilli())
             if (result == LiveUpdateDecision.POST_IMMEDIATE) {
                 lastDisplayedPayload = payload
@@ -138,6 +163,9 @@ class LiveUpdateNotificationController @Inject constructor(
 
     private fun end(kind: LiveUpdateKind) {
         val (restored, unit, promoted) = synchronized(lock) {
+            if (kind == LiveUpdateKind.RECORDING) {
+                latestRecordingPayload = null
+            }
             val fallback = arbiter.end(kind, clock.now().toEpochMilli())
             lastDisplayedPayload = fallback
             Triple(

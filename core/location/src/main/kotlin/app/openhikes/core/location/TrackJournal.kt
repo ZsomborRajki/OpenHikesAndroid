@@ -11,7 +11,17 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -29,7 +39,8 @@ class TrackJournal(
     private val ioDispatcher: CoroutineDispatcher,
     private val handleFactory: TrackJournalHandleFactory = TrackJournalHandleFactory { file ->
         FileTrackJournalHandle(file)
-    }
+    },
+    private val flushScope: CoroutineScope? = null
 ) {
     val journalFile: File = File(directory, JOURNAL_FILE_NAME)
     val metadataFile: File = File(directory, METADATA_FILE_NAME)
@@ -39,6 +50,10 @@ class TrackJournal(
         ignoreUnknownKeys = true
         encodeDefaults = true
     }
+    private val flushFailureFlow = MutableSharedFlow<TrackJournalException>(
+        extraBufferCapacity = FLUSH_FAILURE_BUFFER_CAPACITY
+    )
+    val backgroundFlushFailures: Flow<TrackJournalException> = flushFailureFlow.asSharedFlow()
 
     private var fileHandle: TrackJournalHandle? = null
     private var committedByteCount: Long = 0L
@@ -46,6 +61,7 @@ class TrackJournal(
     private val pending = ArrayList<RecordingPoint>()
     private var metadata: TrackJournalMetadata? = null
     private var lastFlushAtMillis: Long? = null
+    private var scheduledFlushJob: Job? = null
 
     suspend fun start(
         sessionId: String,
@@ -79,6 +95,7 @@ class TrackJournal(
                 pending.clear()
                 pending.addAll(carryingPoints)
                 lastFlushAtMillis = nowMillis
+                cancelScheduledFlush()
                 writeMetadata(newMetadata)
                 flushInternal()
             }
@@ -88,11 +105,16 @@ class TrackJournal(
     suspend fun append(point: RecordingPoint) = mutex.withLock {
         withContext(ioDispatcher) {
             runIo {
+                val wasEmpty = pending.isEmpty()
                 pending.add(point)
                 val nowMillis = clock.now().toEpochMilli()
                 val elapsedMillis = lastFlushAtMillis?.let { nowMillis - it } ?: Long.MAX_VALUE
-                if (pending.size >= BATCH_SIZE || elapsedMillis >= MAX_FLUSH_INTERVAL_MILLIS) {
-                    flushInternal()
+                when {
+                    pending.size >= BATCH_SIZE || elapsedMillis >= MAX_FLUSH_INTERVAL_MILLIS -> flushInternal()
+                    wasEmpty || scheduledFlushJob?.isActive != true -> {
+                        val remainingMillis = (MAX_FLUSH_INTERVAL_MILLIS - elapsedMillis).coerceAtLeast(1L)
+                        scheduleFlush(remainingMillis)
+                    }
                 }
             }
         }
@@ -127,6 +149,7 @@ class TrackJournal(
                 val updated = current.copy(
                     pausedIntervals = intervals,
                     endedAtEpochMillis = null,
+                    customName = null,
                     lastUpdatedAtEpochMillis = clock.now().toEpochMilli()
                 )
                 metadata = updated
@@ -135,7 +158,7 @@ class TrackJournal(
         }
     }
 
-    suspend fun finish(atEpochMillis: Long) = mutex.withLock {
+    suspend fun finish(atEpochMillis: Long, title: String? = null, customName: String? = null) = mutex.withLock {
         withContext(ioDispatcher) {
             runIo {
                 flushInternal()
@@ -148,6 +171,8 @@ class TrackJournal(
                 val updated = current.copy(
                     pausedIntervals = intervals,
                     endedAtEpochMillis = atEpochMillis,
+                    title = title ?: current.title,
+                    customName = customName,
                     lastUpdatedAtEpochMillis = clock.now().toEpochMilli()
                 )
                 metadata = updated
@@ -272,7 +297,12 @@ class TrackJournal(
         writeMetadata(updated)
     }
 
-    private fun flushInternal() {
+    private fun flushInternal(fromScheduledFlush: Boolean = false) {
+        if (fromScheduledFlush) {
+            scheduledFlushJob = null
+        } else {
+            cancelScheduledFlush()
+        }
         if (pending.isEmpty()) return
         val handle = fileHandle ?: throw TrackJournalException.Io("The recording journal is closed.")
         val bytes = TrackJournalCodec.encodePoints(pending)
@@ -285,6 +315,40 @@ class TrackJournal(
             metadata = updated
             writeMetadata(updated)
         }
+    }
+
+    private fun scheduleFlush(delayMillis: Long) {
+        val targetScope = flushScope ?: return
+        scheduledFlushJob?.cancel()
+        scheduledFlushJob = targetScope.launch {
+            delay(delayMillis)
+            runScheduledFlush()
+        }
+    }
+
+    private suspend fun runScheduledFlush() {
+        try {
+            mutex.withLock {
+                withContext(ioDispatcher) {
+                    currentCoroutineContext().ensureActive()
+                    if (pending.isNotEmpty() && fileHandle != null) {
+                        runIo { flushInternal(fromScheduledFlush = true) }
+                    } else {
+                        scheduledFlushJob = null
+                    }
+                }
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: TrackJournalException) {
+            scheduledFlushJob = null
+            flushFailureFlow.tryEmit(error)
+        }
+    }
+
+    private fun cancelScheduledFlush() {
+        scheduledFlushJob?.cancel()
+        scheduledFlushJob = null
     }
 
     private fun appendRecords(bytes: ByteArray, handle: TrackJournalHandle) {
@@ -341,6 +405,7 @@ class TrackJournal(
     }
 
     private fun discardInternal() {
+        cancelScheduledFlush()
         closeHandle()
         if (journalFile.exists() && !journalFile.delete()) {
             throw TrackJournalException.Io("Failed to delete track journal file")
@@ -380,11 +445,13 @@ class TrackJournal(
     }
 
     private fun closeHandle() {
+        cancelScheduledFlush()
         fileHandle?.close()
         fileHandle = null
     }
 
     private fun closeHandleQuietly() {
+        cancelScheduledFlush()
         runCatching { fileHandle?.close() }
         fileHandle = null
     }
@@ -408,5 +475,6 @@ class TrackJournal(
         const val METADATA_FILE_NAME = "recording.json"
         const val BATCH_SIZE = 10
         const val MAX_FLUSH_INTERVAL_MILLIS = 5_000L
+        private const val FLUSH_FAILURE_BUFFER_CAPACITY = 4
     }
 }
