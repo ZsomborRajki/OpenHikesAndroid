@@ -101,6 +101,8 @@ internal class LocalFakeDevicePowerMonitor @Inject constructor() : DevicePowerMo
 internal class LocalFakeServiceBridge @Inject constructor() : RecordingServiceBridge {
     var ensureStartedCount: Int = 0
         private set
+    var stopServiceCount: Int = 0
+        private set
     var nextEnsureStartedError: Throwable? = null
 
     override fun ensureStarted() {
@@ -111,7 +113,9 @@ internal class LocalFakeServiceBridge @Inject constructor() : RecordingServiceBr
         }
     }
 
-    override fun stopService() = Unit
+    override fun stopService() {
+        stopServiceCount += 1
+    }
 }
 
 @Singleton

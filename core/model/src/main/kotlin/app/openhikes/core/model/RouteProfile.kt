@@ -276,7 +276,7 @@ class RouteProfile private constructor(
         const val PLOTTED_SAMPLE_BUDGET = 500
         const val FOLLOW_MATCH_THRESHOLD_METERS = 75.0
         const val TIE_BREAK_TOLERANCE_METERS = 20.0
-        const val CONTINUITY_WINDOW_METERS = 250.0
+        const val CONTINUITY_WINDOW_METERS = 1_000.0
         private const val ENDPOINT_RESERVE = 2
         private const val BUCKET_SAMPLE_COUNT = 2
         private const val FULL_TURN_DEGREES = 360.0

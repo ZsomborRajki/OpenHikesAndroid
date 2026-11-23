@@ -58,7 +58,7 @@ class RecordingNotificationBuilder @Inject constructor(@ApplicationContext priva
             .setSilent(true)
             .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setContentIntent(createOpenAppIntent())
+            .setContentIntent(createOpenAppIntent(payload))
             .setShortCriticalText(chipText)
             .setRequestPromotedOngoing(requestPromoted)
             .setStyle(buildProgressStyle(payload))
@@ -70,7 +70,9 @@ class RecordingNotificationBuilder @Inject constructor(@ApplicationContext priva
 
     private fun applyChronometer(builder: NotificationCompat.Builder, payload: LiveUpdatePayload) {
         val timerStart = payload.timerStartEpochMillis
-        if (payload.runState == LiveUpdateRunState.RECORDING && timerStart != null) {
+        val isTicking = payload.runState == LiveUpdateRunState.RECORDING ||
+            payload.runState == LiveUpdateRunState.FOLLOWING
+        if (isTicking && timerStart != null) {
             builder.setWhen(timerStart)
                 .setShowWhen(true)
                 .setUsesChronometer(true)
@@ -81,10 +83,10 @@ class RecordingNotificationBuilder @Inject constructor(@ApplicationContext priva
     }
 
     private fun addControls(builder: NotificationCompat.Builder, payload: LiveUpdatePayload) {
-        if (payload.kind != LiveUpdateKind.RECORDING) return
         when (payload.runState) {
             LiveUpdateRunState.FINDING_GPS,
-            LiveUpdateRunState.RECORDING -> builder.addAction(
+            LiveUpdateRunState.RECORDING,
+            LiveUpdateRunState.FOLLOWING -> builder.addAction(
                 NotificationCompat.Action.Builder(
                     IconCompat.createWithResource(context, OpenHikesIcons.Pause),
                     context.getString(R.string.recording_notification_action_pause),
@@ -99,8 +101,7 @@ class RecordingNotificationBuilder @Inject constructor(@ApplicationContext priva
                     createServiceActionIntent(RecordingForegroundService.ACTION_RESUME, REQUEST_CODE_RESUME)
                 ).build()
             )
-            LiveUpdateRunState.SAVING,
-            LiveUpdateRunState.FOLLOWING -> Unit
+            LiveUpdateRunState.SAVING -> Unit
         }
     }
 
@@ -136,6 +137,19 @@ class RecordingNotificationBuilder @Inject constructor(@ApplicationContext priva
 
     private fun buildMetricsLine(payload: LiveUpdatePayload, distanceText: String, distanceUnit: DistanceUnit): String {
         val status = statusText(payload.runState)
+        if (payload.kind == LiveUpdateKind.FOLLOWING) {
+            val remaining = payload.remainingSeconds
+            return if (remaining != null && remaining > 0.0) {
+                context.getString(
+                    R.string.following_notification_metrics_with_eta,
+                    distanceText,
+                    HikeMetricsFormatter.formatDuration(remaining),
+                    status
+                )
+            } else {
+                context.getString(R.string.following_notification_metrics_line, distanceText, status)
+            }
+        }
         val gain = payload.elevationGainMeters
         return if (gain != null && gain > 0.0) {
             context.getString(
@@ -154,14 +168,18 @@ class RecordingNotificationBuilder @Inject constructor(@ApplicationContext priva
         LiveUpdateRunState.PAUSED,
         LiveUpdateRunState.AUTO_PAUSED -> context.getString(R.string.recording_notification_chip_paused)
         LiveUpdateRunState.SAVING -> context.getString(R.string.recording_notification_chip_saving)
-        LiveUpdateRunState.RECORDING,
-        LiveUpdateRunState.FOLLOWING -> distanceText
+        LiveUpdateRunState.RECORDING -> distanceText
+        LiveUpdateRunState.FOLLOWING -> payload.progressPercent?.let { "$it%" } ?: distanceText
     }
 
-    private fun createOpenAppIntent(): PendingIntent {
+    private fun createOpenAppIntent(payload: LiveUpdatePayload): PendingIntent {
         val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
             ?: Intent().setPackage(context.packageName)
-        launchIntent.putExtra(RecordingForegroundService.EXTRA_OPEN_RECORDING, true)
+        if (payload.kind == LiveUpdateKind.FOLLOWING && payload.hikeId != null) {
+            launchIntent.putExtra(RecordingForegroundService.EXTRA_OPEN_WALK_HIKE_ID, payload.hikeId)
+        } else {
+            launchIntent.putExtra(RecordingForegroundService.EXTRA_OPEN_RECORDING, true)
+        }
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
         return PendingIntent.getActivity(
             context,
