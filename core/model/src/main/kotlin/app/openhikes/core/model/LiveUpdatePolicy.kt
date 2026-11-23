@@ -38,7 +38,9 @@ data class LiveUpdatePayload(
     val averageSpeedMps: Double? = null,
     val timerStartEpochMillis: Long? = null,
     val isOnRoute: Boolean = true,
-    val progressPercent: Int? = null
+    val progressPercent: Int? = null,
+    val remainingSeconds: Double? = null,
+    val hikeId: String? = null
 )
 
 /**

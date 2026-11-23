@@ -22,8 +22,28 @@ data class HikeWalk(
     val startedAtEpochMillis: Long,
     val endedAtEpochMillis: Long,
     val distanceMeters: Double,
-    val durationSeconds: Double
-)
+    val durationSeconds: Double,
+    val coveredIntervals: List<Double> = emptyList(),
+    val furthestDistanceMeters: Double = distanceMeters,
+    val routeDistanceMeters: Double = distanceMeters,
+    val endReason: TrailWalkEndReason = TrailWalkEndReason.ENDED,
+    val routeRevision: String? = null
+) {
+    val activeSeconds: Double
+        get() = durationSeconds
+
+    val coverage: TrailWalkCoverage
+        get() = TrailWalkCoverage.fromStored(coveredIntervals, furthestDistanceMeters)
+
+    val coveredFraction: Double
+        get() = coverage.fractionComplete(routeDistanceMeters)
+            ?: if (routeDistanceMeters > 0.0) (distanceMeters / routeDistanceMeters).coerceIn(0.0, 1.0) else 0.0
+
+    val uncoveredMeters: Double
+        get() = (routeDistanceMeters - coverage.coveredMeters).coerceAtLeast(0.0)
+
+    fun isAlong(revision: String): Boolean = routeRevision != null && routeRevision == revision
+}
 
 /**
  * Lightweight portable hike metadata used by the library list and search results

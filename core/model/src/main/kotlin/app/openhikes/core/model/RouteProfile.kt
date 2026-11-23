@@ -41,6 +41,8 @@ data class RouteProjection(
     val projectedCoordinate: GeoCoordinate
 )
 
+internal data class ElevationSampleSeries(val plotted: List<ElevationSample>, val raw: List<ElevationSample>)
+
 /**
  * Precomputed distance and elevation index for a hike route.
  * Built off the main thread once per route revision so chart scrubbing resolves in O(log n).
@@ -48,13 +50,19 @@ data class RouteProjection(
 class RouteProfile private constructor(
     val coordinates: List<GeoCoordinate>,
     val distances: List<Double>,
-    val samples: List<ElevationSample>,
+    private val elevationSeries: ElevationSampleSeries,
     val pauseDistances: List<Double>,
     val pausedSegments: Set<Int>,
     val elevation: RouteElevationSummary,
     val segments: List<RouteSegmentSummary>,
     val boundingBox: GeoBoundingBox?
 ) {
+    val samples: List<ElevationSample>
+        get() = elevationSeries.plotted
+
+    internal val rawElevationSamples: List<ElevationSample>
+        get() = elevationSeries.raw
+
     private val sampleDistances: List<Double> = samples.map { it.distanceMeters }
 
     val totalDistanceMeters: Double
@@ -114,7 +122,11 @@ class RouteProfile private constructor(
         samples[nearestIndex(sampleDistances, distanceMeters)]
     }
 
-    fun nearestPoint(coordinate: GeoCoordinate): RouteProjection? = when {
+    fun nearestPoint(
+        coordinate: GeoCoordinate,
+        nearDistanceMeters: Double? = null,
+        headingDegrees: Double? = null
+    ): RouteProjection? = when {
         coordinates.isEmpty() -> null
         coordinates.size == 1 -> {
             val only = coordinates[0]
@@ -124,40 +136,115 @@ class RouteProfile private constructor(
                 projectedCoordinate = only
             )
         }
-        else -> projectOntoWalkedSegments(coordinate)
+        else -> projectOntoWalkedSegments(coordinate, nearDistanceMeters, headingDegrees)
     }
 
-    private fun projectOntoWalkedSegments(coordinate: GeoCoordinate): RouteProjection? {
-        var bestDistance = Double.POSITIVE_INFINITY
-        var bestIndex = -1
-        var bestFraction = 0.0
-        var bestAlong = 0.0
-
-        for (index in 0 until coordinates.lastIndex) {
-            if (pausedSegments.contains(index)) continue
-            val proj = RouteGeometry.project(coordinate, coordinates[index], coordinates[index + 1])
-            if (proj.offRouteMeters < bestDistance) {
-                bestDistance = proj.offRouteMeters
-                bestIndex = index
-                bestFraction = proj.fraction
-                bestAlong = distances[index] + proj.fraction * (distances[index + 1] - distances[index])
+    private fun projectOntoWalkedSegments(
+        coordinate: GeoCoordinate,
+        nearDistanceMeters: Double?,
+        headingDegrees: Double?
+    ): RouteProjection? {
+        val fullLastIndex = coordinates.lastIndex - 1
+        val initialRange = nearDistanceMeters?.let { candidateSegmentRange(it) } ?: (0..fullLastIndex)
+        val candidates = ArrayList<NearestCandidate>()
+        var best = collectCandidates(coordinate, initialRange, candidates, null)
+        if (nearDistanceMeters != null &&
+            (best == null || best.offRouteMeters > FOLLOW_MATCH_THRESHOLD_METERS)
+        ) {
+            if (initialRange.first > 0) {
+                best = collectCandidates(coordinate, 0 until initialRange.first, candidates, best)
+            }
+            if (initialRange.last < fullLastIndex) {
+                best = collectCandidates(coordinate, (initialRange.last + 1)..fullLastIndex, candidates, best)
             }
         }
-        return if (bestIndex < 0) {
-            null
-        } else {
-            val projected = RouteGeometry.interpolate(
-                coordinates[bestIndex],
-                coordinates[bestIndex + 1],
-                bestFraction
-            )
-            RouteProjection(
-                distanceAlongRouteMeters = bestAlong,
-                offRouteMeters = bestDistance,
-                projectedCoordinate = projected
-            )
-        }
+        val closest = best ?: return null
+        val winner = breakTie(
+            candidates = candidates,
+            best = closest,
+            anchorMeters = nearDistanceMeters ?: 0.0,
+            headingDegrees = if (nearDistanceMeters == null) headingDegrees else null
+        )
+        val projected = RouteGeometry.interpolate(
+            coordinates[winner.segmentIndex],
+            coordinates[winner.segmentIndex + 1],
+            winner.fraction
+        )
+        return RouteProjection(
+            distanceAlongRouteMeters = winner.distanceAlongRoute,
+            offRouteMeters = winner.offRouteMeters,
+            projectedCoordinate = projected
+        )
     }
+
+    private fun candidateSegmentRange(referenceDistance: Double): IntRange {
+        val lowDist = (referenceDistance - CONTINUITY_WINDOW_METERS).coerceAtLeast(0.0)
+        val highDist = (referenceDistance + CONTINUITY_WINDOW_METERS).coerceAtMost(totalDistanceMeters)
+        val startIdx = (lowerBound(distances, lowDist) - 1).coerceIn(0, coordinates.lastIndex - 1)
+        val endIdx = lowerBound(distances, highDist).coerceIn(startIdx, coordinates.lastIndex - 1)
+        return startIdx..endIdx
+    }
+
+    private fun collectCandidates(
+        coordinate: GeoCoordinate,
+        range: IntRange,
+        target: MutableList<NearestCandidate>,
+        currentBest: NearestCandidate?
+    ): NearestCandidate? {
+        var best = currentBest
+        for (index in range) {
+            if (pausedSegments.contains(index)) continue
+            val proj = RouteGeometry.project(coordinate, coordinates[index], coordinates[index + 1])
+            val along = distances[index] + proj.fraction * (distances[index + 1] - distances[index])
+            val candidate = NearestCandidate(
+                segmentIndex = index,
+                fraction = proj.fraction,
+                distanceAlongRoute = along,
+                offRouteMeters = proj.offRouteMeters,
+                dx = proj.dx,
+                dy = proj.dy
+            )
+            target.add(candidate)
+            if (best == null || candidate.offRouteMeters < best.offRouteMeters) {
+                best = candidate
+            }
+        }
+        return best
+    }
+
+    private fun breakTie(
+        candidates: List<NearestCandidate>,
+        best: NearestCandidate,
+        anchorMeters: Double,
+        headingDegrees: Double?
+    ): NearestCandidate {
+        val threshold = best.offRouteMeters + TIE_BREAK_TOLERANCE_METERS
+        val tied = candidates.filter { it.offRouteMeters <= threshold }
+        val pool = if (headingDegrees != null) {
+            tied.filter { candidate -> runsWithHeading(candidate, headingDegrees) }.ifEmpty { tied }
+        } else {
+            tied
+        }
+        return pool.minWithOrNull(
+            compareBy<NearestCandidate> { abs(it.distanceAlongRoute - anchorMeters) }
+                .thenBy { it.offRouteMeters }
+        ) ?: best
+    }
+
+    private fun runsWithHeading(candidate: NearestCandidate, headingDegrees: Double): Boolean {
+        val segHeading = (kotlin.math.atan2(candidate.dx, candidate.dy) * RAD_TO_DEG + FULL_TURN_DEGREES) %
+            FULL_TURN_DEGREES
+        return RouteGeometry.bearingDifference(segHeading, headingDegrees) < RIGHT_ANGLE_DEGREES
+    }
+
+    private data class NearestCandidate(
+        val segmentIndex: Int,
+        val fraction: Double,
+        val distanceAlongRoute: Double,
+        val offRouteMeters: Double,
+        val dx: Double,
+        val dy: Double
+    )
 
     private fun lowerBound(list: List<Double>, target: Double): Int {
         var low = 0
@@ -187,8 +274,14 @@ class RouteProfile private constructor(
 
     companion object {
         const val PLOTTED_SAMPLE_BUDGET = 500
+        const val FOLLOW_MATCH_THRESHOLD_METERS = 75.0
+        const val TIE_BREAK_TOLERANCE_METERS = 20.0
+        const val CONTINUITY_WINDOW_METERS = 250.0
         private const val ENDPOINT_RESERVE = 2
         private const val BUCKET_SAMPLE_COUNT = 2
+        private const val FULL_TURN_DEGREES = 360.0
+        private const val RIGHT_ANGLE_DEGREES = 90.0
+        private const val RAD_TO_DEG = 180.0 / kotlin.math.PI
 
         fun from(route: List<RouteCoordinate>): RouteProfile {
             val runs = route.toTrailRuns()
@@ -238,7 +331,10 @@ class RouteProfile private constructor(
             return RouteProfile(
                 coordinates = coordinates,
                 distances = distances,
-                samples = downsampleForDrawing(rawSamples),
+                elevationSeries = ElevationSampleSeries(
+                    plotted = downsampleForDrawing(rawSamples),
+                    raw = rawSamples
+                ),
                 pauseDistances = pauseDistances,
                 pausedSegments = pausedSegments,
                 elevation = elevation,

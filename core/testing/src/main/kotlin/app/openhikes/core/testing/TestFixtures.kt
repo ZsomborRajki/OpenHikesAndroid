@@ -1,6 +1,11 @@
 package app.openhikes.core.testing
 
 import app.openhikes.core.model.GeoCoordinate
+import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.HikeWalk
+import app.openhikes.core.model.RouteCoordinate
+import app.openhikes.core.model.TrailWalkEndReason
+import app.openhikes.core.model.TrailWalkRecord
 
 /**
  * Shared pure-JVM test fixtures ported from iOS OpenHikesUITests / SimulatedLocations.
@@ -8,8 +13,10 @@ import app.openhikes.core.model.GeoCoordinate
 object TestFixtures {
     const val THUMSEE_LOOP_FAST_NAME = "ThumseeLoopFast"
     const val THUMSEE_LOOP_FAST_TITLE = "Thumsee Loop (fast, simulated)"
+    const val SEED_WALK_HALF_LOOP = "HalfLoop"
 
     val TRAILHEAD = GeoCoordinate(latitude = 47.718420, longitude = 12.831774)
+    val OFF_TRAIL_COORDINATE = GeoCoordinate(latitude = 47.709420, longitude = 12.831774)
     val REVIEWABLE_TRACE: List<GeoCoordinate> = listOf(
         GeoCoordinate(latitude = 47.71840, longitude = 12.83180),
         GeoCoordinate(latitude = 47.71860, longitude = 12.83180),
@@ -39,6 +46,29 @@ object TestFixtures {
             "Missing bundled offline countries seed fixture: $OFFLINE_COUNTRIES_SEED_RESOURCE"
         }
         return stream.use { it.readBytes().decodeToString() }
+    }
+
+    fun halfLoopWalk(
+        hikeId: HikeId,
+        routeDistanceMeters: Double,
+        route: List<RouteCoordinate>,
+        endedAtEpochMillis: Long = 1_760_000_000_000L
+    ): HikeWalk {
+        val half = routeDistanceMeters / 2.0
+        val durationSeconds = 45.0 * 60.0
+        return HikeWalk(
+            id = "seed-half-loop-${hikeId.value}",
+            hikeId = hikeId,
+            startedAtEpochMillis = endedAtEpochMillis - (durationSeconds * 1000.0).toLong(),
+            endedAtEpochMillis = endedAtEpochMillis,
+            distanceMeters = half,
+            durationSeconds = durationSeconds,
+            coveredIntervals = listOf(0.0, half),
+            furthestDistanceMeters = half,
+            routeDistanceMeters = routeDistanceMeters,
+            endReason = TrailWalkEndReason.ENDED,
+            routeRevision = TrailWalkRecord.routeRevision(route)
+        )
     }
 
     /**

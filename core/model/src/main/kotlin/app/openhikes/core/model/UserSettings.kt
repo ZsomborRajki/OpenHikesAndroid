@@ -16,7 +16,8 @@ data class UserSettings(
     val autoSaveTilesEnabled: Boolean = DEFAULT_AUTO_SAVE_TILES_ENABLED,
     val savePhotosToLibrary: Boolean = DEFAULT_SAVE_PHOTOS_TO_LIBRARY,
     val mapStyleId: String = MapStyleId.OPENHIKES,
-    val offlineCountriesExtraDetail: Boolean = DEFAULT_OFFLINE_COUNTRIES_EXTRA_DETAIL
+    val offlineCountriesExtraDetail: Boolean = DEFAULT_OFFLINE_COUNTRIES_EXTRA_DETAIL,
+    val junctionWarningsEnabled: Boolean = DEFAULT_JUNCTION_WARNINGS_ENABLED
 ) {
     companion object {
         const val DEFAULT_SHOWS_HIKING_ROUTES = true
@@ -27,5 +28,6 @@ data class UserSettings(
         const val DEFAULT_AUTO_SAVE_TILES_ENABLED = false
         const val DEFAULT_SAVE_PHOTOS_TO_LIBRARY = false
         const val DEFAULT_OFFLINE_COUNTRIES_EXTRA_DETAIL = true
+        const val DEFAULT_JUNCTION_WARNINGS_ENABLED = false
     }
 }
