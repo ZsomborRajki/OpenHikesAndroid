@@ -354,6 +354,8 @@ class OfflineFirstHikeRepositoryTest {
 
         override suspend fun getOwnedRecordingDraftIds(): List<String> = delegate.getOwnedRecordingDraftIds()
 
+        override suspend fun getWithWalkInProgress(): List<HikeLocalStateEntity> = delegate.getWithWalkInProgress()
+
         override suspend fun upsert(entity: HikeLocalStateEntity) {
             if (failUpsert) {
                 throw SQLiteException("Simulated local DB write failure")

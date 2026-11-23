@@ -88,6 +88,12 @@ class OpenHikesPreferencesDataSource @Inject constructor(private val userPrefere
             prefs.copy { offlineCountriesExtraDetail = enabled }
         }
     }
+
+    suspend fun setJunctionWarningsEnabled(enabled: Boolean) {
+        userPreferences.updateData { prefs ->
+            prefs.copy { junctionWarningsEnabled = enabled }
+        }
+    }
 }
 
 private fun UserPreferences.toUserSettings(): UserSettings {
@@ -128,6 +134,7 @@ private fun UserPreferences.toUserSettings(): UserSettings {
             offlineCountriesExtraDetail
         } else {
             UserSettings.DEFAULT_OFFLINE_COUNTRIES_EXTRA_DETAIL
-        }
+        },
+        junctionWarningsEnabled = junctionWarningsEnabled
     )
 }

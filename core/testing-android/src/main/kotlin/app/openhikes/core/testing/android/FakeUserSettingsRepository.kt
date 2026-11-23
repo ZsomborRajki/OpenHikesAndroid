@@ -83,4 +83,9 @@ class FakeUserSettingsRepository(
         consumeWriteFailureIfPresent()
         settingsState.update { it.copy(offlineCountriesExtraDetail = enabled) }
     }
+
+    override suspend fun setJunctionWarningsEnabled(enabled: Boolean) {
+        consumeWriteFailureIfPresent()
+        settingsState.update { it.copy(junctionWarningsEnabled = enabled) }
+    }
 }

@@ -21,8 +21,11 @@ import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeLocalState
 import app.openhikes.core.model.HikeMapRoute
 import app.openhikes.core.model.HikeSummary
+import app.openhikes.core.model.HikeWalk
 import app.openhikes.core.model.PreparedRecording
 import app.openhikes.core.model.RouteStyleUpdate
+import app.openhikes.core.model.TrailWalkEndReason
+import app.openhikes.core.model.TrailWalkRecord
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
@@ -40,7 +43,7 @@ import kotlinx.coroutines.withContext
  * off-main GPX parsing/export, live recording draft storage, and deterministic test overrides.
  */
 @Singleton
-@Suppress("LongParameterList")
+@Suppress("LongParameterList", "TooManyFunctions")
 internal class OfflineFirstHikeRepository @Inject constructor(
     database: OpenHikesDatabase,
     private val hikeDao: HikeDao,
@@ -51,7 +54,7 @@ internal class OfflineFirstHikeRepository @Inject constructor(
     private val gpxFileSink: GpxFileSink,
     private val bundledGpxFixtureSource: BundledGpxFixtureSource,
     private val launchConfigHolder: LaunchConfigHolder,
-    clock: OpenHikesClock,
+    private val clock: OpenHikesClock,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
 ) : HikeRepository {
@@ -79,6 +82,17 @@ internal class OfflineFirstHikeRepository @Inject constructor(
         hikeWalkDao = hikeWalkDao,
         hikeLocalStateDao = hikeLocalStateDao,
         localStateRepairer = localStateRepairer,
+        shouldFailFirstSave = {
+            launchConfigHolder.current.value.failsFirstSave && !hasConsumedFirstSaveFailure.getAndSet(true)
+        },
+        ioDispatcher = ioDispatcher,
+        defaultDispatcher = defaultDispatcher
+    )
+    private val walkPersistenceStore = WalkPersistenceStore(
+        database = database,
+        hikeDao = hikeDao,
+        hikeWalkDao = hikeWalkDao,
+        hikeLocalStateDao = hikeLocalStateDao,
         shouldFailFirstSave = {
             launchConfigHolder.current.value.failsFirstSave && !hasConsumedFirstSaveFailure.getAndSet(true)
         },
@@ -113,6 +127,10 @@ internal class OfflineFirstHikeRepository @Inject constructor(
                 resolved?.toDomain()
             }
             .flowOn(defaultDispatcher)
+
+    override fun observeWalks(hikeId: HikeId): Flow<List<HikeWalk>> = walkPersistenceStore.observeWalks(hikeId)
+
+    override fun observeWalk(walkId: String): Flow<HikeWalk?> = walkPersistenceStore.observeWalk(walkId)
 
     override suspend fun importGpxBytes(bytes: ByteArray, fileName: String?): GpxImportResult =
         when (val parseResult = withContext(defaultDispatcher) { GpxParser.parseAll(bytes) }) {
@@ -182,6 +200,28 @@ internal class OfflineFirstHikeRepository @Inject constructor(
             }
         }
 
+    override suspend fun setAutoFollowEnabled(hikeId: HikeId, enabled: Boolean): Result<Unit> =
+        withContext(ioDispatcher) {
+            val updated = hikeDao.updateAutoFollowEnabled(hikeId.value, enabled)
+            if (updated > 0) {
+                Result.success(Unit)
+            } else {
+                Result.failure(NoSuchElementException("Hike not found: ${hikeId.value}"))
+            }
+        }
+
+    override suspend fun saveWalkInProgress(hikeId: HikeId, record: TrailWalkRecord?): Result<Unit> =
+        walkPersistenceStore.saveWalkInProgress(hikeId, record)
+
+    override suspend fun getOpenWalksInProgress(): Result<List<TrailWalkRecord>> =
+        walkPersistenceStore.getOpenWalksInProgress()
+
+    override suspend fun finishWalk(
+        record: TrailWalkRecord,
+        endedAtEpochMillis: Long,
+        reason: TrailWalkEndReason
+    ): Result<HikeWalk?> = walkPersistenceStore.finishWalk(record, endedAtEpochMillis, reason)
+
     override suspend fun deleteHike(hikeId: HikeId): Result<Unit> = withContext(ioDispatcher) {
         if (launchConfigHolder.current.value.refusesHikeDeletion) {
             return@withContext Result.failure(IOException("Hike deletion refused by launch configuration"))
@@ -224,14 +264,27 @@ internal class OfflineFirstHikeRepository @Inject constructor(
         recordingDraftStore.deleteOwnedOrphanedRecordingDrafts(exceptHikeId)
 
     override suspend fun seedFixtureIfConfigured(): HikeId? {
-        val fixtureName = launchConfigHolder.current.value.importedGpxFixtureName
+        val config = launchConfigHolder.current.value
+        val fixtureName = config.importedGpxFixtureName
         val loaded = if (fixtureName != null && hasSeededFixture.compareAndSet(false, true)) {
             bundledGpxFixtureSource.loadFixture(fixtureName)
         } else {
             null
         }
-        return loaded?.let { (fileName, bytes) ->
+        val importedId = loaded?.let { (fileName, bytes) ->
             (importGpxBytes(bytes, fileName) as? GpxImportResult.Success)?.importedHikes?.firstOrNull()?.id
         }
+        if (importedId != null && config.seedWalkPresetName == WalkPersistenceStore.SEED_WALK_HALF_LOOP) {
+            observeHike(importedId).first()?.let { hike ->
+                val walk = WalkPersistenceStore.buildHalfLoopSeedWalk(
+                    hikeId = importedId,
+                    routeDistanceMeters = hike.distanceMeters,
+                    routeRevision = TrailWalkRecord.routeRevision(hike.route),
+                    nowEpochMillis = clock.now().toEpochMilli()
+                )
+                walkPersistenceStore.seedWalk(walk)
+            }
+        }
+        return importedId
     }
 }

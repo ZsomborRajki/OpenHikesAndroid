@@ -5,6 +5,7 @@ import app.openhikes.core.database.dao.HikeMapRouteChunkRow
 import app.openhikes.core.database.entity.HikeEntity
 import app.openhikes.core.database.entity.HikeLocalStateEntity
 import app.openhikes.core.database.entity.HikeRouteChunkEntity
+import app.openhikes.core.database.entity.HikeWalkEntity
 import app.openhikes.core.database.entity.TrailPointEntity
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.Hike
@@ -12,8 +13,10 @@ import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeLocalState
 import app.openhikes.core.model.HikeMapRoute
 import app.openhikes.core.model.HikeSummary
+import app.openhikes.core.model.HikeWalk
 import app.openhikes.core.model.RouteLinePattern
 import app.openhikes.core.model.TrailPoint
+import app.openhikes.core.model.TrailWalkEndReason
 import kotlinx.serialization.json.Json
 
 internal fun HikeEntity.toSummary(localState: HikeLocalStateEntity?): HikeSummary = HikeSummary(
@@ -101,5 +104,23 @@ internal fun HikeLocalStateEntity.toDomain(): HikeLocalState {
         elevationRouteRevision = elevationRouteRevision,
         ownsRecordingDraft = ownsRecordingDraft,
         autoSavedTileKeys = tileKeys
+    )
+}
+
+internal fun HikeWalkEntity.toDomain(): HikeWalk {
+    val intervals = runCatching { Json.decodeFromString<List<Double>>(coveredIntervalsJson) }
+        .getOrDefault(emptyList())
+    return HikeWalk(
+        id = id,
+        hikeId = HikeId(hikeId),
+        startedAtEpochMillis = startedAtEpochMillis,
+        endedAtEpochMillis = endedAtEpochMillis,
+        distanceMeters = distanceMeters,
+        durationSeconds = durationSeconds,
+        coveredIntervals = intervals,
+        furthestDistanceMeters = furthestDistanceMeters,
+        routeDistanceMeters = routeDistanceMeters,
+        endReason = TrailWalkEndReason.fromStoredId(endReasonId) ?: TrailWalkEndReason.ENDED,
+        routeRevision = routeRevision
     )
 }

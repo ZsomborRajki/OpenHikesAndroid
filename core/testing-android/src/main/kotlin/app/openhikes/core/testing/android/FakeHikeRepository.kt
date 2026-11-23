@@ -15,12 +15,15 @@ import app.openhikes.core.model.HikeLocalState
 import app.openhikes.core.model.HikeMapRoute
 import app.openhikes.core.model.HikeRouteStatistics
 import app.openhikes.core.model.HikeSummary
+import app.openhikes.core.model.HikeWalk
 import app.openhikes.core.model.PreparedRecording
 import app.openhikes.core.model.RouteBorder
 import app.openhikes.core.model.RouteLinePattern
 import app.openhikes.core.model.RouteStyleUpdate
 import app.openhikes.core.model.RouteTint
 import app.openhikes.core.model.TrailPoint
+import app.openhikes.core.model.TrailWalkEndReason
+import app.openhikes.core.model.TrailWalkRecord
 import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.flow.Flow
@@ -35,6 +38,8 @@ import kotlinx.coroutines.flow.update
 class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepository {
     private val hikesState = MutableStateFlow(initialHikes)
     private val localStateMap = MutableStateFlow<Map<HikeId, HikeLocalState>>(emptyMap())
+    private val walksState = MutableStateFlow<List<HikeWalk>>(emptyList())
+    private val openWalksByHike = MutableStateFlow<Map<HikeId, TrailWalkRecord>>(emptyMap())
     private val uriPayloads = HashMap<String, Pair<String?, ByteArray>>()
 
     var nextImportFailure: GpxImportFailure? = null
@@ -43,6 +48,8 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
     var nextDeleteFailure: Throwable? = null
     var nextExportFailure: Throwable? = null
     var nextFinalizeFailure: Throwable? = null
+    var nextWalkPersistFailure: Throwable? = null
+    var nextWalkFinishFailure: Throwable? = null
     var seededFixtureBytes: Pair<String, ByteArray>? = null
     var lastExportedUri: Pair<String, String>? = null
         private set
@@ -78,10 +85,25 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
         uriPayloads[uriString] = fileName to bytes
     }
 
+    fun seedWalkForTest(walk: HikeWalk) {
+        walksState.update { list -> list.filterNot { it.id == walk.id } + walk }
+    }
+
+    fun seedOpenWalkForTest(record: TrailWalkRecord) {
+        openWalksByHike.update { it + (HikeId(record.hikeId) to record) }
+    }
+
     override fun observeHike(hikeId: HikeId): Flow<Hike?> =
         hikesState.map { list -> list.firstOrNull { it.id == hikeId } }
 
     override fun observeLocalState(hikeId: HikeId): Flow<HikeLocalState?> = localStateMap.map { map -> map[hikeId] }
+
+    override fun observeWalks(hikeId: HikeId): Flow<List<HikeWalk>> = walksState.map { list ->
+        list.filter { it.hikeId == hikeId }.sortedByDescending { it.startedAtEpochMillis }
+    }
+
+    override fun observeWalk(walkId: String): Flow<HikeWalk?> =
+        walksState.map { list -> list.firstOrNull { it.id == walkId } }
 
     override suspend fun importGpxBytes(bytes: ByteArray, fileName: String?): GpxImportResult {
         val failure = nextImportFailure?.also { nextImportFailure = null }
@@ -223,6 +245,72 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
         return if (found) Result.success(Unit) else Result.failure(NoSuchElementException("Hike not found"))
     }
 
+    override suspend fun setAutoFollowEnabled(hikeId: HikeId, enabled: Boolean): Result<Unit> {
+        var found = false
+        hikesState.update { list ->
+            list.map { hike ->
+                if (hike.id == hikeId) {
+                    found = true
+                    hike.copy(autoFollowEnabled = enabled)
+                } else {
+                    hike
+                }
+            }
+        }
+        return if (found) Result.success(Unit) else Result.failure(NoSuchElementException("Hike not found"))
+    }
+
+    override suspend fun saveWalkInProgress(hikeId: HikeId, record: TrailWalkRecord?): Result<Unit> {
+        val failure = nextWalkPersistFailure?.also { nextWalkPersistFailure = null }
+        return if (failure != null) {
+            Result.failure(failure)
+        } else {
+            openWalksByHike.update { map ->
+                if (record == null) map - hikeId else map + (hikeId to record)
+            }
+            Result.success(Unit)
+        }
+    }
+
+    override suspend fun getOpenWalksInProgress(): Result<List<TrailWalkRecord>> =
+        Result.success(openWalksByHike.value.values.toList())
+
+    override suspend fun finishWalk(
+        record: TrailWalkRecord,
+        endedAtEpochMillis: Long,
+        reason: TrailWalkEndReason
+    ): Result<HikeWalk?> {
+        val failure = nextWalkFinishFailure?.also { nextWalkFinishFailure = null }
+        return if (failure != null) {
+            Result.failure(failure)
+        } else {
+            val hikeId = HikeId(record.hikeId)
+            val hikeExists = hikesState.value.any { it.id == hikeId }
+            val created = if (hikeExists && record.coverage.meetsMinimum) {
+                HikeWalk(
+                    id = UUID.randomUUID().toString(),
+                    hikeId = hikeId,
+                    startedAtEpochMillis = record.startedAtEpochMillis,
+                    endedAtEpochMillis = maxOf(record.startedAtEpochMillis, endedAtEpochMillis),
+                    distanceMeters = record.coverage.coveredMeters,
+                    durationSeconds = record.activeSeconds(endedAtEpochMillis),
+                    coveredIntervals = record.coverage.intervals,
+                    furthestDistanceMeters = record.coverage.furthestDistanceMeters,
+                    routeDistanceMeters = record.routeDistanceMeters,
+                    endReason = reason,
+                    routeRevision = record.routeRevision
+                )
+            } else {
+                null
+            }
+            if (created != null) {
+                walksState.update { list -> list + created }
+            }
+            openWalksByHike.update { it - hikeId }
+            Result.success(created)
+        }
+    }
+
     override suspend fun deleteHike(hikeId: HikeId): Result<Unit> {
         nextDeleteFailure?.let {
             nextDeleteFailure = null
@@ -231,6 +319,8 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
         val before = hikesState.value.size
         hikesState.update { list -> list.filterNot { it.id == hikeId } }
         localStateMap.update { map -> map - hikeId }
+        walksState.update { list -> list.filterNot { it.hikeId == hikeId } }
+        openWalksByHike.update { map -> map - hikeId }
         return if (hikesState.value.size < before) {
             Result.success(Unit)
         } else {

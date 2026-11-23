@@ -21,6 +21,9 @@ interface HikeLocalStateDao {
     @Query("SELECT hike_id FROM hike_local_state WHERE owns_recording_draft = 1")
     suspend fun getOwnedRecordingDraftIds(): List<String>
 
+    @Query("SELECT * FROM hike_local_state WHERE walk_in_progress_json IS NOT NULL")
+    suspend fun getWithWalkInProgress(): List<HikeLocalStateEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: HikeLocalStateEntity)
 

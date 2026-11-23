@@ -20,11 +20,14 @@ import app.openhikes.core.model.PreparedRecording
 import app.openhikes.core.model.RouteBorder
 import app.openhikes.core.model.RouteLinePattern
 import app.openhikes.core.model.RouteTint
+import app.openhikes.core.model.TrailWalkEndReason
+import app.openhikes.core.model.TrailWalkRecord
 import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
 
 /**
  * Manages live recording drafts (`isRecording = true`), positive local draft ownership, atomic
@@ -109,13 +112,24 @@ internal class RecordingDraftStore(
                     HikeRouteChunkEntity(hikeId = hikeId.value, chunkIndex = index, chunkBlob = blob)
                 }
             }
+            val routeRevision = TrailWalkRecord.routeRevision(prepared.route)
+            val coveredIntervals = if (prepared.distanceMeters > 0.0) {
+                Json.encodeToString(listOf(0.0, prepared.distanceMeters))
+            } else {
+                "[]"
+            }
             val walk = HikeWalkEntity(
                 id = UUID.randomUUID().toString(),
                 hikeId = hikeId.value,
                 startedAtEpochMillis = startedAtEpochMillis,
                 endedAtEpochMillis = maxOf(startedAtEpochMillis, endedAtEpochMillis),
                 distanceMeters = prepared.distanceMeters,
-                durationSeconds = prepared.recordedSeconds
+                durationSeconds = prepared.recordedSeconds,
+                coveredIntervalsJson = coveredIntervals,
+                furthestDistanceMeters = prepared.distanceMeters,
+                routeDistanceMeters = prepared.distanceMeters,
+                endReasonId = TrailWalkEndReason.RECORDED.storedId,
+                routeRevision = routeRevision
             )
 
             database.withTransaction {
@@ -169,7 +183,8 @@ internal class RecordingDraftStore(
                 descentMeters = prepared.elevationLossMeters,
                 elevationRouteRevision = currentLocal?.elevationRouteRevision,
                 ownsRecordingDraft = false,
-                autoSavedTileKeysJson = currentLocal?.autoSavedTileKeysJson ?: "[]"
+                autoSavedTileKeysJson = currentLocal?.autoSavedTileKeysJson ?: "[]",
+                walkInProgressJson = currentLocal?.walkInProgressJson
             )
         )
     }

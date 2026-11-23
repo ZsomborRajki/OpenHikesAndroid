@@ -7,8 +7,11 @@ import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeLocalState
 import app.openhikes.core.model.HikeMapRoute
 import app.openhikes.core.model.HikeSummary
+import app.openhikes.core.model.HikeWalk
 import app.openhikes.core.model.PreparedRecording
 import app.openhikes.core.model.RouteStyleUpdate
+import app.openhikes.core.model.TrailWalkEndReason
+import app.openhikes.core.model.TrailWalkRecord
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -24,6 +27,10 @@ interface HikeRepository {
 
     fun observeLocalState(hikeId: HikeId): Flow<HikeLocalState?>
 
+    fun observeWalks(hikeId: HikeId): Flow<List<HikeWalk>>
+
+    fun observeWalk(walkId: String): Flow<HikeWalk?>
+
     suspend fun importGpxBytes(bytes: ByteArray, fileName: String? = null): GpxImportResult
 
     suspend fun importGpxUri(uriString: String): GpxImportResult
@@ -35,6 +42,18 @@ interface HikeRepository {
     suspend fun renameHike(hikeId: HikeId, draftTitle: String): Result<Unit>
 
     suspend fun updateRouteStyle(hikeId: HikeId, style: RouteStyleUpdate): Result<Unit>
+
+    suspend fun setAutoFollowEnabled(hikeId: HikeId, enabled: Boolean): Result<Unit>
+
+    suspend fun saveWalkInProgress(hikeId: HikeId, record: TrailWalkRecord?): Result<Unit>
+
+    suspend fun getOpenWalksInProgress(): Result<List<TrailWalkRecord>>
+
+    suspend fun finishWalk(
+        record: TrailWalkRecord,
+        endedAtEpochMillis: Long,
+        reason: TrailWalkEndReason
+    ): Result<HikeWalk?>
 
     suspend fun deleteHike(hikeId: HikeId): Result<Unit>
 

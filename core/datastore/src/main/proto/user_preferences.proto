@@ -20,4 +20,5 @@ message UserPreferences {
     bool save_photos_to_library = 8;
     string map_style_id = 9;
     optional bool offline_countries_extra_detail = 10;
+    bool junction_warnings_enabled = 11;
 }

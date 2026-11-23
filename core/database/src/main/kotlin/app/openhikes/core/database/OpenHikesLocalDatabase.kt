@@ -11,7 +11,7 @@ import app.openhikes.core.database.entity.HikeLocalStateEntity
  */
 @Database(
     entities = [HikeLocalStateEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class OpenHikesLocalDatabase : RoomDatabase() {

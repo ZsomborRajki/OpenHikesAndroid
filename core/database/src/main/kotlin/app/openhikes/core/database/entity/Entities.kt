@@ -100,7 +100,10 @@ data class TrailPointEntity(
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index(value = ["hike_id"])]
+    indices = [
+        Index(value = ["hike_id"]),
+        Index(value = ["started_at_epoch_millis"])
+    ]
 )
 data class HikeWalkEntity(
     @PrimaryKey val id: String,
@@ -108,7 +111,12 @@ data class HikeWalkEntity(
     @ColumnInfo(name = "started_at_epoch_millis") val startedAtEpochMillis: Long,
     @ColumnInfo(name = "ended_at_epoch_millis") val endedAtEpochMillis: Long,
     @ColumnInfo(name = "distance_meters") val distanceMeters: Double,
-    @ColumnInfo(name = "duration_seconds") val durationSeconds: Double
+    @ColumnInfo(name = "duration_seconds") val durationSeconds: Double,
+    @ColumnInfo(name = "covered_intervals_json") val coveredIntervalsJson: String = "[]",
+    @ColumnInfo(name = "furthest_distance_meters") val furthestDistanceMeters: Double = distanceMeters,
+    @ColumnInfo(name = "route_distance_meters") val routeDistanceMeters: Double = distanceMeters,
+    @ColumnInfo(name = "end_reason_id") val endReasonId: String = "ended",
+    @ColumnInfo(name = "route_revision") val routeRevision: String? = null
 )
 
 @Entity(tableName = "hike_local_state")
@@ -119,5 +127,6 @@ data class HikeLocalStateEntity(
     @ColumnInfo(name = "descent_meters") val descentMeters: Double?,
     @ColumnInfo(name = "elevation_route_revision") val elevationRouteRevision: String?,
     @ColumnInfo(name = "owns_recording_draft") val ownsRecordingDraft: Boolean,
-    @ColumnInfo(name = "auto_saved_tile_keys_json") val autoSavedTileKeysJson: String
+    @ColumnInfo(name = "auto_saved_tile_keys_json") val autoSavedTileKeysJson: String,
+    @ColumnInfo(name = "walk_in_progress_json") val walkInProgressJson: String? = null
 )

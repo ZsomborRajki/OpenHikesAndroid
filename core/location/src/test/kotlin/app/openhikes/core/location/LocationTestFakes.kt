@@ -137,6 +137,9 @@ internal class LocalFakeUserSettingsRepository : UserSettingsRepository {
     override suspend fun setSavePhotosToLibrary(enabled: Boolean) = Unit
     override suspend fun setMapStyleId(styleId: String) = Unit
     override suspend fun setOfflineCountriesExtraDetail(enabled: Boolean) = Unit
+    override suspend fun setJunctionWarningsEnabled(enabled: Boolean) {
+        state.update { it.copy(junctionWarningsEnabled = enabled) }
+    }
 }
 
 @Suppress("TooManyFunctions")
@@ -159,12 +162,27 @@ internal class LocalFakeHikeRepository : HikeRepository {
         list.firstOrNull { it.id == hikeId }
     }
     override fun observeLocalState(hikeId: HikeId): Flow<HikeLocalState?> = localStateMap.map { it[hikeId] }
+    override fun observeWalks(hikeId: HikeId): Flow<List<app.openhikes.core.model.HikeWalk>> =
+        MutableStateFlow(emptyList())
+    override fun observeWalk(walkId: String): Flow<app.openhikes.core.model.HikeWalk?> = MutableStateFlow(null)
     override suspend fun importGpxBytes(bytes: ByteArray, fileName: String?): GpxImportResult = error("Unused")
     override suspend fun importGpxUri(uriString: String): GpxImportResult = error("Unused")
     override suspend fun exportHike(hikeId: HikeId): Result<ExportedGpx> = error("Unused")
     override suspend fun exportHikeToUri(hikeId: HikeId, uriString: String): Result<Unit> = error("Unused")
     override suspend fun renameHike(hikeId: HikeId, draftTitle: String): Result<Unit> = error("Unused")
     override suspend fun updateRouteStyle(hikeId: HikeId, style: RouteStyleUpdate): Result<Unit> = error("Unused")
+    override suspend fun setAutoFollowEnabled(hikeId: HikeId, enabled: Boolean): Result<Unit> = Result.success(Unit)
+    override suspend fun saveWalkInProgress(
+        hikeId: HikeId,
+        record: app.openhikes.core.model.TrailWalkRecord?
+    ): Result<Unit> = Result.success(Unit)
+    override suspend fun getOpenWalksInProgress(): Result<List<app.openhikes.core.model.TrailWalkRecord>> =
+        Result.success(emptyList())
+    override suspend fun finishWalk(
+        record: app.openhikes.core.model.TrailWalkRecord,
+        endedAtEpochMillis: Long,
+        reason: app.openhikes.core.model.TrailWalkEndReason
+    ): Result<app.openhikes.core.model.HikeWalk?> = Result.success(null)
     override suspend fun deleteHike(hikeId: HikeId): Result<Unit> = error("Unused")
     override suspend fun seedFixtureIfConfigured(): HikeId? = null
 
