@@ -21,7 +21,8 @@ data class LaunchConfig(
     val refusesHikeDeletion: Boolean = false,
     val enableSimulatedLocation: Boolean = false,
     val autoPauseSecondsOverride: Double? = null,
-    val disableAutomaticRecovery: Boolean = false
+    val disableAutomaticRecovery: Boolean = false,
+    val seedWalkPresetName: String? = null
 ) {
     companion object {
         val Production = LaunchConfig()
