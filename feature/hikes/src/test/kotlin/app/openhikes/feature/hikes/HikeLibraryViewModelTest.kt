@@ -13,6 +13,7 @@ import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.testing.MainDispatcherRule
 import app.openhikes.core.testing.TestFixtures
 import app.openhikes.core.testing.android.FakeHikeRepository
+import app.openhikes.core.testing.android.FakeTrailWalkController
 import app.openhikes.core.testing.android.FakeUserSettingsRepository
 import com.google.common.truth.Truth.assertThat
 import java.io.IOException
@@ -39,6 +40,7 @@ class HikeLibraryViewModelTest {
         val viewModel = HikeLibraryViewModel(
             hikeRepository = repo,
             userSettingsRepository = FakeUserSettingsRepository(),
+            trailWalkController = FakeTrailWalkController(),
             mapClaimCoordinator = coordinator,
             routeHighlightState = RouteHighlightState()
         )
@@ -87,6 +89,7 @@ class HikeLibraryViewModelTest {
         val viewModel = HikeLibraryViewModel(
             hikeRepository = repo,
             userSettingsRepository = FakeUserSettingsRepository(),
+            trailWalkController = FakeTrailWalkController(),
             mapClaimCoordinator = MapClaimCoordinator(),
             routeHighlightState = highlightState
         )

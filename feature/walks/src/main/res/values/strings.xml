@@ -1,0 +1,28 @@
+<resources>
+    <string name="walk_summary_title">Hike Summary</string>
+    <string name="walk_summary_back_description">Back to hike</string>
+    <string name="walk_summary_not_found">This hike summary is no longer available.</string>
+    <string name="walk_summary_reason_reached_end">Completed</string>
+    <string name="walk_summary_reason_abandoned">Left open</string>
+    <string name="walk_summary_reason_recorded">Recorded</string>
+    <string name="walk_summary_reason_route_changed">Route changed</string>
+    <string name="walk_summary_reason_ended">Ended</string>
+    <plurals name="walk_summary_completion_description">
+        <item quantity="one">%1$d percent complete</item>
+        <item quantity="other">%1$d percent complete</item>
+    </plurals>
+    <plurals name="walk_summary_completion_remaining_description">
+        <item quantity="one">%1$d percent complete, %2$s remaining</item>
+        <item quantity="other">%1$d percent complete, %2$s remaining</item>
+    </plurals>
+    <string name="walk_summary_uncovered">%1$s of the trail not hiked</string>
+    <string name="walk_summary_section_stats">Hike Details</string>
+    <string name="walk_summary_stat_active_time">Active Time</string>
+    <string name="walk_summary_stat_furthest_point">Furthest Point</string>
+    <string name="walk_summary_stat_trail_distance">Trail Distance</string>
+    <string name="walk_summary_stat_trail_ascent">Trail Ascent</string>
+    <string name="walk_summary_stat_started">Started</string>
+    <string name="walk_summary_stat_ended">Ended</string>
+    <string name="walk_summary_show_on_map">Show on Map</string>
+    <string name="walk_summary_trail_changed">This trail has changed since the hike, so the stretches it covered can no longer be drawn along it.</string>
+</resources>

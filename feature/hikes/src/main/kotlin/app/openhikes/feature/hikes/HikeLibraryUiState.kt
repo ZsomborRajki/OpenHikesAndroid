@@ -5,6 +5,7 @@ import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.GpxImportFailure
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeSummary
+import app.openhikes.core.model.TrailWalkPhase
 
 /**
  * Coarse UI state for the hike library screen.
@@ -14,6 +15,8 @@ data class HikeLibraryUiState(
     val hikes: List<HikeSummary> = emptyList(),
     val distanceUnit: DistanceUnit = DistanceUnit.METRIC,
     val selectedHikeId: HikeId? = null,
+    val walkedHikeId: HikeId? = null,
+    val walkedPhase: TrailWalkPhase? = null,
     val isImporting: Boolean = false,
     val importError: GpxImportFailure? = null,
     val actionError: String? = null,

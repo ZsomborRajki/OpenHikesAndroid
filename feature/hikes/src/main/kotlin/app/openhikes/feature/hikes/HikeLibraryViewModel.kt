@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.openhikes.core.data.HikeRepository
 import app.openhikes.core.data.UserSettingsRepository
+import app.openhikes.core.location.TrailWalkController
 import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.map.RouteHighlightState
 import app.openhikes.core.model.GpxImportFailure
@@ -29,6 +30,7 @@ import kotlinx.coroutines.launch
 class HikeLibraryViewModel @Inject constructor(
     private val hikeRepository: HikeRepository,
     userSettingsRepository: UserSettingsRepository,
+    private val trailWalkController: TrailWalkController,
     mapClaimCoordinator: MapClaimCoordinator,
     private val routeHighlightState: RouteHighlightState
 ) : ViewModel() {
@@ -61,12 +63,15 @@ class HikeLibraryViewModel @Inject constructor(
             }
         },
         mapClaimCoordinator.activeClaim,
+        trailWalkController.sessionState,
         dialogAndErrorState
-    ) { hikes, settings, activeClaim, transient ->
+    ) { hikes, settings, activeClaim, walkSession, transient ->
         HikeLibraryUiState(
             hikes = hikes,
             distanceUnit = settings.distanceUnit,
             selectedHikeId = activeClaim?.selectedHikeId,
+            walkedHikeId = walkSession.walkedHikeId,
+            walkedPhase = walkSession.phase,
             isImporting = transient.isImporting,
             importError = transient.importError,
             actionError = transient.actionError,
@@ -113,6 +118,7 @@ class HikeLibraryViewModel @Inject constructor(
         viewModelScope.launch {
             val result = hikeRepository.deleteHike(target.id)
             if (result.isSuccess) {
+                trailWalkController.onHikeDeleted(target.id)
                 routeHighlightState.clearIfHike(target.id)
                 actionErrorState.value = null
                 onHikeDeleted(target.id)

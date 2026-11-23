@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -32,16 +33,20 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.openhikes.core.location.TrailWalkProgressState
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.ui.components.ElevationProfileChart
 import app.openhikes.core.ui.components.HikeSegmentList
 import app.openhikes.core.ui.testing.OpenHikesTestTags
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
 private val DetailHorizontalPadding = 16.dp
 private val DetailSectionSpacing = 16.dp
 private val BannerCornerRadius = 16.dp
 private val TouchTargetMinSize = 48.dp
+private val EmptyWalkProgressFlow: StateFlow<TrailWalkProgressState> = MutableStateFlow(TrailWalkProgressState())
 
 /**
  * Stateful hike detail destination scoping [HikeDetailViewModel] to [hikeId].
@@ -51,6 +56,7 @@ fun HikeDetailRoute(
     hikeId: HikeId,
     onBack: () -> Unit,
     onOpenRouteStyle: (HikeId) -> Unit,
+    onOpenWalkSummary: (HikeId, String) -> Unit,
     onHikeDeleted: (HikeId) -> Unit,
     onCollapseSheet: () -> Unit,
     modifier: Modifier = Modifier,
@@ -73,6 +79,14 @@ fun HikeDetailRoute(
         exportLauncher.launch(pending.fileName)
     }
 
+    LaunchedEffect(uiState.walkSession.lastEndedWalk) {
+        val ended = uiState.walkSession.lastEndedWalk ?: return@LaunchedEffect
+        if (ended.hikeId == hikeId) {
+            viewModel.onConsumeEndedWalk()
+            onOpenWalkSummary(hikeId, ended.id)
+        }
+    }
+
     HikeDetailScreen(
         uiState = uiState,
         scrubDistanceProvider = { scrubDistanceState.value },
@@ -91,9 +105,12 @@ fun HikeDetailRoute(
         onRequestDelete = viewModel::onRequestDelete,
         onConfirmDelete = { viewModel.onConfirmDelete(onHikeDeleted) },
         onCancelDelete = viewModel::onCancelDelete,
+        modifier = modifier,
+        walkProgressFlow = viewModel.walkProgress,
+        activeSecondsProvider = viewModel::walkActiveSeconds,
         onDismissMessages = viewModel::onDismissMessages,
         onOfflineAction = viewModel::onOfflineAction,
-        modifier = modifier
+        onWalkAction = { action -> viewModel.onWalkAction(action, onOpenWalkSummary) }
     )
 }
 
@@ -117,8 +134,11 @@ fun HikeDetailScreen(
     onConfirmDelete: () -> Unit,
     onCancelDelete: () -> Unit,
     modifier: Modifier = Modifier,
+    walkProgressFlow: StateFlow<TrailWalkProgressState> = EmptyWalkProgressFlow,
+    activeSecondsProvider: () -> Double = { 0.0 },
     onDismissMessages: () -> Unit = {},
-    onOfflineAction: (HikeOfflineAction) -> Unit = {}
+    onOfflineAction: (HikeOfflineAction) -> Unit = {},
+    onWalkAction: (HikeWalkAction) -> Unit = {}
 ) {
     val hike = uiState.hike
     val listState = rememberLazyListState()
@@ -127,7 +147,16 @@ fun HikeDetailScreen(
     Column(modifier = modifier.fillMaxSize()) {
         HikeDetailTopBar(
             title = hike?.displayTitle.orEmpty(),
-            onBack = onBack
+            onBack = onBack,
+            trailingAction = {
+                if (hike != null) {
+                    WalkToggleTopBarButton(
+                        phase = if (uiState.isWalkingThisHike) uiState.walkSession.phase else null,
+                        enabled = !uiState.isWalkingOtherHike && !uiState.isRecordingActive,
+                        onClick = { onWalkAction(HikeWalkAction.ToggleWalk) }
+                    )
+                }
+            }
         )
         DetailStatusBanners(uiState = uiState, onDismiss = onDismissMessages)
         if (hike == null && uiState.isLoaded) {
@@ -136,25 +165,48 @@ fun HikeDetailScreen(
             HikeDetailContentList(
                 uiState = uiState,
                 listState = listState,
-                scrubDistanceProvider = scrubDistanceProvider,
-                onScrubDistance = onScrubDistance,
-                onZoomToRoute = onZoomToRoute,
-                onExportGpx = onExportGpx,
-                onOpenOfflineDialog = { onOfflineAction(HikeOfflineAction.OpenDialog) },
-                onOpenRouteStyle = onOpenRouteStyle,
-                onStartRename = {
-                    onStartRename()
-                    coroutineScope.launch { listState.animateScrollToItem(0) }
-                },
-                onTitleDraftChange = onTitleDraftChange,
-                onCommitRename = onCommitRename,
-                onCancelRename = onCancelRename,
-                onRequestDelete = onRequestDelete,
+                callbacks = DetailListCallbacks(
+                    scrubDistanceProvider = scrubDistanceProvider,
+                    walkProgressFlow = walkProgressFlow,
+                    activeSecondsProvider = activeSecondsProvider,
+                    onScrubDistance = onScrubDistance,
+                    onZoomToRoute = onZoomToRoute,
+                    onExportGpx = onExportGpx,
+                    onOpenOfflineDialog = { onOfflineAction(HikeOfflineAction.OpenDialog) },
+                    onOpenRouteStyle = onOpenRouteStyle,
+                    onStartRename = {
+                        onStartRename()
+                        coroutineScope.launch { listState.animateScrollToItem(0) }
+                    },
+                    onTitleDraftChange = onTitleDraftChange,
+                    onCommitRename = onCommitRename,
+                    onCancelRename = onCancelRename,
+                    onRequestDelete = onRequestDelete,
+                    onWalkAction = onWalkAction
+                ),
                 modifier = Modifier.weight(1f)
             )
         }
     }
 
+    HikeDetailDialogs(
+        uiState = uiState,
+        onConfirmDelete = onConfirmDelete,
+        onCancelDelete = onCancelDelete,
+        onOfflineAction = onOfflineAction,
+        onWalkAction = onWalkAction
+    )
+}
+
+@Composable
+private fun HikeDetailDialogs(
+    uiState: HikeDetailUiState,
+    onConfirmDelete: () -> Unit,
+    onCancelDelete: () -> Unit,
+    onOfflineAction: (HikeOfflineAction) -> Unit,
+    onWalkAction: (HikeWalkAction) -> Unit
+) {
+    val hike = uiState.hike
     if (uiState.showDeleteDialog && hike != null) {
         DeleteHikeConfirmationDialog(
             hikeTitle = hike.displayTitle,
@@ -162,7 +214,6 @@ fun HikeDetailScreen(
             onDismiss = onCancelDelete
         )
     }
-
     if (uiState.offlineCoverage.showDialog && uiState.offlineCoverage.canOpenDialog) {
         HikeOfflineCountryDialog(
             coverage = uiState.offlineCoverage,
@@ -172,29 +223,44 @@ fun HikeDetailScreen(
             onDismiss = { onOfflineAction(HikeOfflineAction.DismissDialog) }
         )
     }
+    if (uiState.showEndWalkDialog) {
+        EndWalkConfirmationDialog(
+            onConfirm = { onWalkAction(HikeWalkAction.ConfirmEndWalk) },
+            onDismiss = { onWalkAction(HikeWalkAction.CancelEndWalk) }
+        )
+    }
+    if (uiState.showEndWalkRefusedDialog) {
+        EndWalkRefusedDialog(
+            onDismiss = { onWalkAction(HikeWalkAction.DismissEndRefused) }
+        )
+    }
 }
+
+private data class DetailListCallbacks(
+    val scrubDistanceProvider: () -> Double,
+    val walkProgressFlow: StateFlow<TrailWalkProgressState>,
+    val activeSecondsProvider: () -> Double,
+    val onScrubDistance: (Double) -> Unit,
+    val onZoomToRoute: () -> Unit,
+    val onExportGpx: () -> Unit,
+    val onOpenOfflineDialog: () -> Unit,
+    val onOpenRouteStyle: () -> Unit,
+    val onStartRename: () -> Unit,
+    val onTitleDraftChange: (String) -> Unit,
+    val onCommitRename: () -> Unit,
+    val onCancelRename: () -> Unit,
+    val onRequestDelete: () -> Unit,
+    val onWalkAction: (HikeWalkAction) -> Unit
+)
 
 @Composable
 private fun HikeDetailContentList(
     uiState: HikeDetailUiState,
     listState: LazyListState,
-    scrubDistanceProvider: () -> Double,
-    onScrubDistance: (Double) -> Unit,
-    onZoomToRoute: () -> Unit,
-    onExportGpx: () -> Unit,
-    onOpenOfflineDialog: () -> Unit,
-    onOpenRouteStyle: () -> Unit,
-    onStartRename: () -> Unit,
-    onTitleDraftChange: (String) -> Unit,
-    onCommitRename: () -> Unit,
-    onCancelRename: () -> Unit,
-    onRequestDelete: () -> Unit,
+    callbacks: DetailListCallbacks,
     modifier: Modifier = Modifier
 ) {
     val hike = uiState.hike ?: return
-    val profile = uiState.profile
-    val statistics = uiState.statistics
-
     LazyColumn(
         state = listState,
         modifier = modifier
@@ -212,43 +278,108 @@ private fun HikeDetailContentList(
                 hike = hike,
                 isRenaming = uiState.isRenaming,
                 titleDraft = uiState.titleDraft,
-                onTitleDraftChange = onTitleDraftChange,
-                onCommitRename = onCommitRename,
-                onCancelRename = onCancelRename
+                onTitleDraftChange = callbacks.onTitleDraftChange,
+                onCommitRename = callbacks.onCommitRename,
+                onCancelRename = callbacks.onCancelRename
             )
         }
-        if (profile != null && profile.samples.size > 1) {
-            item(key = "elevation") {
-                ElevationProfileChart(
-                    profile = profile,
-                    distanceUnit = uiState.distanceUnit,
-                    tintHex = hike.tintHex,
-                    scrubDistanceProvider = scrubDistanceProvider,
-                    onScrubDistance = onScrubDistance
-                )
-            }
-        }
-        item(key = "actions") {
-            HikeDetailActionsRow(
-                onZoomToRoute = onZoomToRoute,
-                onExportGpx = onExportGpx,
-                offlineCoverage = uiState.offlineCoverage,
-                onOpenOfflineDialog = onOpenOfflineDialog
+        item(key = "segment_tabs") {
+            HikeDetailSegmentRow(
+                selectedTab = uiState.selectedTab,
+                onSelectTab = { callbacks.onWalkAction(HikeWalkAction.SelectTab(it)) }
             )
         }
-        item(key = "headline_stats") {
-            HikeHeadlineStatsStrip(
-                hike = hike,
-                statistics = statistics,
-                distanceUnit = uiState.distanceUnit
+        addWalkStatusItem(uiState = uiState, callbacks = callbacks)
+        when (uiState.selectedTab) {
+            HikeDetailTab.DETAILS -> addDetailTabItems(uiState = uiState, callbacks = callbacks)
+            HikeDetailTab.HISTORY -> addHistoryTabItems(
+                uiState = uiState,
+                onOpenWalkSummary = { walkId -> callbacks.onWalkAction(HikeWalkAction.OpenWalkSummary(walkId)) }
             )
         }
-        addDetailSecondaryItems(
-            uiState = uiState,
-            onOpenRouteStyle = onOpenRouteStyle,
-            onStartRename = onStartRename,
-            onRequestDelete = onRequestDelete
+    }
+}
+
+private fun LazyListScope.addWalkStatusItem(uiState: HikeDetailUiState, callbacks: DetailListCallbacks) {
+    val hike = uiState.hike ?: return
+    val walkPhase = uiState.walkSession.phase
+    if (uiState.isWalkingThisHike && walkPhase != null) {
+        item(key = "active_walk") {
+            HikeActiveWalkCard(
+                phase = walkPhase,
+                tintHex = hike.tintHex,
+                distanceUnit = uiState.distanceUnit,
+                walkProgressFlow = callbacks.walkProgressFlow,
+                activeSecondsProvider = callbacks.activeSecondsProvider,
+                onRequestEndWalk = { callbacks.onWalkAction(HikeWalkAction.RequestEndWalk) }
+            )
+        }
+    } else if (uiState.isWalkingOtherHike) {
+        item(key = "other_walk_notice") {
+            WalkOtherHikeNotice(otherHikeTitle = uiState.walkSession.walkedHikeTitle)
+        }
+    }
+}
+
+private fun LazyListScope.addDetailTabItems(uiState: HikeDetailUiState, callbacks: DetailListCallbacks) {
+    val hike = uiState.hike ?: return
+    val profile = uiState.profile
+    val statistics = uiState.statistics
+
+    if (profile != null && profile.samples.size > 1) {
+        item(key = "elevation") {
+            ElevationProfileChart(
+                profile = profile,
+                distanceUnit = uiState.distanceUnit,
+                tintHex = hike.tintHex,
+                scrubDistanceProvider = callbacks.scrubDistanceProvider,
+                onScrubDistance = callbacks.onScrubDistance
+            )
+        }
+    }
+    item(key = "actions") {
+        HikeDetailActionsRow(
+            onZoomToRoute = callbacks.onZoomToRoute,
+            onExportGpx = callbacks.onExportGpx,
+            offlineCoverage = uiState.offlineCoverage,
+            onOpenOfflineDialog = callbacks.onOpenOfflineDialog
         )
+    }
+    item(key = "follow_trail") {
+        HikeFollowTrailCard(
+            enabled = hike.autoFollowEnabled,
+            onToggle = { enabled -> callbacks.onWalkAction(HikeWalkAction.SetAutoFollow(enabled)) }
+        )
+    }
+    item(key = "headline_stats") {
+        HikeHeadlineStatsStrip(
+            hike = hike,
+            statistics = statistics,
+            distanceUnit = uiState.distanceUnit
+        )
+    }
+    addDetailSecondaryItems(
+        uiState = uiState,
+        onOpenRouteStyle = callbacks.onOpenRouteStyle,
+        onStartRename = callbacks.onStartRename,
+        onRequestDelete = callbacks.onRequestDelete
+    )
+}
+
+private fun LazyListScope.addHistoryTabItems(uiState: HikeDetailUiState, onOpenWalkSummary: (String) -> Unit) {
+    val hike = uiState.hike ?: return
+    if (uiState.walks.isEmpty()) {
+        item(key = "walk_history_empty") {
+            WalkHistoryEmptyCard()
+        }
+    } else {
+        items(items = uiState.walks, key = { it.id }) { walk ->
+            WalkHistoryRow(
+                walk = walk,
+                tintHex = hike.tintHex,
+                onClick = { onOpenWalkSummary(walk.id) }
+            )
+        }
     }
 }
 

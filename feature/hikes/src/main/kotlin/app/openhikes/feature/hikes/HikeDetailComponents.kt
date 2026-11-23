@@ -66,7 +66,12 @@ private val RowVerticalPadding = 12.dp
 private const val ACCESSIBILITY_FONT_SCALE_THRESHOLD = 1.5f
 
 @Composable
-internal fun HikeDetailTopBar(title: String, onBack: () -> Unit, modifier: Modifier = Modifier) {
+internal fun HikeDetailTopBar(
+    title: String,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+    trailingAction: @Composable () -> Unit = {}
+) {
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -96,6 +101,8 @@ internal fun HikeDetailTopBar(title: String, onBack: () -> Unit, modifier: Modif
                 .semantics { heading() }
                 .testTag(OpenHikesTestTags.HIKE_DETAIL_TITLE)
         )
+        Spacer(modifier = Modifier.width(8.dp))
+        trailingAction()
     }
 }
 

@@ -240,6 +240,7 @@ private fun HikeLibraryBody(
                         hike = hike,
                         distanceUnit = uiState.distanceUnit,
                         isSelected = hike.id == uiState.selectedHikeId,
+                        walkPhase = if (hike.id == uiState.walkedHikeId) uiState.walkedPhase else null,
                         onClick = { onOpenHike(hike.id) },
                         onDeleteClick = { onRequestDelete(hike) }
                     )
