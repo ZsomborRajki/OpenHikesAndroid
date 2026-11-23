@@ -15,6 +15,18 @@ interface OfflineTileArchiveSource {
      */
     val archiveRevision: StateFlow<Long>
 
+    /**
+     * Highest canonical zoom level present across currently opened offline basemap/detail archives,
+     * or `0` when no offline countries are open.
+     */
+    val maximumBasemapZoom: StateFlow<Int>
+
+    /**
+     * Highest canonical zoom level present across currently opened offline extras archives,
+     * or `0` when no offline extras archives are open.
+     */
+    val maximumExtrasZoom: StateFlow<Int>
+
     fun readBasemapTile(address: TileAddress): ByteArray?
 
     fun readExtrasTile(address: TileAddress): ByteArray?

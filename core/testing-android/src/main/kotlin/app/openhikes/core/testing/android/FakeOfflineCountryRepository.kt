@@ -8,6 +8,7 @@ import app.openhikes.core.model.OfflineCountry
 import app.openhikes.core.model.OfflineCountryDownload
 import app.openhikes.core.model.OfflineDownloadPhase
 import app.openhikes.core.model.OfflineListPhase
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,12 +32,14 @@ class FakeOfflineCountryRepository(initialState: OfflineCountriesState = Offline
 
     var nextCatalogRefreshOverride: List<OfflineCountry>? = null
     var failNextRefresh: Boolean = false
+    var startGate: CompletableDeferred<Unit>? = null
 
     fun setState(newState: OfflineCountriesState) {
         stateFlow.value = newState
     }
 
     override suspend fun start() {
+        startGate?.await()
         stateFlow.update { it.copy(isPrepared = true) }
     }
 

@@ -4,7 +4,6 @@ import app.openhikes.core.common.IoDispatcher
 import app.openhikes.core.common.OpenHikesClock
 import app.openhikes.core.common.offline.OfflineCountryDigest
 import app.openhikes.core.common.offline.OfflineCountryStore
-import app.openhikes.core.model.InstalledCountryRecord
 import app.openhikes.core.model.OfflineCountryDownload
 import app.openhikes.core.model.OfflineCountryFile
 import app.openhikes.core.model.OfflineDownloadFailure
@@ -14,39 +13,44 @@ import app.openhikes.core.model.TileNetworkDecision
 import app.openhikes.core.model.TileNetworkDenialReason
 import app.openhikes.core.model.TileNetworkPurpose
 import app.openhikes.core.network.OfflineCountryServer
+import app.openhikes.core.network.OfflineFileTransferStatus
 import app.openhikes.core.network.TileNetworkPolicy
 import java.io.IOException
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Executes file transfers, SHA-256 verification, and atomic index installation for a single
- * queued offline country download.
+ * Executes resumable, policy-aware file transfers and SHA-256 verification for a single queued
+ * offline country download, delegating atomic disk installation back to the repository lock.
  */
 @Singleton
 internal class OfflineCountryDownloadExecutor @Inject constructor(
     private val store: OfflineCountryStore,
     private val server: OfflineCountryServer,
     private val tileNetworkPolicy: TileNetworkPolicy,
-    private val archives: OfflineCountryArchives,
     private val clock: OpenHikesClock,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) {
+    internal var maxAttemptBytes: Long = DEFAULT_MAX_ATTEMPT_BYTES
+    internal var maxAttemptDurationMillis: Long = DEFAULT_MAX_ATTEMPT_DURATION_MILLIS
+
     internal interface Callbacks {
         fun currentDownload(countryId: String): OfflineCountryDownload?
-        fun currentInstalled(): Map<String, InstalledCountryRecord>
         fun updateDownload(countryId: String, transform: (OfflineCountryDownload) -> OfflineCountryDownload)
         fun failDownload(countryId: String, failure: OfflineDownloadFailure)
-        suspend fun commitInstalledAndFinish(
+        suspend fun installAndCommit(
             countryId: String,
             download: OfflineCountryDownload,
-            newRecord: InstalledCountryRecord,
-            previousRecord: InstalledCountryRecord?,
-            reopenedUnopenable: Map<String, Set<OfflineFileRole>>
-        ): Boolean
+            files: List<OfflineCountryFile>,
+            installedAtEpochMillis: Long
+        ): OfflineDownloadExecutionResult
     }
 
     suspend fun execute(countryId: String, callbacks: Callbacks): OfflineDownloadExecutionResult {
@@ -107,7 +111,12 @@ internal class OfflineCountryDownloadExecutor @Inject constructor(
             callbacks.failDownload(countryId, OfflineDownloadFailure.DAMAGED)
             return OfflineDownloadExecutionResult.FAILED
         }
-        return installVerifiedFiles(countryId, download, files, callbacks)
+        return callbacks.installAndCommit(
+            countryId = countryId,
+            download = download,
+            files = files,
+            installedAtEpochMillis = clock.nowEpochMillis()
+        )
     }
 
     private fun checkSpeculativePolicy(countryId: String, callbacks: Callbacks): OfflineDownloadExecutionResult? {
@@ -133,8 +142,12 @@ internal class OfflineCountryDownloadExecutor @Inject constructor(
     private class TransferProgress(
         val bytesByRole: MutableMap<OfflineFileRole, Long>,
         val stagedRoles: MutableSet<OfflineFileRole>,
+        val attemptStartMonotonicMillis: Long,
+        var bytesTransferredInAttempt: Long = 0L,
         var lastEmitAt: Long = 0L
     )
+
+    private data class TransferAttemptOutcome(val status: OfflineFileTransferStatus, val policyStopped: Boolean)
 
     private suspend fun downloadAllFiles(
         countryId: String,
@@ -165,7 +178,11 @@ internal class OfflineCountryDownloadExecutor @Inject constructor(
                 bytesByRole[file.role] = if (part.isFile) part.length().coerceAtMost(file.byteCount) else 0L
             }
         }
-        return TransferProgress(bytesByRole = bytesByRole, stagedRoles = stagedRoles)
+        return TransferProgress(
+            bytesByRole = bytesByRole,
+            stagedRoles = stagedRoles,
+            attemptStartMonotonicMillis = clock.monotonicMillis()
+        )
     }
 
     private suspend fun transferOneFile(
@@ -174,12 +191,12 @@ internal class OfflineCountryDownloadExecutor @Inject constructor(
         progress: TransferProgress,
         callbacks: Callbacks
     ): OfflineDownloadExecutionResult? {
-        val policyBlock = if (callbacks.currentDownload(countryId) == null) {
-            OfflineDownloadExecutionResult.CANCELLED
-        } else {
-            checkSpeculativePolicy(countryId, callbacks)
+        val preflight = when {
+            callbacks.currentDownload(countryId) == null -> OfflineDownloadExecutionResult.CANCELLED
+            !hasAttemptBudget(progress) -> OfflineDownloadExecutionResult.CONTINUE_SLICE
+            else -> checkSpeculativePolicy(countryId, callbacks)
         }
-        if (policyBlock != null) return policyBlock
+        if (preflight != null) return preflight
         callbacks.updateDownload(countryId) { current ->
             current.copy(
                 phase = OfflineDownloadPhase.DOWNLOADING,
@@ -198,79 +215,136 @@ internal class OfflineCountryDownloadExecutor @Inject constructor(
         progress: TransferProgress,
         callbacks: Callbacks
     ): OfflineDownloadExecutionResult? = try {
-        server.downloadFile(
-            file = file,
-            partialFile = store.partialFileFor(file),
-            destinationFile = store.stagedFileFor(file)
-        ) { fileWritten ->
-            progress.bytesByRole[file.role] = fileWritten.coerceAtMost(file.byteCount)
-            val now = clock.nowEpochMillis()
-            if (now - progress.lastEmitAt >= PROGRESS_THROTTLE_MILLIS || fileWritten >= file.byteCount) {
-                progress.lastEmitAt = now
-                callbacks.updateDownload(countryId) { current ->
-                    current.copy(
-                        phase = OfflineDownloadPhase.DOWNLOADING,
-                        writtenBytes = progress.bytesByRole.values.sum(),
-                        stagedRoles = progress.stagedRoles.toSet(),
-                        inFlightRoles = setOf(file.role)
-                    )
-                }
-            }
-        }
-        null
+        val outcome = streamWithPolicyWatch(countryId, file, progress, callbacks)
+        resolveTransferOutcome(countryId, progress, outcome, callbacks)
     } catch (ex: CancellationException) {
         throw ex
     } catch (_: IOException) {
-        callbacks.failDownload(countryId, OfflineDownloadFailure.CONNECTION)
-        OfflineDownloadExecutionResult.FAILED
+        checkSpeculativePolicy(countryId, callbacks) ?: run {
+            callbacks.failDownload(countryId, OfflineDownloadFailure.CONNECTION)
+            OfflineDownloadExecutionResult.FAILED
+        }
+    }
+
+    private suspend fun streamWithPolicyWatch(
+        countryId: String,
+        file: OfflineCountryFile,
+        progress: TransferProgress,
+        callbacks: Callbacks
+    ): TransferAttemptOutcome {
+        val policyStopped = AtomicBoolean(false)
+        val remainingBudget = (maxAttemptBytes - progress.bytesTransferredInAttempt).coerceAtLeast(1L)
+        return coroutineScope {
+            val transferJob = async {
+                server.downloadFile(
+                    file = file,
+                    partialFile = store.partialFileFor(file),
+                    destinationFile = store.stagedFileFor(file),
+                    maxBytesToTransfer = remainingBudget,
+                    shouldContinue = {
+                        !policyStopped.get() &&
+                            hasAttemptBudget(progress) &&
+                            tileNetworkPolicy.decide(TileNetworkPurpose.SPECULATIVE).isAllowed
+                    }
+                ) { fileWritten ->
+                    recordFileProgress(countryId, file, fileWritten, progress, callbacks)
+                }
+            }
+            val watcherJob = launch {
+                tileNetworkPolicy.conditions.collect {
+                    if (!tileNetworkPolicy.decide(TileNetworkPurpose.SPECULATIVE).isAllowed) {
+                        policyStopped.set(true)
+                        transferJob.cancel()
+                    }
+                }
+            }
+            try {
+                TransferAttemptOutcome(status = transferJob.await(), policyStopped = policyStopped.get())
+            } catch (ex: CancellationException) {
+                if (policyStopped.get()) {
+                    TransferAttemptOutcome(status = OfflineFileTransferStatus.INTERRUPTED, policyStopped = true)
+                } else {
+                    throw ex
+                }
+            } catch (ex: IOException) {
+                if (policyStopped.get() || !tileNetworkPolicy.decide(TileNetworkPurpose.SPECULATIVE).isAllowed) {
+                    TransferAttemptOutcome(status = OfflineFileTransferStatus.INTERRUPTED, policyStopped = true)
+                } else {
+                    throw ex
+                }
+            } finally {
+                watcherJob.cancel()
+            }
+        }
+    }
+
+    private fun resolveTransferOutcome(
+        countryId: String,
+        progress: TransferProgress,
+        outcome: TransferAttemptOutcome,
+        callbacks: Callbacks
+    ): OfflineDownloadExecutionResult? = when {
+        outcome.policyStopped -> checkSpeculativePolicy(countryId, callbacks) ?: run {
+            callbacks.updateDownload(countryId) {
+                it.copy(
+                    phase = OfflineDownloadPhase.DOWNLOADING,
+                    writtenBytes = progress.bytesByRole.values.sum(),
+                    inFlightRoles = emptySet()
+                )
+            }
+            OfflineDownloadExecutionResult.CONTINUE_SLICE
+        }
+
+        outcome.status != OfflineFileTransferStatus.COMPLETE -> {
+            callbacks.updateDownload(countryId) {
+                it.copy(
+                    phase = OfflineDownloadPhase.DOWNLOADING,
+                    writtenBytes = progress.bytesByRole.values.sum(),
+                    inFlightRoles = emptySet()
+                )
+            }
+            OfflineDownloadExecutionResult.CONTINUE_SLICE
+        }
+
+        else -> null
+    }
+
+    private fun recordFileProgress(
+        countryId: String,
+        file: OfflineCountryFile,
+        fileWritten: Long,
+        progress: TransferProgress,
+        callbacks: Callbacks
+    ) {
+        val clamped = fileWritten.coerceAtMost(file.byteCount)
+        val previous = progress.bytesByRole[file.role] ?: 0L
+        progress.bytesTransferredInAttempt += (clamped - previous).coerceAtLeast(0L)
+        progress.bytesByRole[file.role] = clamped
+        val now = clock.nowEpochMillis()
+        if (now - progress.lastEmitAt >= PROGRESS_THROTTLE_MILLIS || clamped >= file.byteCount) {
+            progress.lastEmitAt = now
+            callbacks.updateDownload(countryId) { current ->
+                current.copy(
+                    phase = OfflineDownloadPhase.DOWNLOADING,
+                    writtenBytes = progress.bytesByRole.values.sum(),
+                    stagedRoles = progress.stagedRoles.toSet(),
+                    inFlightRoles = setOf(file.role)
+                )
+            }
+        }
+    }
+
+    private fun hasAttemptBudget(progress: TransferProgress): Boolean {
+        val elapsedMillis = (clock.monotonicMillis() - progress.attemptStartMonotonicMillis).coerceAtLeast(0L)
+        return elapsedMillis < maxAttemptDurationMillis && progress.bytesTransferredInAttempt < maxAttemptBytes
     }
 
     private fun verifyStagedFiles(files: List<OfflineCountryFile>): Boolean =
         files.all { file -> OfflineCountryDigest.isWhole(file, store.stagedFileFor(file)) }
 
-    private suspend fun installVerifiedFiles(
-        countryId: String,
-        download: OfflineCountryDownload,
-        files: List<OfflineCountryFile>,
-        callbacks: Callbacks
-    ): OfflineDownloadExecutionResult = withContext(ioDispatcher) {
-        val previous = callbacks.currentInstalled()[countryId]
-        val sameBuild = previous != null && previous.country.build == download.country.build
-        val mergedHasDetail = download.hasDetail || (sameBuild && previous.hasDetail)
-        val newRecord = InstalledCountryRecord(
-            country = download.country,
-            installedAtEpochMillis = clock.nowEpochMillis(),
-            hasDetail = mergedHasDetail
-        )
-        val moved = runCatching { store.install(files) }.isSuccess
-        if (!moved) {
-            callbacks.failDownload(countryId, OfflineDownloadFailure.SPACE)
-            return@withContext OfflineDownloadExecutionResult.FAILED
-        }
-        val nextInstalled = callbacks.currentInstalled().toMutableMap().apply {
-            put(countryId, newRecord)
-        }
-        val persisted = runCatching { store.writeInstalled(nextInstalled.values.toList()) }.isSuccess
-        if (!persisted) {
-            store.unstage(files, keeping = callbacks.currentInstalled().values.toList())
-            callbacks.failDownload(countryId, OfflineDownloadFailure.SPACE)
-            return@withContext OfflineDownloadExecutionResult.FAILED
-        }
-        val reopenedUnopenable = archives.reopen(nextInstalled.values.toList(), store)
-        if (previous != null) {
-            store.remove(previous.files, keeping = nextInstalled.values.toList())
-        }
-        callbacks.commitInstalledAndFinish(
-            countryId = countryId,
-            download = download,
-            newRecord = newRecord,
-            previousRecord = previous,
-            reopenedUnopenable = reopenedUnopenable
-        )
-        OfflineDownloadExecutionResult.COMPLETED
-    }
-
     companion object {
         const val PROGRESS_THROTTLE_MILLIS = 500L
+        const val DEFAULT_MAX_ATTEMPT_BYTES = 256L * 1024L * 1024L
+        const val DEFAULT_MAX_ATTEMPT_DURATION_MILLIS = 8L * 60L * 1_000L
     }
 }

@@ -96,11 +96,13 @@ class MapShellViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            offlineCountryRepository.start()
             hikeRepository.seedFixtureIfConfigured()
             if (!launchConfigHolder.current.value.disableAutomaticRecovery) {
                 recordingController.recoverOpenSession()
             }
+        }
+        viewModelScope.launch {
+            offlineCountryRepository.start()
         }
     }
 

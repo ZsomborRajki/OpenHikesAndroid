@@ -18,6 +18,8 @@ import javax.inject.Singleton
 interface OfflineCountryDownloadScheduler {
     fun enqueue(countryId: String)
 
+    fun enqueueContinuation(countryId: String)
+
     fun cancel(countryId: String)
 }
 
@@ -34,6 +36,15 @@ internal class WorkManagerOfflineCountryDownloadScheduler @Inject constructor(
         WorkManager.getInstance(context).enqueueUniqueWork(
             uniqueWorkName(countryId),
             ExistingWorkPolicy.REPLACE,
+            request
+        )
+    }
+
+    override fun enqueueContinuation(countryId: String) {
+        val request = buildWorkRequest(countryId)
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            uniqueWorkName(countryId),
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
             request
         )
     }

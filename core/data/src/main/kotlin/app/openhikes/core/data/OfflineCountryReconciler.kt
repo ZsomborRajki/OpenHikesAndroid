@@ -70,6 +70,45 @@ internal class OfflineCountryReconciler @Inject constructor(
         )
     }
 
+    sealed interface InstallOutcome {
+        data class Installed(
+            val nextInstalled: Map<String, InstalledCountryRecord>,
+            val unopenable: Map<String, Set<OfflineFileRole>>
+        ) : InstallOutcome
+
+        data object FailedSpace : InstallOutcome
+    }
+
+    suspend fun installVerifiedCountry(
+        countryId: String,
+        download: OfflineCountryDownload,
+        files: List<OfflineCountryFile>,
+        currentInstalled: Map<String, InstalledCountryRecord>,
+        installedAtEpochMillis: Long
+    ): InstallOutcome = withContext(ioDispatcher) {
+        val previous = currentInstalled[countryId]
+        val sameBuild = previous != null && previous.country.build == download.country.build
+        val mergedHasDetail = download.hasDetail || (sameBuild && previous.hasDetail)
+        val newRecord = InstalledCountryRecord(
+            country = download.country,
+            installedAtEpochMillis = installedAtEpochMillis,
+            hasDetail = mergedHasDetail
+        )
+        if (runCatching { store.install(files) }.isFailure) {
+            return@withContext InstallOutcome.FailedSpace
+        }
+        val nextInstalled = currentInstalled + (countryId to newRecord)
+        if (runCatching { store.writeInstalled(nextInstalled.values.toList()) }.isFailure) {
+            store.unstage(files, keeping = currentInstalled.values.toList())
+            return@withContext InstallOutcome.FailedSpace
+        }
+        val reopenedUnopenable = archives.reopen(nextInstalled.values.toList(), store)
+        if (previous != null) {
+            store.remove(previous.files, keeping = nextInstalled.values.toList())
+        }
+        InstallOutcome.Installed(nextInstalled = nextInstalled, unopenable = reopenedUnopenable)
+    }
+
     suspend fun reopenAndRemove(
         keeping: List<InstalledCountryRecord>,
         removedFiles: List<OfflineCountryFile>

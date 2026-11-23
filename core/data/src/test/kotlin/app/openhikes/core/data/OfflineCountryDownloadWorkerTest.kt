@@ -28,23 +28,30 @@ class OfflineCountryDownloadWorkerTest {
     }
 
     @Test
-    fun workerMapsRepositoryExecutionOutcomesToWorkManagerResults() = runTest {
+    fun workerMapsRepositoryExecutionOutcomesAndSchedulesContinuationSlices() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val stubRepo = StubOfflineRepository(OfflineDownloadExecutionResult.RETRY_LATER)
-        val worker = buildWorker(context, "AT", stubRepo)
-        assertThat(worker.doWork()).isEqualTo(ListenableWorker.Result.retry())
-        assertThat(stubRepo.executedIds).containsExactly("AT")
+        val stubScheduler = StubScheduler()
+
+        val retryWorker = buildWorker(context, "AT", stubRepo, stubScheduler)
+        assertThat(retryWorker.doWork()).isEqualTo(ListenableWorker.Result.retry())
+
+        stubRepo.nextResult = OfflineDownloadExecutionResult.CONTINUE_SLICE
+        val sliceWorker = buildWorker(context, "FR", stubRepo, stubScheduler)
+        assertThat(sliceWorker.doWork()).isEqualTo(ListenableWorker.Result.success())
+        assertThat(stubScheduler.continuedIds).containsExactly("FR")
 
         stubRepo.nextResult = OfflineDownloadExecutionResult.COMPLETED
-        val secondWorker = buildWorker(context, "DE", stubRepo)
-        assertThat(secondWorker.doWork()).isEqualTo(ListenableWorker.Result.success())
-        assertThat(stubRepo.executedIds).containsExactly("AT", "DE").inOrder()
+        val completeWorker = buildWorker(context, "DE", stubRepo, stubScheduler)
+        assertThat(completeWorker.doWork()).isEqualTo(ListenableWorker.Result.success())
+        assertThat(stubRepo.executedIds).containsExactly("AT", "FR", "DE").inOrder()
     }
 
     private fun buildWorker(
         context: Context,
         countryId: String,
-        repo: OfflineCountryRepository
+        repo: OfflineCountryRepository,
+        scheduler: OfflineCountryDownloadScheduler
     ): OfflineCountryDownloadWorker = TestListenableWorkerBuilder<OfflineCountryDownloadWorker>(context)
         .setInputData(workDataOf(OfflineCountryDownloadWorker.KEY_COUNTRY_ID to countryId))
         .setWorkerFactory(
@@ -53,10 +60,20 @@ class OfflineCountryDownloadWorkerTest {
                     appContext: Context,
                     workerClassName: String,
                     workerParameters: WorkerParameters
-                ): ListenableWorker = OfflineCountryDownloadWorker(appContext, workerParameters, repo)
+                ): ListenableWorker = OfflineCountryDownloadWorker(appContext, workerParameters, repo, scheduler)
             }
         )
         .build()
+
+    private class StubScheduler : OfflineCountryDownloadScheduler {
+        val continuedIds = mutableListOf<String>()
+        override fun enqueue(countryId: String) = Unit
+        override fun enqueueContinuation(countryId: String) {
+            continuedIds.add(countryId)
+        }
+
+        override fun cancel(countryId: String) = Unit
+    }
 
     private class StubOfflineRepository(var nextResult: OfflineDownloadExecutionResult) : OfflineCountryRepository {
         override val state: StateFlow<OfflineCountriesState> = MutableStateFlow(OfflineCountriesState())
