@@ -1,0 +1,75 @@
+<resources>
+    <string name="recording_screen_title">Live Recording</string>
+    <string name="recording_back_description">Back to map</string>
+
+    <string name="recording_phase_idle">Ready to record</string>
+    <string name="recording_phase_recovering">Restoring session…</string>
+    <string name="recording_phase_waiting_for_fix">Finding GPS…</string>
+    <string name="recording_phase_recording">Recording</string>
+    <string name="recording_phase_paused">Paused</string>
+    <string name="recording_phase_auto_paused">Auto-paused</string>
+    <string name="recording_phase_saving">Saving hike…</string>
+    <string name="recording_phase_failed">Needs attention</string>
+
+    <plurals name="recording_points_badge">
+        <item quantity="one">%1$d point</item>
+        <item quantity="other">%1$d points</item>
+    </plurals>
+
+    <string name="recording_action_start">Start recording</string>
+    <string name="recording_action_pause">Pause</string>
+    <string name="recording_action_resume">Resume</string>
+    <string name="recording_action_stop">Stop</string>
+    <string name="recording_action_discard">Discard</string>
+    <string name="recording_action_retry_save">Retry save</string>
+    <string name="recording_action_try_again">Try again</string>
+    <string name="recording_action_dismiss">Dismiss</string>
+
+    <string name="recording_waiting_hint">Acquiring an accurate GPS fix before logging your trail…</string>
+    <string name="recording_stat_distance">Distance</string>
+    <string name="recording_stat_duration">Duration</string>
+    <string name="recording_stat_moving_time">Moving time</string>
+    <string name="recording_stat_climb">Elevation gain</string>
+    <string name="recording_stat_descent">Elevation loss</string>
+    <string name="recording_stat_avg_speed">Avg speed</string>
+    <string name="recording_stat_current_speed">Current speed</string>
+    <string name="recording_stat_accuracy">GPS accuracy</string>
+    <string name="recording_stat_points">Points</string>
+    <string name="recording_stat_unavailable">—</string>
+
+    <string name="recording_recovery_resumed_title">Recording resumed after restart</string>
+    <string name="recording_recovery_resumed_body">Your in-progress trail journal was restored automatically.</string>
+    <string name="recording_recovery_decision_title">Unfinished recording found</string>
+    <plurals name="recording_recovery_decision_body">
+        <item quantity="one">Restored %1$s (%2$d GPS point) from your previous session. Resume recording or stop to save.</item>
+        <item quantity="other">Restored %1$s (%2$d GPS points) from your previous session. Resume recording or stop to save.</item>
+    </plurals>
+
+    <string name="recording_notice_low_power_and_hot">Battery Saver and high temperature are conserving GPS updates.</string>
+    <string name="recording_notice_low_power">Battery Saver is conserving GPS updates.</string>
+    <string name="recording_notice_thermal">High device temperature is conserving GPS updates.</string>
+    <string name="recording_notice_stationary">Still on the trail — reducing GPS frequency to save battery.</string>
+    <string name="recording_notice_auto_paused">Auto-paused while stopped. Recording resumes automatically when you walk away.</string>
+
+    <string name="recording_failure_location_denied">Location permission is required to record a hike.</string>
+    <string name="recording_failure_precise_required">Precise location access is needed to trace accurate trails.</string>
+    <string name="recording_failure_too_short">Record at least two GPS points before saving a hike.</string>
+    <string name="recording_failure_storage_unavailable">Storage isn’t available on this device right now.</string>
+    <string name="recording_failure_storage_generic">Journal storage failed: %1$s</string>
+    <string name="recording_failure_save_generic">Couldn’t save this hike yet. Your trail is safe in the local journal — retry when ready.</string>
+
+    <string name="recording_stop_dialog_title">Save hike?</string>
+    <string name="recording_stop_name_label">Hike name</string>
+    <string name="recording_stop_clear_name">Clear hike name</string>
+    <string name="recording_stop_save">Save</string>
+    <string name="recording_stop_discard">Discard</string>
+    <string name="recording_stop_keep">Keep recording</string>
+
+    <string name="recording_stop_short_title">Discard empty recording?</string>
+    <string name="recording_stop_short_body">Fewer than two GPS points were captured, so there isn’t enough trail geometry to save.</string>
+
+    <string name="recording_discard_dialog_title">Discard recording?</string>
+    <string name="recording_discard_dialog_body">This permanently removes the current draft track from this device.</string>
+    <string name="recording_discard_confirm">Discard recording</string>
+    <string name="recording_discard_cancel">Keep recording</string>
+</resources>

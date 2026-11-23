@@ -7,16 +7,23 @@ import app.openhikes.core.common.DefaultDispatcher
 import app.openhikes.core.common.LaunchConfigHolder
 import app.openhikes.core.data.HikeRepository
 import app.openhikes.core.data.UserSettingsRepository
+import app.openhikes.core.location.RecordingController
 import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapCameraState
 import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.map.MapOverlayState
 import app.openhikes.core.map.MapRouteHighlight
+import app.openhikes.core.map.MapRouteOverlay
 import app.openhikes.core.map.RouteHighlightState
 import app.openhikes.core.map.toMapRouteOverlay
+import app.openhikes.core.model.HikeSummary
 import app.openhikes.core.model.MapAttribution
 import app.openhikes.core.model.MapStyleId
+import app.openhikes.core.model.RecordingTraceSnapshot
+import app.openhikes.core.model.RouteBorder
+import app.openhikes.core.model.RouteLinePattern
 import app.openhikes.core.model.UserSettings
+import app.openhikes.core.model.toTrailRuns
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.IOException
 import javax.inject.Inject
@@ -27,7 +34,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -49,6 +58,7 @@ class MapShellViewModel @Inject constructor(
     private val userSettingsRepository: UserSettingsRepository,
     private val hikeRepository: HikeRepository,
     private val mapClaimCoordinator: MapClaimCoordinator,
+    private val recordingController: RecordingController,
     routeHighlightState: RouteHighlightState,
     launchConfigHolder: LaunchConfigHolder,
     @DefaultDispatcher defaultDispatcher: CoroutineDispatcher
@@ -64,10 +74,29 @@ class MapShellViewModel @Inject constructor(
     val searchQuery: StateFlow<String> = searchQueryState.asStateFlow()
     val pendingCameraCommand: StateFlow<MapCameraCommand?> = mapClaimCoordinator.pendingCameraCommand
     val routeHighlight: StateFlow<MapRouteHighlight?> = routeHighlightState.highlight
+    val isRecordingActive: StateFlow<Boolean> = recordingController.state
+        .map { it.isActive }
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+            initialValue = recordingController.state.value.isActive
+        )
+    val liveRecordingOverlay: StateFlow<MapRouteOverlay?> = recordingController.trace
+        .map { snapshot -> snapshot.toLiveOverlayOrNull() }
+        .flowOn(defaultDispatcher)
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+            initialValue = null
+        )
 
     init {
         viewModelScope.launch {
             hikeRepository.seedFixtureIfConfigured()
+            if (!launchConfigHolder.current.value.disableAutomaticRecovery) {
+                recordingController.recoverOpenSession()
+            }
         }
     }
 
@@ -169,7 +198,36 @@ class MapShellViewModel @Inject constructor(
         showAttributionDialog.value = false
     }
 
+    fun onAppBackgrounded() {
+        viewModelScope.launch {
+            recordingController.flushJournal()
+        }
+    }
+
+    private fun RecordingTraceSnapshot.toLiveOverlayOrNull(): MapRouteOverlay? {
+        val id = hikeId
+        if (id == null || points.size < MINIMUM_OVERLAY_POINTS) return null
+        val runs = points.toTrailRuns()
+        val walked = runs.walkedRuns.map { range ->
+            points.subList(range.first, range.last + 1).map { it.coordinate }
+        }
+        val paused = runs.pausedStretches.map { range ->
+            points.subList(range.first, range.last + 1).map { it.coordinate }
+        }
+        return MapRouteOverlay(
+            hikeId = id,
+            walkedSegments = walked,
+            pausedSegments = paused,
+            tintHex = tintHex,
+            borderHex = RouteBorder.NONE_HEX,
+            widthDp = HikeSummary.DEFAULT_ROUTE_WIDTH_DP.toFloat(),
+            linePattern = RouteLinePattern.Default,
+            isSelected = true
+        )
+    }
+
     private companion object {
         const val STOP_TIMEOUT_MILLIS = 5_000L
+        const val MINIMUM_OVERLAY_POINTS = 2
     }
 }

@@ -36,7 +36,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -49,7 +48,6 @@ import app.openhikes.core.designsystem.icon.OpenHikesIcons
 import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeRouteStatistics
-import app.openhikes.core.model.RouteProfile
 import app.openhikes.core.ui.components.RoutePatternSwatch
 import app.openhikes.core.ui.format.HikeMetricsFormatter
 import app.openhikes.core.ui.testing.OpenHikesTestTags
@@ -396,26 +394,6 @@ internal fun HikeAboutCard(hike: Hike) {
                     color = MaterialTheme.colorScheme.onSurface
                 )
             }
-        }
-    }
-}
-
-@Composable
-internal fun HikeSegmentsCard(profile: RouteProfile, distanceUnit: DistanceUnit) {
-    if (profile.segments.size <= 1) return
-    HikeSectionCard(title = stringResource(R.string.hike_detail_section_segments)) {
-        profile.segments.forEachIndexed { index, segment ->
-            if (index > 0) CardDivider()
-            val distanceText = HikeMetricsFormatter.formatDistance(segment.distanceMeters, distanceUnit)
-            KeyValueRow(
-                label = stringResource(R.string.hike_detail_segment_label, segment.index + 1),
-                value = pluralStringResource(
-                    R.plurals.hike_detail_segment_points,
-                    segment.pointCount,
-                    distanceText,
-                    segment.pointCount
-                )
-            )
         }
     }
 }

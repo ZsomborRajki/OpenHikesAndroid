@@ -16,6 +16,8 @@ import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeRouteStatistics
 import app.openhikes.core.model.RouteProfile
+import app.openhikes.core.model.RouteSegment
+import app.openhikes.core.model.RouteSegments
 import app.openhikes.core.model.RouteTint
 import app.openhikes.core.model.UserSettings
 import app.openhikes.core.ui.navigation.HikeDetailRoute
@@ -97,13 +99,14 @@ class HikeDetailViewModel @AssistedInject constructor(
                 val (distanceMeters, route) = pair
                 val profile = RouteProfile.from(route)
                 val stats = HikeRouteStatistics.from(distanceMeters, route)
-                profile to stats
+                val segments = RouteSegments.segments(route, distanceMeters)
+                PreparedDetailData(profile = profile, statistics = stats, segments = segments)
             }
         }
         .flowOn(defaultDispatcher)
         .onEach { prepared ->
-            latestProfile = prepared?.first
-            val bounds = prepared?.first?.boundingBox
+            latestProfile = prepared?.profile
+            val bounds = prepared?.profile?.boundingBox
             if (bounds != null && hasAutoFitted.compareAndSet(false, true)) {
                 dispatchFitBounds(bounds)
             }
@@ -141,8 +144,9 @@ class HikeDetailViewModel @AssistedInject constructor(
         HikeDetailUiState(
             hikeId = hikeId,
             hike = hike,
-            profile = prepared?.first,
-            statistics = prepared?.second,
+            profile = prepared?.profile,
+            statistics = prepared?.statistics,
+            routeSegments = prepared?.segments.orEmpty(),
             distanceUnit = settings.distanceUnit,
             isLoaded = true,
             isRenaming = transient.isRenaming,
@@ -285,6 +289,12 @@ class HikeDetailViewModel @AssistedInject constructor(
             )
         )
     }
+
+    private data class PreparedDetailData(
+        val profile: RouteProfile,
+        val statistics: HikeRouteStatistics,
+        val segments: List<RouteSegment>
+    )
 
     private data class TransientDetailState(
         val isRenaming: Boolean,

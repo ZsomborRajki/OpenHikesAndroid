@@ -20,10 +20,15 @@ class TestClockTest {
 
         clock.advanceBy(Duration.ofMinutes(15))
         assertThat(clock.now()).isEqualTo(Instant.parse("2026-06-15T08:15:00Z"))
+        assertThat(clock.monotonicMillis()).isEqualTo(TestClock.DEFAULT_START_INSTANT.toEpochMilli() + 900_000L)
 
         val updated = Instant.parse("2026-06-15T10:00:00Z")
         clock.set(updated)
         assertThat(clock.now()).isEqualTo(updated)
+        // Wall-clock jump must not disturb monotonic elapsed time.
+        assertThat(clock.monotonicMillis()).isEqualTo(TestClock.DEFAULT_START_INSTANT.toEpochMilli() + 900_000L)
+        clock.advanceMonotonicBy(Duration.ofSeconds(30))
+        assertThat(clock.monotonicMillis()).isEqualTo(TestClock.DEFAULT_START_INSTANT.toEpochMilli() + 930_000L)
     }
 
     @Test

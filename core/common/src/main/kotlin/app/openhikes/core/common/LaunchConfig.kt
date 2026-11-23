@@ -18,7 +18,10 @@ data class LaunchConfig(
     val importedGpxFixtureName: String? = null,
     val offlineCountriesScenarioName: String? = null,
     val failsFirstSave: Boolean = false,
-    val refusesHikeDeletion: Boolean = false
+    val refusesHikeDeletion: Boolean = false,
+    val enableSimulatedLocation: Boolean = false,
+    val autoPauseSecondsOverride: Double? = null,
+    val disableAutomaticRecovery: Boolean = false
 ) {
     companion object {
         val Production = LaunchConfig()

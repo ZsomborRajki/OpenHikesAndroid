@@ -7,12 +7,14 @@ import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeLocalState
 import app.openhikes.core.model.HikeMapRoute
 import app.openhikes.core.model.HikeSummary
+import app.openhikes.core.model.PreparedRecording
 import app.openhikes.core.model.RouteStyleUpdate
 import kotlinx.coroutines.flow.Flow
 
 /**
  * Main-safe repository owning the local hike library, GPX import/export, and route styling.
  */
+@Suppress("TooManyFunctions")
 interface HikeRepository {
     val hikes: Flow<List<HikeSummary>>
 
@@ -35,6 +37,21 @@ interface HikeRepository {
     suspend fun updateRouteStyle(hikeId: HikeId, style: RouteStyleUpdate): Result<Unit>
 
     suspend fun deleteHike(hikeId: HikeId): Result<Unit>
+
+    suspend fun createOrClaimRecordingDraft(hikeId: HikeId, startedAtEpochMillis: Long, title: String): Result<Hike>
+
+    suspend fun finalizeRecordingDraft(
+        hikeId: HikeId,
+        title: String,
+        customName: String?,
+        startedAtEpochMillis: Long,
+        endedAtEpochMillis: Long,
+        prepared: PreparedRecording
+    ): Result<Hike>
+
+    suspend fun deleteRecordingDraft(hikeId: HikeId): Result<Unit>
+
+    suspend fun deleteOwnedOrphanedRecordingDrafts(exceptHikeId: HikeId? = null): Result<Int>
 
     suspend fun seedFixtureIfConfigured(): HikeId?
 }

@@ -18,10 +18,12 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FloatingToolbarDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -82,7 +84,9 @@ fun MapFloatingControls(
     onOpenAttributionDialog: () -> Unit,
     onDismissAttributionDialog: () -> Unit,
     onOpenUrl: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    isRecordingActive: Boolean = false,
+    onOpenRecording: () -> Unit = {}
 ) {
     val safePadding = WindowInsets.safeDrawing.asPaddingValues()
     val layoutDirection = LocalLayoutDirection.current
@@ -90,6 +94,8 @@ fun MapFloatingControls(
     Box(modifier = modifier.fillMaxSize()) {
         MapActionToolbar(
             showsHikingRoutes = overlayState.showsHikingRoutes,
+            isRecordingActive = isRecordingActive,
+            onOpenRecording = onOpenRecording,
             onToggleHikingRoutes = onToggleHikingRoutes,
             onZoomIn = onZoomIn,
             onZoomOut = onZoomOut,
@@ -128,6 +134,8 @@ fun MapFloatingControls(
 @Composable
 private fun MapActionToolbar(
     showsHikingRoutes: Boolean,
+    isRecordingActive: Boolean,
+    onOpenRecording: () -> Unit,
     onToggleHikingRoutes: () -> Unit,
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
@@ -145,6 +153,7 @@ private fun MapActionToolbar(
         colors = FloatingToolbarDefaults.standardFloatingToolbarColors(),
         modifier = modifier
     ) {
+        RecordActionButton(isRecordingActive = isRecordingActive, onOpenRecording = onOpenRecording)
         IconToggleButton(
             checked = showsHikingRoutes,
             onCheckedChange = { onToggleHikingRoutes() },
@@ -188,6 +197,44 @@ private fun MapActionToolbar(
             Icon(
                 painter = painterResource(OpenHikesIcons.Explore),
                 contentDescription = stringResource(R.string.map_reset_north_description)
+            )
+        }
+    }
+}
+
+@Composable
+private fun RecordActionButton(isRecordingActive: Boolean, onOpenRecording: () -> Unit) {
+    val description = if (isRecordingActive) {
+        stringResource(R.string.action_open_active_recording)
+    } else {
+        stringResource(R.string.action_record_hike)
+    }
+    if (isRecordingActive) {
+        FilledIconButton(
+            onClick = onOpenRecording,
+            colors = IconButtonDefaults.filledIconButtonColors(
+                containerColor = MaterialTheme.colorScheme.errorContainer,
+                contentColor = MaterialTheme.colorScheme.onErrorContainer
+            ),
+            modifier = Modifier
+                .defaultMinSize(minWidth = TouchTargetMinSize, minHeight = TouchTargetMinSize)
+                .testTag(OpenHikesTestTags.RECORD_BUTTON)
+        ) {
+            Icon(
+                painter = painterResource(OpenHikesIcons.Record),
+                contentDescription = description
+            )
+        }
+    } else {
+        IconButton(
+            onClick = onOpenRecording,
+            modifier = Modifier
+                .defaultMinSize(minWidth = TouchTargetMinSize, minHeight = TouchTargetMinSize)
+                .testTag(OpenHikesTestTags.RECORD_BUTTON)
+        ) {
+            Icon(
+                painter = painterResource(OpenHikesIcons.Record),
+                contentDescription = description
             )
         }
     }

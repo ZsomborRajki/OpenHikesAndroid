@@ -11,7 +11,10 @@ import app.openhikes.core.database.dao.HikeLocalStateDao
 import app.openhikes.core.database.entity.HikeLocalStateEntity
 import app.openhikes.core.model.GpxImportFailure
 import app.openhikes.core.model.GpxImportResult
+import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.PreparedRecording
 import app.openhikes.core.model.RouteBorder
+import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteLinePattern
 import app.openhikes.core.model.RouteStyleUpdate
 import app.openhikes.core.testing.TestClock
@@ -175,6 +178,68 @@ class OfflineFirstHikeRepositoryTest {
         assertThat(localDb.hikeLocalStateDao().getByHikeId(firstSummary.id.value)).isNotNull()
     }
 
+    @Test
+    fun managesRecordingDraftsEnforcesPositiveOwnershipAndPreservesDraftOnFailedFinalize() = runTest {
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        val launchConfigHolder = LaunchConfigHolder(LaunchConfig(failsFirstSave = true))
+        val repo = createRepository(launchConfigHolder, LinkedHashMap(), dispatcher)
+
+        val ownedDraftId = HikeId("draft-owned")
+        val foreignDraftId = HikeId("draft-foreign")
+
+        // Create owned draft & unowned foreign draft (e.g. synced without local ownership)
+        assertThat(repo.createOrClaimRecordingDraft(ownedDraftId, 10_000L, "Morning Hike").isSuccess).isTrue()
+        assertThat(repo.createOrClaimRecordingDraft(foreignDraftId, 11_000L, "Foreign Draft").isSuccess).isTrue()
+        localDb.hikeLocalStateDao().deleteByHikeId(foreignDraftId.value)
+
+        // Drafts remain hidden from library listing and map route overlays
+        assertThat(repo.hikes.first()).isEmpty()
+        assertThat(repo.mapRoutes.first()).isEmpty()
+
+        // Sweep deletes only owned orphan and leaves foreign unowned draft untouched
+        val activeId = HikeId("draft-active")
+        assertThat(repo.createOrClaimRecordingDraft(activeId, 12_000L, "Active Draft").isSuccess).isTrue()
+        val swept = repo.deleteOwnedOrphanedRecordingDrafts(exceptHikeId = activeId).getOrThrow()
+        assertThat(swept).isEqualTo(1)
+        assertThat(repo.observeHike(ownedDraftId).first()).isNull()
+        assertThat(repo.observeHike(foreignDraftId).first()?.isRecording).isTrue()
+
+        // Failed finalize preserves active recording draft & inserts no walks
+        val prepared = PreparedRecording(
+            route = listOf(
+                RouteCoordinate(47.7180, 12.8310, elevationMeters = 520.0, timestampEpochMillis = 12_000L),
+                RouteCoordinate(47.7190, 12.8310, elevationMeters = 535.0, timestampEpochMillis = 22_000L)
+            ),
+            distanceMeters = 111.0,
+            routeLengthMeters = 111.0,
+            recordedSeconds = 10.0,
+            elevationGainMeters = 15.0,
+            elevationLossMeters = 0.0,
+            startedAtEpochMillis = 12_000L
+        )
+        assertThat(
+            repo.finalizeRecordingDraft(activeId, "Morning Hike", "Summit Day", 12_000L, 22_000L, prepared).isFailure
+        ).isTrue()
+        assertThat(repo.observeHike(activeId).first()?.isRecording).isTrue()
+        assertThat(portableDb.hikeWalkDao().getByHikeId(activeId.value)).isEmpty()
+
+        // Retry succeeds, publishes to library + map, clears local draft ownership, and persists HikeWalk
+        val finalized = repo.finalizeRecordingDraft(
+            activeId,
+            "Morning Hike",
+            "Summit Day",
+            12_000L,
+            22_000L,
+            prepared
+        ).getOrThrow()
+        assertThat(finalized.isRecording).isFalse()
+        assertThat(finalized.displayTitle).isEqualTo("Summit Day")
+        assertThat(repo.hikes.first().map { it.id }).containsExactly(activeId)
+        assertThat(repo.mapRoutes.first().map { it.hikeId }).containsExactly(activeId)
+        assertThat(repo.observeLocalState(activeId).first()?.ownsRecordingDraft).isFalse()
+        assertThat(portableDb.hikeWalkDao().getByHikeId(activeId.value)).hasSize(1)
+    }
+
     private fun createRepository(
         launchConfigHolder: LaunchConfigHolder,
         writtenUris: MutableMap<String, String>,
@@ -184,6 +249,7 @@ class OfflineFirstHikeRepositoryTest {
         database = portableDb,
         hikeDao = portableDb.hikeDao(),
         trailPointDao = portableDb.trailPointDao(),
+        hikeWalkDao = portableDb.hikeWalkDao(),
         hikeLocalStateDao = localStateDao,
         gpxFileSource = object : GpxFileSource {
             override suspend fun read(uriString: String): GpxFilePayload? = null
@@ -247,6 +313,8 @@ class OfflineFirstHikeRepositoryTest {
         override fun observeByHikeId(hikeId: String): Flow<HikeLocalStateEntity?> = delegate.observeByHikeId(hikeId)
 
         override suspend fun getByHikeId(hikeId: String): HikeLocalStateEntity? = delegate.getByHikeId(hikeId)
+
+        override suspend fun getOwnedRecordingDraftIds(): List<String> = delegate.getOwnedRecordingDraftIds()
 
         override suspend fun upsert(entity: HikeLocalStateEntity) {
             if (failUpsert) {

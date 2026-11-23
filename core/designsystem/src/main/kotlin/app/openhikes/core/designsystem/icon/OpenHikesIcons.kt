@@ -46,4 +46,18 @@ object OpenHikesIcons {
     @DrawableRes val Check: Int = R.drawable.ic_check_24
 
     @DrawableRes val Hiking: Int = R.drawable.ic_hiking_24
+
+    @DrawableRes val Record: Int = R.drawable.ic_radio_button_checked_24
+
+    @DrawableRes val Pause: Int = R.drawable.ic_pause_24
+
+    @DrawableRes val PlayArrow: Int = R.drawable.ic_play_arrow_24
+
+    @DrawableRes val Stop: Int = R.drawable.ic_stop_24
+
+    @DrawableRes val Warning: Int = R.drawable.ic_warning_24
+
+    @DrawableRes val History: Int = R.drawable.ic_history_24
+
+    @DrawableRes val TrendingUp: Int = R.drawable.ic_trending_up_24
 }

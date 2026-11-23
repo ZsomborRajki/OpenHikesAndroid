@@ -7,6 +7,7 @@ import app.openhikes.core.database.OpenHikesDatabase
 import app.openhikes.core.database.OpenHikesLocalDatabase
 import app.openhikes.core.database.dao.HikeDao
 import app.openhikes.core.database.dao.HikeLocalStateDao
+import app.openhikes.core.database.dao.HikeWalkDao
 import app.openhikes.core.database.dao.TrailPointDao
 import dagger.Module
 import dagger.Provides
@@ -62,6 +63,9 @@ object DatabaseModule {
 
     @Provides
     fun provideTrailPointDao(database: OpenHikesDatabase): TrailPointDao = database.trailPointDao()
+
+    @Provides
+    fun provideHikeWalkDao(database: OpenHikesDatabase): HikeWalkDao = database.hikeWalkDao()
 
     @Provides
     fun provideHikeLocalStateDao(database: OpenHikesLocalDatabase): HikeLocalStateDao = database.hikeLocalStateDao()

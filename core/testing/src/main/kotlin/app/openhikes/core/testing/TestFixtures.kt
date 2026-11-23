@@ -1,11 +1,28 @@
 package app.openhikes.core.testing
 
+import app.openhikes.core.model.GeoCoordinate
+
 /**
  * Shared pure-JVM test fixtures ported from iOS OpenHikesUITests / SimulatedLocations.
  */
 object TestFixtures {
     const val THUMSEE_LOOP_FAST_NAME = "ThumseeLoopFast"
     const val THUMSEE_LOOP_FAST_TITLE = "Thumsee Loop (fast, simulated)"
+
+    val TRAILHEAD = GeoCoordinate(latitude = 47.718420, longitude = 12.831774)
+    val REVIEWABLE_TRACE: List<GeoCoordinate> = listOf(
+        GeoCoordinate(latitude = 47.71840, longitude = 12.83180),
+        GeoCoordinate(latitude = 47.71860, longitude = 12.83180),
+        GeoCoordinate(latitude = 47.71880, longitude = 12.83180)
+    )
+    val TRAIL_POINTS: List<GeoCoordinate> = listOf(
+        TRAILHEAD,
+        GeoCoordinate(latitude = 47.718598, longitude = 12.831420),
+        GeoCoordinate(latitude = 47.718823, longitude = 12.831149),
+        GeoCoordinate(latitude = 47.719219, longitude = 12.830877),
+        GeoCoordinate(latitude = 47.719317, longitude = 12.830874),
+        GeoCoordinate(latitude = 47.719474, longitude = 12.830948)
+    )
 
     private const val THUMSEE_LOOP_FAST_RESOURCE = "/fixtures/ThumseeLoopFast.gpx"
 

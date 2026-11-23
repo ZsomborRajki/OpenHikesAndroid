@@ -10,9 +10,13 @@ import app.openhikes.core.database.entity.HikeRouteChunkEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
+@Suppress("TooManyFunctions")
 interface HikeDao {
-    @Query("SELECT * FROM hikes ORDER BY date_epoch_millis DESC, id ASC")
+    @Query("SELECT * FROM hikes WHERE is_recording = 0 ORDER BY date_epoch_millis DESC, id ASC")
     fun observeAllHikes(): Flow<List<HikeEntity>>
+
+    @Query("SELECT id FROM hikes WHERE is_recording = 1")
+    suspend fun getRecordingHikeIds(): List<String>
 
     @Transaction
     @Query("SELECT * FROM hikes WHERE id = :hikeId LIMIT 1")
@@ -50,6 +54,21 @@ interface HikeDao {
     @Transaction
     suspend fun insertHikeWithRoute(hike: HikeEntity, routeChunks: List<HikeRouteChunkEntity>) {
         insertHike(hike)
+        if (routeChunks.isNotEmpty()) {
+            insertRouteChunks(routeChunks)
+        }
+    }
+
+    @Query("SELECT * FROM hike_route_chunks WHERE hike_id = :hikeId ORDER BY chunk_index ASC")
+    suspend fun getRouteChunks(hikeId: String): List<HikeRouteChunkEntity>
+
+    @Query("DELETE FROM hike_route_chunks WHERE hike_id = :hikeId")
+    suspend fun deleteRouteChunks(hikeId: String): Int
+
+    @Transaction
+    suspend fun replaceHikeWithRoute(hike: HikeEntity, routeChunks: List<HikeRouteChunkEntity>) {
+        insertHike(hike)
+        deleteRouteChunks(hike.id)
         if (routeChunks.isNotEmpty()) {
             insertRouteChunks(routeChunks)
         }

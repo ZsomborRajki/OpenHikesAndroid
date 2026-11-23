@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import app.cash.turbine.test
 import app.openhikes.core.database.entity.HikeEntity
 import app.openhikes.core.database.entity.HikeRouteChunkEntity
+import app.openhikes.core.database.entity.HikeWalkEntity
 import app.openhikes.core.database.entity.TrailPointEntity
 import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteLinePattern
@@ -116,6 +117,29 @@ class OpenHikesDatabaseTest {
             }.map { it.chunkBlob }
         )
         assertThat(decodedDetail).isEqualTo(route)
+    }
+
+    @Test
+    fun excludesRecordingDraftsFromLibraryQueriesAndCascadeDeletesWalks() = runTest {
+        val hikeDao = database.hikeDao()
+        val walkDao = database.hikeWalkDao()
+
+        hikeDao.insertHike(sampleHikeEntity("draft", "Active Draft", 0).copy(isRecording = true))
+        assertThat(hikeDao.observeAllHikes().first()).isEmpty()
+        assertThat(hikeDao.getRecordingHikeIds()).containsExactly("draft")
+
+        val route = listOf(RouteCoordinate(47.71, 12.83), RouteCoordinate(47.72, 12.84))
+        val chunks = RouteBlobCodec.encodeChunked(route).mapIndexed { idx, blob ->
+            HikeRouteChunkEntity("draft", idx, blob)
+        }
+        hikeDao.replaceHikeWithRoute(sampleHikeEntity("draft", "Saved Hike", route.size), chunks)
+        walkDao.insert(HikeWalkEntity("walk-1", "draft", 1_000L, 5_000L, 120.0, 4.0))
+
+        assertThat(hikeDao.observeAllHikes().first().map { it.id }).containsExactly("draft")
+        assertThat(walkDao.getByHikeId("draft")).hasSize(1)
+
+        hikeDao.deleteHikeById("draft")
+        assertThat(walkDao.getByHikeId("draft")).isEmpty()
     }
 
     private fun sampleHikeEntity(id: String, title: String, routePointCount: Int): HikeEntity = HikeEntity(

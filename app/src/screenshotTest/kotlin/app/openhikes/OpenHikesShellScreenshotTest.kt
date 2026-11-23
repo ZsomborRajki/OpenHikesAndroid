@@ -28,6 +28,7 @@ import app.openhikes.core.map.MapCameraState
 import app.openhikes.core.map.MapInteractionEvents
 import app.openhikes.core.map.MapOverlayState
 import app.openhikes.core.map.MapRouteHighlight
+import app.openhikes.core.map.MapRouteOverlay
 import app.openhikes.core.map.TrailMapRenderer
 import app.openhikes.feature.hikes.HikeLibraryScreen
 import app.openhikes.feature.hikes.HikeLibraryUiState
@@ -71,6 +72,7 @@ private fun ShellPreviewHost(widthDp: Float, heightDp: Float, darkTheme: Boolean
                 interactions: MapInteractionEvents,
                 onCameraCommandHandled: (Long) -> Unit,
                 highlightState: StateFlow<MapRouteHighlight?>,
+                liveRecordingOverlayState: StateFlow<MapRouteOverlay?>,
                 modifier: Modifier
             ) {
                 Box(

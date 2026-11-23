@@ -18,6 +18,9 @@ object LaunchConfigReader {
     const val EXTRA_OFFLINE_COUNTRIES = "ui_test_offline_countries"
     const val EXTRA_FAIL_FIRST_SAVE = "ui_test_fail_first_save"
     const val EXTRA_REFUSE_HIKE_DELETION = "ui_test_refuse_hike_deletion"
+    const val EXTRA_ENABLE_LOCATION = "ui_test_enable_location"
+    const val EXTRA_AUTO_PAUSE_SECONDS = "ui_test_auto_pause_seconds"
+    const val EXTRA_DISABLE_AUTO_RECOVERY = "ui_test_disable_auto_recovery"
 
     fun fromIntent(intent: Intent?): LaunchConfig {
         val extras = intent?.extras ?: return LaunchConfig.Production
@@ -43,7 +46,10 @@ object LaunchConfigReader {
             importedGpxFixtureName = sanitizeFixtureName(arguments[EXTRA_IMPORT_GPX]),
             offlineCountriesScenarioName = sanitizeFixtureName(arguments[EXTRA_OFFLINE_COUNTRIES]),
             failsFirstSave = arguments.boolFlag(EXTRA_FAIL_FIRST_SAVE),
-            refusesHikeDeletion = arguments.boolFlag(EXTRA_REFUSE_HIKE_DELETION)
+            refusesHikeDeletion = arguments.boolFlag(EXTRA_REFUSE_HIKE_DELETION),
+            enableSimulatedLocation = arguments.boolFlag(EXTRA_ENABLE_LOCATION),
+            autoPauseSecondsOverride = parsePositiveSeconds(arguments[EXTRA_AUTO_PAUSE_SECONDS]),
+            disableAutomaticRecovery = arguments.boolFlag(EXTRA_DISABLE_AUTO_RECOVERY)
         )
     }
 
@@ -61,9 +67,16 @@ object LaunchConfigReader {
             offlineCountriesScenarioName =
             fromIntent.offlineCountriesScenarioName ?: base.offlineCountriesScenarioName,
             failsFirstSave = base.failsFirstSave || fromIntent.failsFirstSave,
-            refusesHikeDeletion = base.refusesHikeDeletion || fromIntent.refusesHikeDeletion
+            refusesHikeDeletion = base.refusesHikeDeletion || fromIntent.refusesHikeDeletion,
+            enableSimulatedLocation = base.enableSimulatedLocation || fromIntent.enableSimulatedLocation,
+            autoPauseSecondsOverride = fromIntent.autoPauseSecondsOverride ?: base.autoPauseSecondsOverride,
+            disableAutomaticRecovery = base.disableAutomaticRecovery || fromIntent.disableAutomaticRecovery
         )
     }
+
+    private fun parsePositiveSeconds(raw: String?): Double? = raw?.trim()
+        ?.toDoubleOrNull()
+        ?.takeIf { it.isFinite() && it > 0.0 }
 
     private fun Map<String, String?>.boolFlag(key: String): Boolean = this[key]?.toBooleanStrictOrNull() == true
 

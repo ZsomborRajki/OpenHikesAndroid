@@ -11,4 +11,6 @@
     <string name="map_attribution_dialog_close">Close</string>
     <string name="map_sheet_expand_action">Expand sheet</string>
     <string name="map_sheet_collapse_action">Collapse sheet</string>
+    <string name="action_record_hike">Record hike</string>
+    <string name="action_open_active_recording">Open active recording</string>
 </resources>

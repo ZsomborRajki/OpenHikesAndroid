@@ -3,6 +3,7 @@ package app.openhikes.core.database
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import app.openhikes.core.database.dao.HikeDao
+import app.openhikes.core.database.dao.HikeWalkDao
 import app.openhikes.core.database.dao.TrailPointDao
 import app.openhikes.core.database.entity.HikeEntity
 import app.openhikes.core.database.entity.HikeRouteChunkEntity
@@ -27,4 +28,6 @@ abstract class OpenHikesDatabase : RoomDatabase() {
     abstract fun hikeDao(): HikeDao
 
     abstract fun trailPointDao(): TrailPointDao
+
+    abstract fun hikeWalkDao(): HikeWalkDao
 }

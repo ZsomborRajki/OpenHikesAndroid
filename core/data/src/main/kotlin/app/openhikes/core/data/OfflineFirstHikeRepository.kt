@@ -1,8 +1,6 @@
 package app.openhikes.core.data
 
-import androidx.room.withTransaction
 import app.openhikes.core.common.DefaultDispatcher
-import app.openhikes.core.common.HikeTitle
 import app.openhikes.core.common.HikeTitleEdit
 import app.openhikes.core.common.IoDispatcher
 import app.openhikes.core.common.LaunchConfigHolder
@@ -11,30 +9,21 @@ import app.openhikes.core.common.gpx.GpxExporter
 import app.openhikes.core.common.gpx.GpxParseResult
 import app.openhikes.core.common.gpx.GpxParser
 import app.openhikes.core.database.OpenHikesDatabase
-import app.openhikes.core.database.RouteBlobCodec
 import app.openhikes.core.database.dao.HikeDao
 import app.openhikes.core.database.dao.HikeLocalStateDao
+import app.openhikes.core.database.dao.HikeWalkDao
 import app.openhikes.core.database.dao.TrailPointDao
-import app.openhikes.core.database.entity.HikeEntity
-import app.openhikes.core.database.entity.HikeLocalStateEntity
-import app.openhikes.core.database.entity.HikeRouteChunkEntity
-import app.openhikes.core.database.entity.TrailPointEntity
 import app.openhikes.core.model.ExportedGpx
 import app.openhikes.core.model.GpxImportFailure
 import app.openhikes.core.model.GpxImportResult
-import app.openhikes.core.model.GpxTrack
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeLocalState
 import app.openhikes.core.model.HikeMapRoute
-import app.openhikes.core.model.HikeRouteStatistics
 import app.openhikes.core.model.HikeSummary
-import app.openhikes.core.model.RouteBorder
-import app.openhikes.core.model.RouteLinePattern
+import app.openhikes.core.model.PreparedRecording
 import app.openhikes.core.model.RouteStyleUpdate
-import app.openhikes.core.model.RouteTint
 import java.io.IOException
-import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -48,20 +37,21 @@ import kotlinx.coroutines.withContext
 
 /**
  * Room-backed [HikeRepository] enforcing portable vs. device-local separation,
- * off-main GPX parsing/export, and deterministic test overrides from [LaunchConfigHolder].
+ * off-main GPX parsing/export, live recording draft storage, and deterministic test overrides.
  */
 @Singleton
 @Suppress("LongParameterList")
 internal class OfflineFirstHikeRepository @Inject constructor(
-    private val database: OpenHikesDatabase,
+    database: OpenHikesDatabase,
     private val hikeDao: HikeDao,
     private val trailPointDao: TrailPointDao,
+    hikeWalkDao: HikeWalkDao,
     private val hikeLocalStateDao: HikeLocalStateDao,
     private val gpxFileSource: GpxFileSource,
     private val gpxFileSink: GpxFileSink,
     private val bundledGpxFixtureSource: BundledGpxFixtureSource,
     private val launchConfigHolder: LaunchConfigHolder,
-    private val clock: OpenHikesClock,
+    clock: OpenHikesClock,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
 ) : HikeRepository {
@@ -70,6 +60,28 @@ internal class OfflineFirstHikeRepository @Inject constructor(
     private val localStateRepairer = HikeLocalStateRepairer(
         hikeDao = hikeDao,
         hikeLocalStateDao = hikeLocalStateDao,
+        ioDispatcher = ioDispatcher,
+        defaultDispatcher = defaultDispatcher
+    )
+    private val gpxImportStore = GpxImportStore(
+        database = database,
+        hikeDao = hikeDao,
+        trailPointDao = trailPointDao,
+        localStateRepairer = localStateRepairer,
+        clock = clock,
+        ioDispatcher = ioDispatcher,
+        defaultDispatcher = defaultDispatcher
+    )
+    private val recordingDraftStore = RecordingDraftStore(
+        database = database,
+        hikeDao = hikeDao,
+        trailPointDao = trailPointDao,
+        hikeWalkDao = hikeWalkDao,
+        hikeLocalStateDao = hikeLocalStateDao,
+        localStateRepairer = localStateRepairer,
+        shouldFailFirstSave = {
+            launchConfigHolder.current.value.failsFirstSave && !hasConsumedFirstSaveFailure.getAndSet(true)
+        },
         ioDispatcher = ioDispatcher,
         defaultDispatcher = defaultDispatcher
     )
@@ -110,7 +122,7 @@ internal class OfflineFirstHikeRepository @Inject constructor(
                 if (tracks.isEmpty()) {
                     GpxImportResult.Failure(GpxImportFailure.TOO_SHORT)
                 } else {
-                    persistTracks(tracks, fileName)
+                    gpxImportStore.persistTracks(tracks, fileName)
                 }
             }
         }
@@ -133,7 +145,8 @@ internal class OfflineFirstHikeRepository @Inject constructor(
     }
 
     override suspend fun renameHike(hikeId: HikeId, draftTitle: String): Result<Unit> = withContext(ioDispatcher) {
-        if (shouldFailFirstSave()) {
+        val failSave = launchConfigHolder.current.value.failsFirstSave && !hasConsumedFirstSaveFailure.getAndSet(true)
+        if (failSave) {
             return@withContext Result.failure(IOException("Simulated rename failure"))
         }
         val existing = hikeDao.getHikeById(hikeId.value)
@@ -150,7 +163,9 @@ internal class OfflineFirstHikeRepository @Inject constructor(
 
     override suspend fun updateRouteStyle(hikeId: HikeId, style: RouteStyleUpdate): Result<Unit> =
         withContext(ioDispatcher) {
-            if (shouldFailFirstSave()) {
+            val failSave = launchConfigHolder.current.value.failsFirstSave &&
+                !hasConsumedFirstSaveFailure.getAndSet(true)
+            if (failSave) {
                 return@withContext Result.failure(IOException("Simulated style update failure"))
             }
             val updated = hikeDao.updateRouteStyle(
@@ -180,6 +195,34 @@ internal class OfflineFirstHikeRepository @Inject constructor(
         }
     }
 
+    override suspend fun createOrClaimRecordingDraft(
+        hikeId: HikeId,
+        startedAtEpochMillis: Long,
+        title: String
+    ): Result<Hike> = recordingDraftStore.createOrClaimRecordingDraft(hikeId, startedAtEpochMillis, title)
+
+    override suspend fun finalizeRecordingDraft(
+        hikeId: HikeId,
+        title: String,
+        customName: String?,
+        startedAtEpochMillis: Long,
+        endedAtEpochMillis: Long,
+        prepared: PreparedRecording
+    ): Result<Hike> = recordingDraftStore.finalizeRecordingDraft(
+        hikeId = hikeId,
+        title = title,
+        customName = customName,
+        startedAtEpochMillis = startedAtEpochMillis,
+        endedAtEpochMillis = endedAtEpochMillis,
+        prepared = prepared
+    )
+
+    override suspend fun deleteRecordingDraft(hikeId: HikeId): Result<Unit> =
+        recordingDraftStore.deleteRecordingDraft(hikeId)
+
+    override suspend fun deleteOwnedOrphanedRecordingDrafts(exceptHikeId: HikeId?): Result<Int> =
+        recordingDraftStore.deleteOwnedOrphanedRecordingDrafts(exceptHikeId)
+
     override suspend fun seedFixtureIfConfigured(): HikeId? {
         val fixtureName = launchConfigHolder.current.value.importedGpxFixtureName
         val loaded = if (fixtureName != null && hasSeededFixture.compareAndSet(false, true)) {
@@ -190,90 +233,5 @@ internal class OfflineFirstHikeRepository @Inject constructor(
         return loaded?.let { (fileName, bytes) ->
             (importGpxBytes(bytes, fileName) as? GpxImportResult.Success)?.importedHikes?.firstOrNull()?.id
         }
-    }
-
-    private suspend fun persistTracks(tracks: List<GpxTrack>, fileName: String?): GpxImportResult =
-        withContext(ioDispatcher) {
-            val baseCount = hikeDao.getHikeCount()
-            val prepared = withContext(defaultDispatcher) {
-                tracks.mapIndexed { index, track -> prepareRecord(track, fileName, baseCount + index) }
-            }
-            database.withTransaction {
-                for (record in prepared) {
-                    hikeDao.insertHikeWithRoute(record.hike, record.routeChunks)
-                    if (record.places.isNotEmpty()) {
-                        trailPointDao.insertAll(record.places)
-                    }
-                }
-            }
-            for (record in prepared) {
-                localStateRepairer.upsertBestEffort(record.localState)
-            }
-            GpxImportResult.Success(prepared.map { it.hike.toSummary(it.localState) })
-        }
-
-    private fun prepareRecord(track: GpxTrack, fileName: String?, tintIndex: Int): PreparedImportRecord {
-        val hikeId = UUID.randomUUID().toString()
-        val title = HikeTitle.imported(track.name, fileName).ifBlank { DEFAULT_IMPORTED_TITLE }
-        val stats = HikeRouteStatistics.from(track.distanceMeters, track.route)
-        val dateMillis = track.startTimeEpochMillis ?: clock.now().toEpochMilli()
-        val hikeEntity = HikeEntity(
-            id = hikeId,
-            title = title,
-            customName = null,
-            distanceMeters = track.distanceMeters,
-            durationSeconds = stats.durationSeconds,
-            dateEpochMillis = dateMillis,
-            tintHex = RouteTint.forIndex(tintIndex),
-            routeWidthDp = HikeSummary.DEFAULT_ROUTE_WIDTH_DP,
-            routeLinePatternId = RouteLinePattern.Default.id,
-            routeBorderHex = RouteBorder.NONE_HEX,
-            isRecording = false,
-            autoFollowEnabled = true,
-            trackDescription = track.trackDescription,
-            author = track.author,
-            keywords = track.keywords,
-            routePointCount = track.route.size
-        )
-        val routeChunks = RouteBlobCodec.encodeChunked(track.route).mapIndexed { index, blob ->
-            HikeRouteChunkEntity(hikeId = hikeId, chunkIndex = index, chunkBlob = blob)
-        }
-        val placeEntities = track.places.mapIndexed { idx, wpt ->
-            TrailPointEntity(
-                id = UUID.randomUUID().toString(),
-                hikeId = hikeId,
-                latitude = wpt.coordinate.latitude,
-                longitude = wpt.coordinate.longitude,
-                elevationMeters = wpt.elevationMeters,
-                name = wpt.name,
-                symbol = wpt.symbol,
-                note = wpt.note,
-                sortOrder = idx
-            )
-        }
-        val localEntity = HikeLocalStateEntity(
-            hikeId = hikeId,
-            listOrder = null,
-            climbMeters = stats.elevationGainMeters,
-            descentMeters = stats.elevationLossMeters,
-            elevationRouteRevision = null,
-            ownsRecordingDraft = false,
-            autoSavedTileKeysJson = "[]"
-        )
-        return PreparedImportRecord(hikeEntity, routeChunks, placeEntities, localEntity)
-    }
-
-    private fun shouldFailFirstSave(): Boolean =
-        launchConfigHolder.current.value.failsFirstSave && !hasConsumedFirstSaveFailure.getAndSet(true)
-
-    private data class PreparedImportRecord(
-        val hike: HikeEntity,
-        val routeChunks: List<HikeRouteChunkEntity>,
-        val places: List<TrailPointEntity>,
-        val localState: HikeLocalStateEntity
-    )
-
-    private companion object {
-        const val DEFAULT_IMPORTED_TITLE = "Imported Hike"
     }
 }

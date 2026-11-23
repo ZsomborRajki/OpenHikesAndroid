@@ -7,11 +7,20 @@ import java.time.Instant
  */
 interface OpenHikesClock {
     fun now(): Instant
+
+    fun monotonicMillis(): Long = now().toEpochMilli()
 }
 
 /**
- * Production clock reading the system UTC instant.
+ * Production clock reading the system UTC instant and monotonic nano-time.
  */
-class SystemOpenHikesClock : OpenHikesClock {
+class SystemOpenHikesClock(private val monotonicMillisProvider: () -> Long = { System.nanoTime() / NANOS_PER_MILLI }) :
+    OpenHikesClock {
     override fun now(): Instant = Instant.now()
+
+    override fun monotonicMillis(): Long = monotonicMillisProvider()
+
+    private companion object {
+        const val NANOS_PER_MILLI = 1_000_000L
+    }
 }

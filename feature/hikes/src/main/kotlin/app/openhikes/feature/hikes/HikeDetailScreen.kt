@@ -34,6 +34,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.ui.components.ElevationProfileChart
+import app.openhikes.core.ui.components.HikeSegmentList
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 import kotlinx.coroutines.launch
 
@@ -239,15 +240,14 @@ private fun LazyListScope.addDetailSecondaryItems(
     onRequestDelete: () -> Unit
 ) {
     val hike = uiState.hike ?: return
-    val profile = uiState.profile
     val statistics = uiState.statistics
     val distanceUnit = uiState.distanceUnit
     item(key = "about") {
         HikeAboutCard(hike = hike)
     }
-    if (profile != null && profile.segments.size > 1) {
+    if (uiState.routeSegments.size > 1) {
         item(key = "segments") {
-            HikeSegmentsCard(profile = profile, distanceUnit = distanceUnit)
+            HikeSegmentList(segments = uiState.routeSegments, distanceUnit = distanceUnit)
         }
     }
     if (statistics != null) {

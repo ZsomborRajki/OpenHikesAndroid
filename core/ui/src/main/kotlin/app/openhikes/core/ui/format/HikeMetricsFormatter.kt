@@ -12,6 +12,7 @@ import kotlin.math.roundToInt
 /**
  * Locale-aware formatter for hiking distances, elevations, speeds, durations, and dates.
  */
+@Suppress("TooManyFunctions")
 object HikeMetricsFormatter {
     private const val METERS_PER_KILOMETER = 1000.0
     private const val METERS_PER_MILE = 1609.344
@@ -88,6 +89,21 @@ object HikeMetricsFormatter {
             DistanceUnit.IMPERIAL -> "${formatNumber(metersPerSecond * MPS_TO_MPH, 1, locale)} mph"
         }
 
+    fun formatSpokenSpeed(metersPerSecond: Double, unit: DistanceUnit, locale: Locale = Locale.getDefault()): String =
+        when (unit) {
+            DistanceUnit.METRIC -> "${formatNumber(metersPerSecond * MPS_TO_KMH, 1, locale)} kilometers per hour"
+            DistanceUnit.IMPERIAL -> "${formatNumber(metersPerSecond * MPS_TO_MPH, 1, locale)} miles per hour"
+        }
+
+    fun formatAccuracy(
+        horizontalAccuracyMeters: Double,
+        unit: DistanceUnit,
+        locale: Locale = Locale.getDefault()
+    ): String = "±${formatDistance(horizontalAccuracyMeters, unit, locale)}"
+
+    fun formatCount(count: Int, locale: Locale = Locale.getDefault()): String =
+        NumberFormat.getIntegerInstance(locale).format(count)
+
     fun formatDuration(seconds: Double): String {
         val totalSeconds = seconds.roundToInt().coerceAtLeast(0)
         val totalMinutes = totalSeconds / SECONDS_PER_MINUTE
@@ -99,6 +115,22 @@ object HikeMetricsFormatter {
             hours > 0 -> "${hours}h"
             totalMinutes > 0 -> "${totalMinutes}m"
             else -> "${remSeconds}s"
+        }
+    }
+
+    fun formatSpokenDuration(seconds: Double): String {
+        val totalSeconds = seconds.roundToInt().coerceAtLeast(0)
+        val totalMinutes = totalSeconds / SECONDS_PER_MINUTE
+        val hours = totalMinutes / MINUTES_PER_HOUR
+        val minutes = totalMinutes % MINUTES_PER_HOUR
+        val remSeconds = totalSeconds % SECONDS_PER_MINUTE
+        val hourUnit = if (hours == 1) "1 hour" else "$hours hours"
+        val minuteUnit = if (minutes == 1) "1 minute" else "$minutes minutes"
+        return when {
+            hours > 0 && minutes > 0 -> "$hourUnit $minuteUnit"
+            hours > 0 -> hourUnit
+            totalMinutes > 0 -> if (totalMinutes == 1) "1 minute" else "$totalMinutes minutes"
+            else -> if (remSeconds == 1) "1 second" else "$remSeconds seconds"
         }
     }
 

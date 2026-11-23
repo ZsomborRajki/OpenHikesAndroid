@@ -17,11 +17,11 @@ Supporting reference docs:
   pyramid, porting `OpenHikesUITests` fixtures/tags, static analysis wiring, and
   Phase 0–4 bootstrap roadmap.
 
-> **Repository status:** Phase 2 complete (Room portable vs. device-local storage,
-> pure-JVM GPX 1.1 parser/exporter and route elevation/statistics math, grapheme-safe
-> bounded titles, MapLibre route overlays & scrub highlights, `:feature:hikes` Library /
-> Detail / Route Style screens, and Accessibility/Screenshot coverage). Phase 3 (Live Trail
-> Recording & Crash-Safe Journal) is next.
+> **Repository status:** Phase 3 complete (`:core:location` recording engine, crash-safe
+> `TrackJournal`, `RecordingFixPolicy`, `AutoPauseWatch`, thermal/battery energy policy,
+> `RecordingForegroundService`, Android 16.0-safe Live Updates, `:feature:recording` UI,
+> and deterministic Tier 1/2/3 + screenshot coverage). Phase 4 (OpenHikes Vector Map &
+> Offline Countries) is next.
 
 ---
 
