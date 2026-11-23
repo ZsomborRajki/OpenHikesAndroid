@@ -1,16 +1,26 @@
 package app.openhikes.feature.hikes
 
 import androidx.compose.runtime.Immutable
+import app.openhikes.core.location.TrailWalkSessionState
 import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.ExportedGpx
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeRouteStatistics
+import app.openhikes.core.model.HikeWalk
 import app.openhikes.core.model.OfflineCountry
 import app.openhikes.core.model.OfflineCountryDownload
 import app.openhikes.core.model.OfflineRouteSaving
 import app.openhikes.core.model.RouteProfile
 import app.openhikes.core.model.RouteSegment
+
+/**
+ * Tabs inside [HikeDetailScreen] separating route metadata from recorded walk history.
+ */
+enum class HikeDetailTab {
+    DETAILS,
+    HISTORY
+}
 
 /**
  * Offline country readiness for the currently opened hike on the OpenHikes vector map.
@@ -30,8 +40,8 @@ data class HikeOfflineCoverageState(
 }
 
 /**
- * Coarse UI state for [HikeDetailScreen]. High-frequency chart scrub distance lives in a separate
- * state holder so scrubbing never recomposes the detail scroll tree.
+ * Coarse UI state for [HikeDetailScreen]. High-frequency chart scrub distance and per-fix
+ * trail-walk progress live in separate state holders so updates never recompose the scroll tree.
  */
 @Immutable
 data class HikeDetailUiState(
@@ -42,6 +52,12 @@ data class HikeDetailUiState(
     val routeSegments: List<RouteSegment> = emptyList(),
     val distanceUnit: DistanceUnit = DistanceUnit.METRIC,
     val offlineCoverage: HikeOfflineCoverageState = HikeOfflineCoverageState(),
+    val selectedTab: HikeDetailTab = HikeDetailTab.DETAILS,
+    val walks: List<HikeWalk> = emptyList(),
+    val walkSession: TrailWalkSessionState = TrailWalkSessionState(),
+    val isRecordingActive: Boolean = false,
+    val showEndWalkDialog: Boolean = false,
+    val showEndWalkRefusedDialog: Boolean = false,
     val isLoaded: Boolean = false,
     val isRenaming: Boolean = false,
     val titleDraft: String = "",
@@ -49,7 +65,13 @@ data class HikeDetailUiState(
     val actionError: HikeDetailError? = null,
     val pendingExport: ExportedGpx? = null,
     val exportSuccess: Boolean = false
-)
+) {
+    val isWalkingThisHike: Boolean
+        get() = walkSession.walkedHikeId == hikeId && walkSession.phase != null
+
+    val isWalkingOtherHike: Boolean
+        get() = walkSession.walkedHikeId != null && walkSession.walkedHikeId != hikeId && walkSession.phase != null
+}
 
 enum class HikeDetailError {
     RENAME_FAILED,
@@ -63,4 +85,15 @@ sealed interface HikeOfflineAction {
     data class Download(val countryId: String) : HikeOfflineAction
     data class Retry(val countryId: String) : HikeOfflineAction
     data class Cancel(val countryId: String) : HikeOfflineAction
+}
+
+sealed interface HikeWalkAction {
+    data object ToggleWalk : HikeWalkAction
+    data object RequestEndWalk : HikeWalkAction
+    data object ConfirmEndWalk : HikeWalkAction
+    data object CancelEndWalk : HikeWalkAction
+    data object DismissEndRefused : HikeWalkAction
+    data class SetAutoFollow(val enabled: Boolean) : HikeWalkAction
+    data class SelectTab(val tab: HikeDetailTab) : HikeWalkAction
+    data class OpenWalkSummary(val walkId: String) : HikeWalkAction
 }

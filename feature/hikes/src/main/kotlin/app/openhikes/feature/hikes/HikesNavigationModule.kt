@@ -3,6 +3,7 @@ package app.openhikes.feature.hikes
 import app.openhikes.core.ui.navigation.EntryProviderInstaller
 import app.openhikes.core.ui.navigation.HikeDetailRoute
 import app.openhikes.core.ui.navigation.RouteStyleRoute
+import app.openhikes.core.ui.navigation.WalkSummaryRoute
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -23,6 +24,7 @@ object HikesNavigationModule {
                 hikeId = route.hikeId,
                 onBack = { navigator.pop() },
                 onOpenRouteStyle = { hikeId -> navigator.navigate(RouteStyleRoute(hikeId)) },
+                onOpenWalkSummary = { hikeId, walkId -> navigator.navigate(WalkSummaryRoute(hikeId, walkId)) },
                 onHikeDeleted = { hikeId -> navigator.removeRoutesForHike(hikeId) },
                 onCollapseSheet = { navigator.collapseSheet() }
             )

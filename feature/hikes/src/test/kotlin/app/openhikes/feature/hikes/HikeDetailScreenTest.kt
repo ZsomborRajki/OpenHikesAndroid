@@ -9,18 +9,25 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToKey
 import androidx.compose.ui.test.performTextReplacement
 import app.openhikes.core.designsystem.theme.OpenHikesTheme
+import app.openhikes.core.location.TrailWalkProgressState
+import app.openhikes.core.location.TrailWalkSessionState
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeRouteStatistics
+import app.openhikes.core.model.HikeWalk
 import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteProfile
+import app.openhikes.core.model.TrailWalkEndReason
+import app.openhikes.core.model.TrailWalkPhase
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 import com.google.common.truth.Truth.assertThat
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -86,6 +93,88 @@ class HikeDetailScreenTest {
         list.performScrollToKey("closing_actions")
         composeRule.onNodeWithTag(OpenHikesTestTags.HIKE_DELETE_BUTTON).performScrollTo().performClick()
         composeRule.onNodeWithTag(OpenHikesTestTags.HIKE_DELETE_DIALOG).assertIsDisplayed()
+    }
+
+    @Test
+    fun displaysActiveWalkAcrossDetailsAndHistoryTabsAndOpensWalkSummary() {
+        val walk = HikeWalk(
+            id = "w1",
+            hikeId = HikeId("h1"),
+            startedAtEpochMillis = 1_767_225_600_000L,
+            endedAtEpochMillis = 1_767_227_400_000L,
+            distanceMeters = 425.0,
+            durationSeconds = 1_800.0,
+            coveredIntervals = listOf(0.0, 425.0),
+            furthestDistanceMeters = 425.0,
+            routeDistanceMeters = 850.0,
+            endReason = TrailWalkEndReason.ENDED
+        )
+        var uiState by mutableStateOf(
+            sampleDetailUiState().copy(
+                walks = listOf(walk),
+                walkSession = TrailWalkSessionState(
+                    walkedHikeId = HikeId("h1"),
+                    walkedHikeTitle = "Thumsee Loop",
+                    phase = TrailWalkPhase.PAUSED
+                )
+            )
+        )
+        val progressFlow = MutableStateFlow(
+            TrailWalkProgressState(
+                hikeId = HikeId("h1"),
+                coveredFraction = 0.5,
+                metersLeft = 425.0,
+                secondsLeft = 600.0
+            )
+        )
+        var openedWalkId: String? = null
+        var toggledWalk = false
+
+        composeRule.setContent {
+            OpenHikesTheme(dynamicColor = false) {
+                HikeDetailScreen(
+                    uiState = uiState,
+                    scrubDistanceProvider = { 0.0 },
+                    onScrubDistance = {},
+                    onBack = {},
+                    onZoomToRoute = {},
+                    onExportGpx = {},
+                    onOpenRouteStyle = {},
+                    onStartRename = {},
+                    onTitleDraftChange = {},
+                    onCommitRename = {},
+                    onCancelRename = {},
+                    onRequestDelete = {},
+                    onConfirmDelete = {},
+                    onCancelDelete = {},
+                    walkProgressFlow = progressFlow,
+                    activeSecondsProvider = { 900.0 },
+                    onWalkAction = { action ->
+                        when (action) {
+                            HikeWalkAction.ToggleWalk -> toggledWalk = true
+                            HikeWalkAction.RequestEndWalk -> uiState = uiState.copy(showEndWalkDialog = true)
+                            is HikeWalkAction.SelectTab -> uiState = uiState.copy(selectedTab = action.tab)
+                            is HikeWalkAction.OpenWalkSummary -> openedWalkId = action.walkId
+                            else -> Unit
+                        }
+                    }
+                )
+            }
+        }
+
+        composeRule.onNodeWithText("Resume Hike").assertIsDisplayed()
+        composeRule.onNodeWithTag(OpenHikesTestTags.WALK_TOGGLE).performClick()
+        assertThat(toggledWalk).isTrue()
+        composeRule.onNodeWithTag(OpenHikesTestTags.TRAIL_PROGRESS).assertIsDisplayed()
+        composeRule.onNodeWithTag(OpenHikesTestTags.WALK_CONTROLS).assertIsDisplayed()
+
+        composeRule.onNodeWithTag(OpenHikesTestTags.WALK_SEGMENT_HISTORY).performClick()
+        composeRule.onNodeWithTag(OpenHikesTestTags.WALK_CONTROLS).assertIsDisplayed()
+        composeRule.onNodeWithTag(OpenHikesTestTags.walkRow("w1")).assertIsDisplayed().performClick()
+        assertThat(openedWalkId).isEqualTo("w1")
+
+        composeRule.onNodeWithTag(OpenHikesTestTags.WALK_CONTROLS).performClick()
+        composeRule.onNodeWithTag(OpenHikesTestTags.WALK_END_DIALOG).assertIsDisplayed()
     }
 
     private fun sampleDetailUiState(): HikeDetailUiState {

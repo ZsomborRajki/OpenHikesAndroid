@@ -102,4 +102,32 @@
     <string name="route_pattern_dashed">Dashed</string>
     <string name="route_pattern_dotted">Dotted</string>
     <string name="route_pattern_arrowheads">Arrowheads</string>
+
+    <string name="walk_action_start">Start Hike</string>
+    <string name="walk_action_pause">Pause Hike</string>
+    <string name="walk_action_resume">Resume Hike</string>
+    <string name="walk_action_end_and_save">End and Save Hike</string>
+    <string name="walk_phase_active">Hike Active</string>
+    <string name="walk_phase_paused">Hike Paused</string>
+    <string name="walk_progress_remaining">%1$s left</string>
+    <string name="walk_tab_details">Details</string>
+    <string name="walk_tab_history">History</string>
+    <string name="walk_other_hike_notice">A hike is in progress on %1$s. End it there to hike this trail.</string>
+    <string name="walk_follow_trail_title">Follow This Trail</string>
+    <string name="walk_follow_trail_subtitle">Tracks progress on this trail automatically</string>
+    <string name="walk_history_empty_title">No hikes on this trail yet</string>
+    <string name="walk_history_empty_body">Start a hike from the top bar, or simply walk the trail with Follow This Trail turned on.</string>
+    <string name="walk_row_hiked_subtitle">%1$s hiked · %2$s · %3$s</string>
+    <string name="walk_reason_reached_end">Completed</string>
+    <string name="walk_reason_abandoned">Left open</string>
+    <string name="walk_reason_recorded">Recorded</string>
+    <string name="walk_reason_route_changed">Route changed</string>
+    <string name="walk_reason_ended">Ended</string>
+    <string name="walk_end_dialog_title">End this hike?</string>
+    <string name="walk_end_dialog_body">Your covered stretches and active time will be saved in History. Hikes shorter than 100 m aren’t saved.</string>
+    <string name="walk_end_dialog_confirm">End and Save Hike</string>
+    <string name="walk_end_dialog_cancel">Cancel</string>
+    <string name="walk_end_refused_title">Couldn’t save hike</string>
+    <string name="walk_end_refused_body">Your hike is still open. Try ending it again in a moment.</string>
+    <string name="walk_end_refused_ok">OK</string>
 </resources>

@@ -6,6 +6,11 @@ import app.openhikes.core.common.DefaultDispatcher
 import app.openhikes.core.data.HikeRepository
 import app.openhikes.core.data.OfflineCountryRepository
 import app.openhikes.core.data.UserSettingsRepository
+import app.openhikes.core.location.RecordingController
+import app.openhikes.core.location.TrailWalkController
+import app.openhikes.core.location.TrailWalkEnd
+import app.openhikes.core.location.TrailWalkProgressState
+import app.openhikes.core.location.TrailWalkSessionState
 import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapClaim
 import app.openhikes.core.map.MapClaimCoordinator
@@ -16,6 +21,7 @@ import app.openhikes.core.model.GeoBoundingBox
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeRouteStatistics
+import app.openhikes.core.model.HikeWalk
 import app.openhikes.core.model.MapStyleId
 import app.openhikes.core.model.OfflineCountriesState
 import app.openhikes.core.model.OfflineListPhase
@@ -25,6 +31,7 @@ import app.openhikes.core.model.RouteProfile
 import app.openhikes.core.model.RouteSegment
 import app.openhikes.core.model.RouteSegments
 import app.openhikes.core.model.RouteTint
+import app.openhikes.core.model.TrailWalkPhase
 import app.openhikes.core.model.UserSettings
 import app.openhikes.core.ui.navigation.HikeDetailRoute
 import dagger.assisted.Assisted
@@ -51,8 +58,10 @@ import kotlinx.coroutines.launch
 
 /**
  * Scoped ViewModel for [HikeDetailRoute] managing off-main route profile preparation,
- * map selection/bounds claims, scrub position highlight isolation, rename, GPX export, and delete.
+ * trail-following lifecycle, walk history, map selection/bounds claims, scrub highlight
+ * isolation, rename, GPX export, and delete.
  */
+@Suppress("TooManyFunctions", "LongParameterList")
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel(assistedFactory = HikeDetailViewModel.Factory::class)
 class HikeDetailViewModel @AssistedInject constructor(
@@ -60,6 +69,8 @@ class HikeDetailViewModel @AssistedInject constructor(
     private val hikeRepository: HikeRepository,
     userSettingsRepository: UserSettingsRepository,
     private val offlineCountryRepository: OfflineCountryRepository,
+    private val trailWalkController: TrailWalkController,
+    recordingController: RecordingController,
     private val mapClaimCoordinator: MapClaimCoordinator,
     private val routeHighlightState: RouteHighlightState,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
@@ -81,6 +92,9 @@ class HikeDetailViewModel @AssistedInject constructor(
     private val pendingExportState = MutableStateFlow<ExportedGpx?>(null)
     private val exportSuccessState = MutableStateFlow(false)
     private val showOfflineDialogState = MutableStateFlow(false)
+    private val selectedTabState = MutableStateFlow(HikeDetailTab.DETAILS)
+    private val showEndWalkDialogState = MutableStateFlow(false)
+    private val showEndWalkRefusedDialogState = MutableStateFlow(false)
     private val scrubDistanceState = MutableStateFlow(0.0)
 
     @Volatile
@@ -90,6 +104,7 @@ class HikeDetailViewModel @AssistedInject constructor(
     private var latestTintHex: String = ""
 
     val scrubDistanceMeters: StateFlow<Double> = scrubDistanceState.asStateFlow()
+    val walkProgress: StateFlow<TrailWalkProgressState> = trailWalkController.progressState
 
     private val hikeFlow = hikeRepository.observeHike(hikeId).onEach { hike ->
         if (hike != null) {
@@ -137,6 +152,23 @@ class HikeDetailViewModel @AssistedInject constructor(
         )
     }
 
+    private val walkSectionStateFlow = combine(
+        selectedTabState,
+        hikeRepository.observeWalks(hikeId),
+        trailWalkController.sessionState,
+        recordingController.state.map { it.isActive }.distinctUntilChanged(),
+        combine(showEndWalkDialogState, showEndWalkRefusedDialogState) { confirm, refused -> confirm to refused }
+    ) { tab, walks, session, isRecording, dialogs ->
+        WalkSectionState(
+            selectedTab = tab,
+            walks = walks,
+            session = session,
+            isRecordingActive = isRecording,
+            showEndWalkDialog = dialogs.first,
+            showEndWalkRefusedDialog = dialogs.second
+        )
+    }
+
     private val routeCoverageFlow = combine(
         hikeRepository.observeHike(hikeId).map { it?.route }.distinctUntilChanged(),
         offlineCountryRepository.state.map { it.catalogRevision to it.listedCountries }.distinctUntilChanged()
@@ -148,12 +180,18 @@ class HikeDetailViewModel @AssistedInject constructor(
         }
     }.flowOn(defaultDispatcher)
 
-    private val offlineCoverageStateFlow = combine(
+    private val offlineAndWalkFlow = combine(
         routeCoverageFlow,
         offlineCountryRepository.state,
-        showOfflineDialogState
-    ) { coverage, repoState, showDialog ->
-        Triple(coverage, repoState, showDialog)
+        showOfflineDialogState,
+        walkSectionStateFlow
+    ) { coverage, repoState, showDialog, walkState ->
+        OfflineAndWalkBundle(
+            coverage = coverage,
+            repoState = repoState,
+            showOfflineDialog = showDialog,
+            walkState = walkState
+        )
     }
 
     val uiState: StateFlow<HikeDetailUiState> = combine(
@@ -167,8 +205,8 @@ class HikeDetailViewModel @AssistedInject constructor(
             }
         },
         editUiStateFlow,
-        offlineCoverageStateFlow
-    ) { hike: Hike?, prepared, settings, transient, (coverage, repoState, showOfflineDialog) ->
+        offlineAndWalkFlow
+    ) { hike: Hike?, prepared, settings, transient, bundle ->
         HikeDetailUiState(
             hikeId = hikeId,
             hike = hike,
@@ -176,7 +214,18 @@ class HikeDetailViewModel @AssistedInject constructor(
             statistics = prepared?.statistics,
             routeSegments = prepared?.segments.orEmpty(),
             distanceUnit = settings.distanceUnit,
-            offlineCoverage = buildOfflineCoverageState(coverage, repoState, settings, showOfflineDialog),
+            offlineCoverage = buildOfflineCoverageState(
+                bundle.coverage,
+                bundle.repoState,
+                settings,
+                bundle.showOfflineDialog
+            ),
+            selectedTab = bundle.walkState.selectedTab,
+            walks = bundle.walkState.walks,
+            walkSession = bundle.walkState.session,
+            isRecordingActive = bundle.walkState.isRecordingActive,
+            showEndWalkDialog = bundle.walkState.showEndWalkDialog,
+            showEndWalkRefusedDialog = bundle.walkState.showEndWalkRefusedDialog,
             isLoaded = true,
             isRenaming = transient.isRenaming,
             titleDraft = transient.titleDraft,
@@ -205,11 +254,89 @@ class HikeDetailViewModel @AssistedInject constructor(
                 offlineCountryRepository.refreshCatalog()
             }
         }
+        viewModelScope.launch {
+            combine(hikeFlow, preparedFlow) { hike, prepared ->
+                if (hike != null && prepared != null) hike to prepared.profile else null
+            }.collect { pair ->
+                if (pair != null) {
+                    trailWalkController.attachForegroundHike(pair.first, pair.second)
+                }
+            }
+        }
+        viewModelScope.launch {
+            combine(
+                hikeRepository.observeHike(hikeId).map { it?.autoFollowEnabled ?: true }.distinctUntilChanged(),
+                trailWalkController.progressState
+                    .map { progress ->
+                        if (progress.followMarkerHikeId == hikeId) progress.followMarkerDistanceMeters else null
+                    }
+                    .distinctUntilChanged()
+            ) { autoFollow, followDistance ->
+                if (autoFollow) followDistance else null
+            }.collect { followDistance ->
+                if (followDistance != null) {
+                    onScrubDistance(followDistance)
+                }
+            }
+        }
     }
 
     override fun onCleared() {
+        trailWalkController.detachForegroundHike(hikeId)
         routeHighlightState.clearIfHike(hikeId)
         mapClaimCoordinator.releaseClaim(routeKey)
+    }
+
+    fun walkActiveSeconds(): Double = trailWalkController.activeSeconds()
+
+    fun onConsumeEndedWalk() {
+        trailWalkController.consumeLastEndedWalk()
+    }
+
+    fun onWalkAction(action: HikeWalkAction, onOpenWalkSummary: (HikeId, String) -> Unit) {
+        when (action) {
+            HikeWalkAction.ToggleWalk -> handleToggleWalk()
+            HikeWalkAction.RequestEndWalk -> showEndWalkDialogState.value = true
+            HikeWalkAction.CancelEndWalk -> showEndWalkDialogState.value = false
+            HikeWalkAction.ConfirmEndWalk -> handleConfirmEndWalk(onOpenWalkSummary)
+            HikeWalkAction.DismissEndRefused -> showEndWalkRefusedDialogState.value = false
+            is HikeWalkAction.SetAutoFollow -> handleSetAutoFollow(action.enabled)
+            is HikeWalkAction.SelectTab -> selectedTabState.value = action.tab
+            is HikeWalkAction.OpenWalkSummary -> onOpenWalkSummary(hikeId, action.walkId)
+        }
+    }
+
+    private fun handleToggleWalk() {
+        val state = uiState.value
+        if (state.isRecordingActive || state.isWalkingOtherHike) return
+        viewModelScope.launch {
+            when {
+                !state.isWalkingThisHike -> trailWalkController.startByHand(hikeId)
+                state.walkSession.phase == TrailWalkPhase.FOLLOWING -> trailWalkController.pause()
+                else -> trailWalkController.resume()
+            }
+        }
+    }
+
+    private fun handleConfirmEndWalk(onOpenWalkSummary: (HikeId, String) -> Unit) {
+        showEndWalkDialogState.value = false
+        viewModelScope.launch {
+            when (val end = trailWalkController.endWalk()) {
+                is TrailWalkEnd.Kept -> {
+                    trailWalkController.consumeLastEndedWalk()
+                    onOpenWalkSummary(hikeId, end.walk.id)
+                }
+                TrailWalkEnd.Discarded -> Unit
+                TrailWalkEnd.Refused -> showEndWalkRefusedDialogState.value = true
+            }
+        }
+    }
+
+    private fun handleSetAutoFollow(enabled: Boolean) {
+        viewModelScope.launch {
+            hikeRepository.setAutoFollowEnabled(hikeId, enabled)
+            trailWalkController.onAutoFollowChanged(hikeId, enabled)
+        }
     }
 
     fun onScrubDistance(distanceMeters: Double) {
@@ -301,6 +428,7 @@ class HikeDetailViewModel @AssistedInject constructor(
         viewModelScope.launch {
             val result = hikeRepository.deleteHike(hikeId)
             if (result.isSuccess) {
+                trailWalkController.onHikeDeleted(hikeId)
                 routeHighlightState.clearIfHike(hikeId)
                 actionErrorState.value = null
                 onDeleted(hikeId)
@@ -356,6 +484,22 @@ class HikeDetailViewModel @AssistedInject constructor(
         val actionError: HikeDetailError?,
         val pendingExport: ExportedGpx?,
         val exportSuccess: Boolean
+    )
+
+    private data class WalkSectionState(
+        val selectedTab: HikeDetailTab,
+        val walks: List<HikeWalk>,
+        val session: TrailWalkSessionState,
+        val isRecordingActive: Boolean,
+        val showEndWalkDialog: Boolean,
+        val showEndWalkRefusedDialog: Boolean
+    )
+
+    private data class OfflineAndWalkBundle(
+        val coverage: OfflineRouteCoverage,
+        val repoState: OfflineCountriesState,
+        val showOfflineDialog: Boolean,
+        val walkState: WalkSectionState
     )
 
     private companion object {

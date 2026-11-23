@@ -10,5 +10,6 @@ android {
 dependencies {
     implementation(projects.core.common)
     implementation(projects.core.data)
+    implementation(projects.core.location)
     implementation(projects.core.map)
 }

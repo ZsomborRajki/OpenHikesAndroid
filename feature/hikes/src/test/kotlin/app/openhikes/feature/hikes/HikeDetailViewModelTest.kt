@@ -2,15 +2,20 @@ package app.openhikes.feature.hikes
 
 import androidx.lifecycle.ViewModelStore
 import app.cash.turbine.test
+import app.openhikes.core.location.TrailWalkEnd
+import app.openhikes.core.location.TrailWalkProgressState
 import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.map.RouteHighlightState
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.RouteCoordinate
+import app.openhikes.core.model.TrailWalkPhase
 import app.openhikes.core.testing.MainDispatcherRule
 import app.openhikes.core.testing.android.FakeHikeRepository
 import app.openhikes.core.testing.android.FakeOfflineCountryRepository
+import app.openhikes.core.testing.android.FakeRecordingController
+import app.openhikes.core.testing.android.FakeTrailWalkController
 import app.openhikes.core.testing.android.FakeUserSettingsRepository
 import com.google.common.truth.Truth.assertThat
 import java.io.IOException
@@ -36,6 +41,8 @@ class HikeDetailViewModelTest {
             hikeRepository = repo,
             userSettingsRepository = FakeUserSettingsRepository(),
             offlineCountryRepository = FakeOfflineCountryRepository(),
+            trailWalkController = FakeTrailWalkController(),
+            recordingController = FakeRecordingController(),
             mapClaimCoordinator = coordinator,
             routeHighlightState = highlightState,
             defaultDispatcher = mainDispatcherRule.testDispatcher
@@ -85,6 +92,79 @@ class HikeDetailViewModelTest {
         store.clear()
         assertThat(coordinator.activeClaim.value).isNull()
         assertThat(highlightState.highlight.value).isNull()
+    }
+
+    @Test
+    fun controlsWalkLifecycleSyncsFollowScrubAndHandlesEndOutcomes() = runTest {
+        val hike = sampleDetailHike()
+        val repo = FakeHikeRepository(listOf(hike))
+        val walkController = FakeTrailWalkController()
+        val viewModel = HikeDetailViewModel(
+            rawHikeId = hike.id.value,
+            hikeRepository = repo,
+            userSettingsRepository = FakeUserSettingsRepository(),
+            offlineCountryRepository = FakeOfflineCountryRepository(),
+            trailWalkController = walkController,
+            recordingController = FakeRecordingController(),
+            mapClaimCoordinator = MapClaimCoordinator(),
+            routeHighlightState = RouteHighlightState(),
+            defaultDispatcher = mainDispatcherRule.testDispatcher
+        )
+        val openedSummaries = mutableListOf<Pair<HikeId, String>>()
+
+        viewModel.uiState.test {
+            awaitItem()
+            advanceUntilIdle()
+
+            viewModel.onWalkAction(HikeWalkAction.ToggleWalk) { id, walkId -> openedSummaries.add(id to walkId) }
+            advanceUntilIdle()
+            assertThat(expectMostRecentItem().walkSession.phase).isEqualTo(TrailWalkPhase.FOLLOWING)
+
+            walkController.setProgress(
+                TrailWalkProgressState(
+                    hikeId = hike.id,
+                    followMarkerHikeId = hike.id,
+                    followMarkerDistanceMeters = 120.0
+                )
+            )
+            advanceUntilIdle()
+            assertThat(viewModel.scrubDistanceMeters.value).isWithin(1e-3).of(120.0)
+
+            viewModel.onWalkAction(HikeWalkAction.SetAutoFollow(false)) { _, _ -> }
+            advanceUntilIdle()
+            walkController.setProgress(
+                TrailWalkProgressState(
+                    hikeId = hike.id,
+                    followMarkerHikeId = hike.id,
+                    followMarkerDistanceMeters = 200.0
+                )
+            )
+            advanceUntilIdle()
+            assertThat(viewModel.scrubDistanceMeters.value).isWithin(1e-3).of(120.0)
+            assertThat(walkController.lastAutoFollowChange).isEqualTo(hike.id to false)
+
+            viewModel.onWalkAction(HikeWalkAction.ToggleWalk) { _, _ -> }
+            advanceUntilIdle()
+            assertThat(expectMostRecentItem().walkSession.phase).isEqualTo(TrailWalkPhase.PAUSED)
+
+            walkController.nextEndResult = TrailWalkEnd.Refused
+            viewModel.onWalkAction(HikeWalkAction.RequestEndWalk) { _, _ -> }
+            advanceUntilIdle()
+            assertThat(expectMostRecentItem().showEndWalkDialog).isTrue()
+
+            viewModel.onWalkAction(HikeWalkAction.ConfirmEndWalk) { id, walkId -> openedSummaries.add(id to walkId) }
+            advanceUntilIdle()
+            assertThat(expectMostRecentItem().showEndWalkRefusedDialog).isTrue()
+            assertThat(openedSummaries).isEmpty()
+
+            viewModel.onWalkAction(HikeWalkAction.DismissEndRefused) { _, _ -> }
+            viewModel.onWalkAction(HikeWalkAction.ConfirmEndWalk) { id, walkId -> openedSummaries.add(id to walkId) }
+            advanceUntilIdle()
+            assertThat(openedSummaries).hasSize(1)
+            assertThat(openedSummaries.single().first).isEqualTo(hike.id)
+
+            cancelAndIgnoreRemainingEvents()
+        }
     }
 
     private fun sampleDetailHike(): Hike = Hike(
