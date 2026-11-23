@@ -27,4 +27,6 @@ interface UserSettingsRepository {
     suspend fun setSavePhotosToLibrary(enabled: Boolean)
 
     suspend fun setMapStyleId(styleId: String)
+
+    suspend fun setOfflineCountriesExtraDetail(enabled: Boolean)
 }

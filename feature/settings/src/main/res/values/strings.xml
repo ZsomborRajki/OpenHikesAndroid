@@ -19,6 +19,8 @@
     <string name="settings_keep_screen_awake_summary">Keeps the display awake while a hike is active in the foreground. Uses more battery.</string>
 
     <string name="settings_section_offline_photos">Offline Maps &amp; Photos</string>
+    <string name="settings_offline_maps_title">Offline Maps</string>
+    <string name="settings_offline_maps_empty">No downloads</string>
     <string name="settings_auto_save_tiles_title">Auto-Save Tiles</string>
     <string name="settings_auto_save_tiles_summary">Keeps map tiles along the selected hike as you browse. Country downloads are independent.</string>
     <string name="settings_save_photos_title">Also Save to Photos</string>

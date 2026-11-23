@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import app.openhikes.core.common.DefaultDispatcher
 import app.openhikes.core.common.LaunchConfigHolder
 import app.openhikes.core.data.HikeRepository
+import app.openhikes.core.data.OfflineCountryRepository
 import app.openhikes.core.data.UserSettingsRepository
 import app.openhikes.core.location.RecordingController
 import app.openhikes.core.map.MapCameraCommand
@@ -16,6 +17,7 @@ import app.openhikes.core.map.MapRouteHighlight
 import app.openhikes.core.map.MapRouteOverlay
 import app.openhikes.core.map.RouteHighlightState
 import app.openhikes.core.map.toMapRouteOverlay
+import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeSummary
 import app.openhikes.core.model.MapAttribution
 import app.openhikes.core.model.MapStyleId
@@ -57,6 +59,7 @@ data class MapChromeUiState(
 class MapShellViewModel @Inject constructor(
     private val userSettingsRepository: UserSettingsRepository,
     private val hikeRepository: HikeRepository,
+    private val offlineCountryRepository: OfflineCountryRepository,
     private val mapClaimCoordinator: MapClaimCoordinator,
     private val recordingController: RecordingController,
     routeHighlightState: RouteHighlightState,
@@ -93,6 +96,7 @@ class MapShellViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
+            offlineCountryRepository.start()
             hikeRepository.seedFixtureIfConfigured()
             if (!launchConfigHolder.current.value.disableAutomaticRecovery) {
                 recordingController.recoverOpenSession()
@@ -122,11 +126,13 @@ class MapShellViewModel @Inject constructor(
         routeOverlaysFlow,
         showAttributionDialog
     ) { settings, activeClaim, routeOverlays, attributionDialogOpen ->
+        val resolvedStyleId = settings.mapStyleId.ifBlank { MapStyleId.OPENHIKES }
         val defaultOverlay = MapOverlayState(
-            mapStyleId = settings.mapStyleId.ifBlank { MapStyleId.OPENHIKES },
+            mapStyleId = resolvedStyleId,
             showsHikingRoutes = settings.showsHikingRoutes,
-            attribution = MapAttribution.forOpenFreeMap(settings.showsHikingRoutes),
-            routes = routeOverlays
+            attribution = MapAttribution.forStyle(resolvedStyleId, settings.showsHikingRoutes),
+            routes = routeOverlays,
+            countryOutlines = activeClaim?.countryOutlines.orEmpty()
         )
         MapChromeUiState(
             overlayState = activeClaim?.overlayOverride ?: defaultOverlay,
@@ -180,6 +186,10 @@ class MapShellViewModel @Inject constructor(
 
     fun onCameraChanged(cameraState: MapCameraState) {
         cameraStateFlow.value = cameraState
+    }
+
+    fun onMapTap(coordinate: GeoCoordinate) {
+        mapClaimCoordinator.dispatchMapTap(coordinate)
     }
 
     fun onSearchQueryChange(query: String) {

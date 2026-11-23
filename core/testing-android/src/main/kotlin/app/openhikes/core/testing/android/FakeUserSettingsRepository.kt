@@ -78,4 +78,9 @@ class FakeUserSettingsRepository(
         consumeWriteFailureIfPresent()
         settingsState.update { it.copy(mapStyleId = styleId) }
     }
+
+    override suspend fun setOfflineCountriesExtraDetail(enabled: Boolean) {
+        consumeWriteFailureIfPresent()
+        settingsState.update { it.copy(offlineCountriesExtraDetail = enabled) }
+    }
 }

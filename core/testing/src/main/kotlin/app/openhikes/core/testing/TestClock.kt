@@ -8,6 +8,8 @@ import java.time.Instant
  * Deterministic [OpenHikesClock] for unit and scenario tests.
  */
 class TestClock(initialInstant: Instant = DEFAULT_START_INSTANT) : OpenHikesClock {
+    constructor(initialEpochMillis: Long) : this(Instant.ofEpochMilli(initialEpochMillis))
+
     @Volatile
     private var currentInstant: Instant = initialInstant
 

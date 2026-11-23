@@ -124,12 +124,12 @@ class OpenHikesAdaptiveShellTest {
         )
         composeRule.waitForIdle()
         assertThat(fakeRenderer.lastOverlayState.value?.showsHikingRoutes).isFalse()
-        composeRule.onNodeWithText("© OpenFreeMap, OpenMapTiles, OpenStreetMap").assertIsDisplayed()
+        composeRule.onNodeWithText("© OpenStreetMap, ESA WorldCover").assertIsDisplayed()
 
         composeRule.onNodeWithTag(OpenHikesTestTags.MAP_ATTRIBUTION).performClick()
         composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.MAP_ATTRIBUTION_DIALOG))
-        composeRule.onNodeWithText("© OpenMapTiles").assertIsDisplayed()
-        composeRule.onNodeWithText("https://www.openmaptiles.org/").assertIsDisplayed()
+        composeRule.onNodeWithText("Land cover © ESA WorldCover").assertIsDisplayed()
+        composeRule.onNodeWithText("https://esa-worldcover.org").assertIsDisplayed()
         composeRule.activityRule.scenario.onActivity { it.onBackPressedDispatcher.onBackPressed() }
         composeRule.onNodeWithTag(OpenHikesTestTags.MAP_ATTRIBUTION_DIALOG).assertDoesNotExist()
 

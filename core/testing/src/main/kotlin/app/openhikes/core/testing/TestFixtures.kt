@@ -25,12 +25,20 @@ object TestFixtures {
     )
 
     private const val THUMSEE_LOOP_FAST_RESOURCE = "/fixtures/ThumseeLoopFast.gpx"
+    private const val OFFLINE_COUNTRIES_SEED_RESOURCE = "/fixtures/OfflineCountriesSeed.json"
 
     fun thumseeLoopFastGpxBytes(): ByteArray {
         val stream = requireNotNull(TestFixtures::class.java.getResourceAsStream(THUMSEE_LOOP_FAST_RESOURCE)) {
             "Missing bundled GPX fixture: $THUMSEE_LOOP_FAST_RESOURCE"
         }
         return stream.use { it.readBytes() }
+    }
+
+    fun offlineCountriesSeedJson(): String {
+        val stream = requireNotNull(TestFixtures::class.java.getResourceAsStream(OFFLINE_COUNTRIES_SEED_RESOURCE)) {
+            "Missing bundled offline countries seed fixture: $OFFLINE_COUNTRIES_SEED_RESOURCE"
+        }
+        return stream.use { it.readBytes().decodeToString() }
     }
 
     /**

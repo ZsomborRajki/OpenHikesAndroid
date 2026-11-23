@@ -16,6 +16,7 @@ import app.openhikes.core.location.RecordingController
 import app.openhikes.core.location.RecordingEntryCoordinator
 import app.openhikes.core.location.RecordingForegroundService
 import app.openhikes.core.map.TrailMapRenderer
+import app.openhikes.core.network.VectorTileArchivesManager
 import app.openhikes.core.ui.navigation.EntryProviderInstaller
 import app.openhikes.launch.LaunchConfigReader
 import app.openhikes.shell.OpenHikesApp
@@ -46,6 +47,9 @@ class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var recordingEntryCoordinator: RecordingEntryCoordinator
+
+    @Inject
+    lateinit var vectorTileArchivesManager: VectorTileArchivesManager
 
     private var openRecordingRequestCount by mutableIntStateOf(0)
 
@@ -81,6 +85,13 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         if (wantsOpenRecording(intent)) {
             openRecordingRequestCount += 1
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        lifecycleScope.launch {
+            vectorTileArchivesManager.refresh()
         }
     }
 

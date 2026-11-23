@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="offline_maps_title">Offline Maps</string>
+    <string name="offline_maps_back_description">Navigate back</string>
+    <string name="offline_maps_search_placeholder">Search</string>
+    <string name="offline_maps_clear_search_description">Clear search</string>
+    <string name="offline_maps_sort_description">Sort offline maps</string>
+    <string name="offline_maps_sort_nearest">Nearest</string>
+    <string name="offline_maps_sort_name">Name</string>
+    <string name="offline_maps_sort_largest">Largest</string>
+    <string name="offline_maps_head_notice">Downloads are for the OpenHikes map only.</string>
+    <string name="offline_maps_using_other_map">You’re using %1$s.</string>
+    <string name="offline_maps_use_openhikes_map">Use the OpenHikes Map</string>
+    <string name="offline_maps_extra_detail_title">Extra Detail</string>
+    <string name="offline_maps_extra_detail_summary">Adds buildings and small places such as water taps, toilets, and benches. Downloads take about twice the space.</string>
+    <string name="offline_maps_section_unfinished">Not Yet Downloaded</string>
+    <string name="offline_maps_section_downloaded">Downloaded</string>
+    <string name="offline_maps_section_nearby">Nearby</string>
+    <string name="offline_maps_section_all">All Countries</string>
+    <string name="offline_maps_footer">The OpenHikes map draws a downloaded country with no signal. Downloads use Wi-Fi.</string>
+    <string name="offline_maps_loading_description">Loading countries</string>
+    <string name="offline_maps_unavailable_title">Offline Maps Aren’t Available</string>
+    <string name="offline_maps_unavailable_body">This build can’t download countries right now.</string>
+    <string name="offline_maps_error_title">Couldn’t Load Countries</string>
+    <string name="offline_maps_error_body">Check your connection and try again.</string>
+    <string name="offline_maps_try_again">Try Again</string>
+    <string name="offline_maps_search_empty_title">No Results for “%1$s”</string>
+    <string name="offline_maps_search_empty_body">Try searching by country or region name.</string>
+    <string name="offline_maps_status_waiting_wifi">Waiting for Wi-Fi</string>
+    <string name="offline_maps_status_downloading">%1$s of %2$s</string>
+    <string name="offline_maps_status_checking">Checking…</string>
+    <string name="offline_maps_status_downloaded">Downloaded · %1$s</string>
+    <string name="offline_maps_status_update_available">Update available · %1$s</string>
+    <string name="offline_maps_error_connection">Couldn’t download. Try again on Wi-Fi.</string>
+    <string name="offline_maps_error_space">Not enough free space.</string>
+    <string name="offline_maps_error_damaged">The download was damaged. Try again.</string>
+    <string name="offline_maps_error_conserving">Turn off Battery Saver or let the device cool, then try again.</string>
+    <string name="offline_maps_action_download">Download %1$s</string>
+    <string name="offline_maps_action_update">Update</string>
+    <string name="offline_maps_action_update_description">Update %1$s</string>
+    <string name="offline_maps_action_cancel">Cancel Download</string>
+    <string name="offline_maps_action_retry">Try Again</string>
+    <string name="offline_maps_action_delete">Delete %1$s</string>
+    <string name="offline_maps_style_openfreemap">OpenFreeMap</string>
+    <string name="offline_maps_style_other">another map</string>
+    <string name="offline_maps_expand_group_description">Expand %1$s</string>
+    <string name="offline_maps_collapse_group_description">Collapse %1$s</string>
+    <string name="offline_maps_state_expanded">Expanded</string>
+    <string name="offline_maps_state_collapsed">Collapsed</string>
+    <plurals name="offline_maps_region_count">
+        <item quantity="one">%1$d region</item>
+        <item quantity="other">%1$d regions</item>
+    </plurals>
+</resources>

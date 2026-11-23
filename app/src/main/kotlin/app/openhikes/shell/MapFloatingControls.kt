@@ -86,7 +86,8 @@ fun MapFloatingControls(
     onOpenUrl: (String) -> Unit,
     modifier: Modifier = Modifier,
     isRecordingActive: Boolean = false,
-    onOpenRecording: () -> Unit = {}
+    onOpenRecording: () -> Unit = {},
+    onOpenOfflineMaps: () -> Unit = {}
 ) {
     val safePadding = WindowInsets.safeDrawing.asPaddingValues()
     val layoutDirection = LocalLayoutDirection.current
@@ -96,6 +97,7 @@ fun MapFloatingControls(
             showsHikingRoutes = overlayState.showsHikingRoutes,
             isRecordingActive = isRecordingActive,
             onOpenRecording = onOpenRecording,
+            onOpenOfflineMaps = onOpenOfflineMaps,
             onToggleHikingRoutes = onToggleHikingRoutes,
             onZoomIn = onZoomIn,
             onZoomOut = onZoomOut,
@@ -136,6 +138,7 @@ private fun MapActionToolbar(
     showsHikingRoutes: Boolean,
     isRecordingActive: Boolean,
     onOpenRecording: () -> Unit,
+    onOpenOfflineMaps: () -> Unit,
     onToggleHikingRoutes: () -> Unit,
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
@@ -154,6 +157,12 @@ private fun MapActionToolbar(
         modifier = modifier
     ) {
         RecordActionButton(isRecordingActive = isRecordingActive, onOpenRecording = onOpenRecording)
+        MapToolbarIconButton(
+            iconRes = OpenHikesIcons.Map,
+            contentDescription = stringResource(R.string.action_offline_maps),
+            testTag = OpenHikesTestTags.MAP_OFFLINE_MAPS_BUTTON,
+            onClick = onOpenOfflineMaps
+        )
         IconToggleButton(
             checked = showsHikingRoutes,
             onCheckedChange = { onToggleHikingRoutes() },
@@ -166,39 +175,39 @@ private fun MapActionToolbar(
                 contentDescription = routesDescription
             )
         }
-        IconButton(
-            onClick = onZoomIn,
-            modifier = Modifier
-                .defaultMinSize(minWidth = TouchTargetMinSize, minHeight = TouchTargetMinSize)
-                .testTag(OpenHikesTestTags.MAP_ZOOM_IN_BUTTON)
-        ) {
-            Icon(
-                painter = painterResource(OpenHikesIcons.Add),
-                contentDescription = stringResource(R.string.map_zoom_in_description)
-            )
-        }
-        IconButton(
-            onClick = onZoomOut,
-            modifier = Modifier
-                .defaultMinSize(minWidth = TouchTargetMinSize, minHeight = TouchTargetMinSize)
-                .testTag(OpenHikesTestTags.MAP_ZOOM_OUT_BUTTON)
-        ) {
-            Icon(
-                painter = painterResource(OpenHikesIcons.Remove),
-                contentDescription = stringResource(R.string.map_zoom_out_description)
-            )
-        }
-        IconButton(
-            onClick = onResetNorth,
-            modifier = Modifier
-                .defaultMinSize(minWidth = TouchTargetMinSize, minHeight = TouchTargetMinSize)
-                .testTag(OpenHikesTestTags.MAP_RESET_NORTH_BUTTON)
-        ) {
-            Icon(
-                painter = painterResource(OpenHikesIcons.Explore),
-                contentDescription = stringResource(R.string.map_reset_north_description)
-            )
-        }
+        MapToolbarIconButton(
+            iconRes = OpenHikesIcons.Add,
+            contentDescription = stringResource(R.string.map_zoom_in_description),
+            testTag = OpenHikesTestTags.MAP_ZOOM_IN_BUTTON,
+            onClick = onZoomIn
+        )
+        MapToolbarIconButton(
+            iconRes = OpenHikesIcons.Remove,
+            contentDescription = stringResource(R.string.map_zoom_out_description),
+            testTag = OpenHikesTestTags.MAP_ZOOM_OUT_BUTTON,
+            onClick = onZoomOut
+        )
+        MapToolbarIconButton(
+            iconRes = OpenHikesIcons.Explore,
+            contentDescription = stringResource(R.string.map_reset_north_description),
+            testTag = OpenHikesTestTags.MAP_RESET_NORTH_BUTTON,
+            onClick = onResetNorth
+        )
+    }
+}
+
+@Composable
+private fun MapToolbarIconButton(iconRes: Int, contentDescription: String, testTag: String, onClick: () -> Unit) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier
+            .defaultMinSize(minWidth = TouchTargetMinSize, minHeight = TouchTargetMinSize)
+            .testTag(testTag)
+    ) {
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = contentDescription
+        )
     }
 }
 

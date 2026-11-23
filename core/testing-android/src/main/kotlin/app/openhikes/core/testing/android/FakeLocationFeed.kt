@@ -2,6 +2,7 @@ package app.openhikes.core.testing.android
 
 import app.openhikes.core.location.LocationFeed
 import app.openhikes.core.location.LocationPermissionStatus
+import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.LocationFix
 import app.openhikes.core.model.RecordingEnergyProfile
 import javax.inject.Inject
@@ -34,6 +35,10 @@ class FakeLocationFeed @Inject constructor() : LocationFeed {
 
     var stopCount: Int = 0
         private set
+
+    var lastKnownCoordinateOverride: GeoCoordinate? = null
+
+    override fun lastKnownCoordinate(): GeoCoordinate? = lastKnownCoordinateOverride
 
     fun setPermission(status: LocationPermissionStatus) {
         permissionFlow.value = status

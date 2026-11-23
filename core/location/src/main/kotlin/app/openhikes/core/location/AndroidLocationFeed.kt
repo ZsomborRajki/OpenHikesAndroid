@@ -9,6 +9,7 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Looper
 import androidx.core.content.ContextCompat
+import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.LocationFix
 import app.openhikes.core.model.RecordingEnergyProfile
 import app.openhikes.core.model.RecordingEnergyReason
@@ -92,6 +93,20 @@ internal class AndroidLocationFeed @Inject constructor(@ApplicationContext priva
             isListening = false
         }
         activeProfileState.value = null
+    }
+
+    @SuppressLint("MissingPermission")
+    override fun lastKnownCoordinate(): GeoCoordinate? {
+        refreshPermissionStatus()
+        val manager = if (permissionStatusState.value != LocationPermissionStatus.DENIED) locationManager else null
+        return manager?.let { mgr ->
+            listOf(LocationManager.FUSED_PROVIDER, LocationManager.GPS_PROVIDER).firstNotNullOfOrNull { provider ->
+                runCatching { mgr.getLastKnownLocation(provider) }
+                    .getOrNull()
+                    ?.takeIf { it.latitude.isFinite() && it.longitude.isFinite() }
+                    ?.let { loc -> runCatching { GeoCoordinate(loc.latitude, loc.longitude) }.getOrNull() }
+            }
+        }
     }
 
     private fun readPermissionStatus(): LocationPermissionStatus {

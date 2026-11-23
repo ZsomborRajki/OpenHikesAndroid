@@ -17,11 +17,12 @@ Supporting reference docs:
   pyramid, porting `OpenHikesUITests` fixtures/tags, static analysis wiring, and
   Phase 0–4 bootstrap roadmap.
 
-> **Repository status:** Phase 3 complete (`:core:location` recording engine, crash-safe
-> `TrackJournal`, `RecordingFixPolicy`, `AutoPauseWatch`, thermal/battery energy policy,
-> `RecordingForegroundService`, Android 16.0-safe Live Updates, `:feature:recording` UI,
-> and deterministic Tier 1/2/3 + screenshot coverage). Phase 4 (OpenHikes Vector Map &
-> Offline Countries) is next.
+> **Repository status:** Phase 4 complete (PMTiles v3 reader + `tiles.openhikes.app`
+> manifest & vector tile client in `:core:network`, offline-first OpenHikes Vector Map +
+> country outlines in `:core:map`, `WorkManager` offline country downloads with streaming
+> SHA-256 verification and atomic `noBackupFilesDir` index in `:core:data`,
+> `:feature:offlinemaps` UI + Settings/Hike Detail offline coverage integration, and
+> deterministic Tier 1/2/3 + screenshot tests). Bootstrap Phases 0–4 are complete.
 
 ---
 

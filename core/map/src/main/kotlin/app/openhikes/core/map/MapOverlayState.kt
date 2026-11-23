@@ -11,6 +11,7 @@ import app.openhikes.core.model.MapStyleId
 data class MapOverlayState(
     val mapStyleId: String = MapStyleId.OPENHIKES,
     val showsHikingRoutes: Boolean = true,
-    val attribution: MapAttribution = MapAttribution.forOpenFreeMap(showsHikingRoutes),
-    val routes: List<MapRouteOverlay> = emptyList()
+    val attribution: MapAttribution = MapAttribution.forStyle(mapStyleId, showsHikingRoutes),
+    val routes: List<MapRouteOverlay> = emptyList(),
+    val countryOutlines: List<MapCountryOutline> = emptyList()
 )

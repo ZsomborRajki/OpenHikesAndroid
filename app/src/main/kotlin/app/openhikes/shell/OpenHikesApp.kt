@@ -50,10 +50,12 @@ import app.openhikes.core.map.MapRouteHighlight
 import app.openhikes.core.map.MapRouteOverlay
 import app.openhikes.core.map.TrailMapHost
 import app.openhikes.core.map.TrailMapRenderer
+import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.ui.navigation.EntryProviderInstaller
 import app.openhikes.core.ui.navigation.HikeDetailRoute
 import app.openhikes.core.ui.navigation.MapHomeRoute
+import app.openhikes.core.ui.navigation.OfflineMapsRoute
 import app.openhikes.core.ui.navigation.OpenHikesNavigator
 import app.openhikes.core.ui.navigation.RecordingRoute
 import app.openhikes.core.ui.navigation.SettingsRoute
@@ -72,6 +74,7 @@ private data class ShellNavigationHostState(
     val sheetDetent: SheetDetent,
     val onDetentChange: (SheetDetent) -> Unit,
     val onOpenRecording: () -> Unit,
+    val onOpenOfflineMaps: () -> Unit,
     val navigationContent: @Composable () -> Unit
 )
 
@@ -144,6 +147,7 @@ fun OpenHikesApp(
         onZoomOut = shellViewModel::onZoomOut,
         onResetNorth = shellViewModel::onResetNorth,
         onCameraChanged = shellViewModel::onCameraChanged,
+        onMapTap = shellViewModel::onMapTap,
         onCameraCommandHandled = shellViewModel::onCameraCommandHandled,
         onOpenAttributionDialog = shellViewModel::onOpenAttributionDialog,
         onDismissAttributionDialog = shellViewModel::onDismissAttributionDialog,
@@ -177,6 +181,7 @@ internal fun OpenHikesShellContent(
     onDismissAttributionDialog: () -> Unit,
     onOpenUrl: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onMapTap: (GeoCoordinate) -> Unit = {},
     isRecordingActive: Boolean = false,
     liveRecordingOverlayState: StateFlow<MapRouteOverlay?> = remember { MutableStateFlow(null) },
     openRecordingRequestCount: Int = 0,
@@ -210,12 +215,14 @@ internal fun OpenHikesShellContent(
         isRecordingActive = isRecordingActive,
         liveRecordingOverlayState = liveRecordingOverlayState,
         onOpenRecording = navHostState.onOpenRecording,
+        onOpenOfflineMaps = navHostState.onOpenOfflineMaps,
         onDetentChange = navHostState.onDetentChange,
         onToggleHikingRoutes = onToggleHikingRoutes,
         onZoomIn = onZoomIn,
         onZoomOut = onZoomOut,
         onResetNorth = onResetNorth,
         onCameraChanged = onCameraChanged,
+        onMapTap = onMapTap,
         onCameraCommandHandled = onCameraCommandHandled,
         onOpenAttributionDialog = onOpenAttributionDialog,
         onDismissAttributionDialog = onDismissAttributionDialog,
@@ -232,6 +239,7 @@ private data class ShellNavActions(
     val onOpenSettings: () -> Unit,
     val onOpenHike: (HikeId) -> Unit,
     val onOpenRecording: () -> Unit,
+    val onOpenOfflineMaps: () -> Unit,
     val onHikeDeleted: (HikeId) -> Unit
 )
 
@@ -335,6 +343,7 @@ private fun rememberShellNavigationHost(
             if (next == SheetDetent.PEEK && controllers.isSearchActive) actions.exitSearch()
         },
         onOpenRecording = actions.onOpenRecording,
+        onOpenOfflineMaps = actions.onOpenOfflineMaps,
         navigationContent = navigationContent
     )
 }
@@ -386,6 +395,12 @@ private fun rememberShellNavActions(
             if (controllers.backStack.lastOrNull() != RecordingRoute) {
                 controllers.navigator.navigate(RecordingRoute)
             }
+        },
+        onOpenOfflineMaps = {
+            if (controllers.isSearchActive) exitSearch()
+            focusManager.clearFocus(force = true)
+            controllers.sheetDetent = SheetDetent.HALF
+            controllers.navigator.navigate(OfflineMapsRoute(overMap = true))
         },
         onHikeDeleted = { hikeId -> controllers.navigator.removeRoutesForHike(hikeId) }
     )
@@ -445,12 +460,14 @@ private fun OpenHikesShellStage(
     isRecordingActive: Boolean,
     liveRecordingOverlayState: StateFlow<MapRouteOverlay?>,
     onOpenRecording: () -> Unit,
+    onOpenOfflineMaps: () -> Unit,
     onDetentChange: (SheetDetent) -> Unit,
     onToggleHikingRoutes: () -> Unit,
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
     onResetNorth: () -> Unit,
     onCameraChanged: (MapCameraState) -> Unit,
+    onMapTap: (GeoCoordinate) -> Unit,
     onCameraCommandHandled: (Long) -> Unit,
     onOpenAttributionDialog: () -> Unit,
     onDismissAttributionDialog: () -> Unit,
@@ -479,7 +496,7 @@ private fun OpenHikesShellStage(
             cameraCommand = pendingCameraCommand,
             overlayState = chromeUiState.overlayState,
             viewportPadding = metrics.viewportPadding,
-            interactions = MapInteractionEvents(onCameraChanged = onCameraChanged),
+            interactions = MapInteractionEvents(onCameraChanged = onCameraChanged, onMapTap = onMapTap),
             onCameraCommandHandled = onCameraCommandHandled,
             highlightState = routeHighlightState,
             liveRecordingOverlayState = liveRecordingOverlayState
@@ -493,6 +510,7 @@ private fun OpenHikesShellStage(
             showAttributionDialog = chromeUiState.showAttributionDialog,
             isRecordingActive = isRecordingActive,
             onOpenRecording = onOpenRecording,
+            onOpenOfflineMaps = onOpenOfflineMaps,
             onToggleHikingRoutes = onToggleHikingRoutes,
             onZoomIn = onZoomIn,
             onZoomOut = onZoomOut,

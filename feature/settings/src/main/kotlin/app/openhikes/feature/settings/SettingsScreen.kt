@@ -49,6 +49,7 @@ import app.openhikes.core.designsystem.icon.OpenHikesIcons
 import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.LegalLinks
 import app.openhikes.core.model.UserSettings
+import app.openhikes.core.ui.format.StorageSizeFormatter
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 
 private val ScreenHorizontalPadding = 16.dp
@@ -66,7 +67,12 @@ private val TouchTargetMinSize = 48.dp
  * Stateful route composable collecting [SettingsViewModel] state for the settings screen.
  */
 @Composable
-fun SettingsRoute(onClose: () -> Unit, modifier: Modifier = Modifier, viewModel: SettingsViewModel = hiltViewModel()) {
+fun SettingsRoute(
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier,
+    onOpenOfflineMaps: () -> Unit = {},
+    viewModel: SettingsViewModel = hiltViewModel()
+) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val uriHandler = LocalUriHandler.current
 
@@ -82,6 +88,7 @@ fun SettingsRoute(onClose: () -> Unit, modifier: Modifier = Modifier, viewModel:
         onSavePhotosToLibraryChange = viewModel::onSavePhotosToLibraryChange,
         onRetrySave = viewModel::onRetrySave,
         onDismissSaveError = viewModel::onDismissSaveError,
+        onOpenOfflineMaps = onOpenOfflineMaps,
         onOpenUrl = { url -> runCatching { uriHandler.openUri(url) } },
         modifier = modifier
     )
@@ -103,6 +110,7 @@ fun SettingsScreen(
     onSavePhotosToLibraryChange: (Boolean) -> Unit,
     onOpenUrl: (String) -> Unit,
     modifier: Modifier = Modifier,
+    onOpenOfflineMaps: () -> Unit = {},
     onRetrySave: () -> Unit = {},
     onDismissSaveError: () -> Unit = {}
 ) {
@@ -124,6 +132,7 @@ fun SettingsScreen(
             onKeepScreenAwakeChange = onKeepScreenAwakeChange,
             onAutoSaveTilesChange = onAutoSaveTilesChange,
             onSavePhotosToLibraryChange = onSavePhotosToLibraryChange,
+            onOpenOfflineMaps = onOpenOfflineMaps,
             onOpenUrl = onOpenUrl,
             modifier = Modifier.weight(1f)
         )
@@ -140,6 +149,7 @@ private fun SettingsPreferenceList(
     onKeepScreenAwakeChange: (Boolean) -> Unit,
     onAutoSaveTilesChange: (Boolean) -> Unit,
     onSavePhotosToLibraryChange: (Boolean) -> Unit,
+    onOpenOfflineMaps: () -> Unit,
     onOpenUrl: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -172,6 +182,8 @@ private fun SettingsPreferenceList(
         item(key = "offline_photos") {
             SettingsOfflineAndPhotosSection(
                 settings = uiState.settings,
+                offlineInstalledBytes = uiState.offlineInstalledBytes,
+                onOpenOfflineMaps = onOpenOfflineMaps,
                 onAutoSaveTilesChange = onAutoSaveTilesChange,
                 onSavePhotosToLibraryChange = onSavePhotosToLibraryChange
             )
@@ -340,10 +352,24 @@ private fun SettingsRecordingSection(
 @Composable
 private fun SettingsOfflineAndPhotosSection(
     settings: UserSettings,
+    offlineInstalledBytes: Long,
+    onOpenOfflineMaps: () -> Unit,
     onAutoSaveTilesChange: (Boolean) -> Unit,
     onSavePhotosToLibraryChange: (Boolean) -> Unit
 ) {
+    val storageText = if (offlineInstalledBytes > 0L) {
+        StorageSizeFormatter.formatBytes(offlineInstalledBytes)
+    } else {
+        stringResource(R.string.settings_offline_maps_empty)
+    }
     SettingsSection(title = stringResource(R.string.settings_section_offline_photos)) {
+        SettingsNavigationRow(
+            title = stringResource(R.string.settings_offline_maps_title),
+            value = storageText,
+            onClick = onOpenOfflineMaps,
+            testTag = OpenHikesTestTags.SETTINGS_OFFLINE_MAPS
+        )
+        SectionDivider()
         SettingsSwitchRow(
             title = stringResource(R.string.settings_auto_save_tiles_title),
             summary = stringResource(R.string.settings_auto_save_tiles_summary),
@@ -358,6 +384,39 @@ private fun SettingsOfflineAndPhotosSection(
             checked = settings.savePhotosToLibrary,
             onCheckedChange = onSavePhotosToLibraryChange,
             testTag = OpenHikesTestTags.SAVE_PHOTOS_TO_LIBRARY_TOGGLE
+        )
+    }
+}
+
+@Composable
+private fun SettingsNavigationRow(title: String, value: String, onClick: () -> Unit, testTag: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = RowMinHeight)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics(mergeDescendants = true) {}
+            .padding(horizontal = RowHorizontalPadding, vertical = RowVerticalPadding)
+            .testTag(testTag),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Icon(
+            painter = painterResource(OpenHikesIcons.ChevronRight),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(IconSize)
         )
     }
 }

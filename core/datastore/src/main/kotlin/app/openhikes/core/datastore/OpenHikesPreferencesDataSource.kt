@@ -82,6 +82,12 @@ class OpenHikesPreferencesDataSource @Inject constructor(private val userPrefere
             prefs.copy { mapStyleId = styleId }
         }
     }
+
+    suspend fun setOfflineCountriesExtraDetail(enabled: Boolean) {
+        userPreferences.updateData { prefs ->
+            prefs.copy { offlineCountriesExtraDetail = enabled }
+        }
+    }
 }
 
 private fun UserPreferences.toUserSettings(): UserSettings {
@@ -117,6 +123,11 @@ private fun UserPreferences.toUserSettings(): UserSettings {
         keepScreenAwake = keepScreenAwake,
         autoSaveTilesEnabled = autoSaveTilesEnabled,
         savePhotosToLibrary = savePhotosToLibrary,
-        mapStyleId = mapStyleId.ifBlank { MapStyleId.OPENHIKES }
+        mapStyleId = mapStyleId.ifBlank { MapStyleId.OPENHIKES },
+        offlineCountriesExtraDetail = if (hasOfflineCountriesExtraDetail()) {
+            offlineCountriesExtraDetail
+        } else {
+            UserSettings.DEFAULT_OFFLINE_COUNTRIES_EXTRA_DETAIL
+        }
     )
 }

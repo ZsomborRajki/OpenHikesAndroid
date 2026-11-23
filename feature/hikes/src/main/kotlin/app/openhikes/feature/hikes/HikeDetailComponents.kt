@@ -207,40 +207,57 @@ private fun RenameTitleEditor(
 }
 
 @Composable
-internal fun HikeDetailActionsRow(onZoomToRoute: () -> Unit, onExportGpx: () -> Unit) {
-    Row(
+internal fun HikeDetailActionsRow(
+    onZoomToRoute: () -> Unit,
+    onExportGpx: () -> Unit,
+    offlineCoverage: HikeOfflineCoverageState = HikeOfflineCoverageState(),
+    onOpenOfflineDialog: () -> Unit = {}
+) {
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        FilledTonalButton(
-            onClick = onZoomToRoute,
-            modifier = Modifier
-                .weight(1f)
-                .defaultMinSize(minHeight = TouchTargetMinSize)
-                .testTag(OpenHikesTestTags.HIKE_ZOOM_BUTTON)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Icon(
-                painter = painterResource(OpenHikesIcons.FitScreen),
-                contentDescription = null,
-                modifier = Modifier.size(ButtonDefaults.IconSize)
-            )
-            Spacer(modifier = Modifier.width(ButtonDefaults.IconSpacing))
-            Text(text = stringResource(R.string.hike_detail_zoom_to_route), maxLines = 1)
+            FilledTonalButton(
+                onClick = onZoomToRoute,
+                modifier = Modifier
+                    .weight(1f)
+                    .defaultMinSize(minHeight = TouchTargetMinSize)
+                    .testTag(OpenHikesTestTags.HIKE_ZOOM_BUTTON)
+            ) {
+                Icon(
+                    painter = painterResource(OpenHikesIcons.FitScreen),
+                    contentDescription = null,
+                    modifier = Modifier.size(ButtonDefaults.IconSize)
+                )
+                Spacer(modifier = Modifier.width(ButtonDefaults.IconSpacing))
+                Text(text = stringResource(R.string.hike_detail_zoom_to_route), maxLines = 1)
+            }
+            OutlinedButton(
+                onClick = onExportGpx,
+                modifier = Modifier
+                    .weight(1f)
+                    .defaultMinSize(minHeight = TouchTargetMinSize)
+                    .testTag(OpenHikesTestTags.HIKE_EXPORT_GPX_BUTTON)
+            ) {
+                Icon(
+                    painter = painterResource(OpenHikesIcons.Download),
+                    contentDescription = null,
+                    modifier = Modifier.size(ButtonDefaults.IconSize)
+                )
+                Spacer(modifier = Modifier.width(ButtonDefaults.IconSpacing))
+                Text(text = stringResource(R.string.hike_detail_export_gpx), maxLines = 1)
+            }
         }
-        OutlinedButton(
-            onClick = onExportGpx,
-            modifier = Modifier
-                .weight(1f)
-                .defaultMinSize(minHeight = TouchTargetMinSize)
-                .testTag(OpenHikesTestTags.HIKE_EXPORT_GPX_BUTTON)
-        ) {
-            Icon(
-                painter = painterResource(OpenHikesIcons.Download),
-                contentDescription = null,
-                modifier = Modifier.size(ButtonDefaults.IconSize)
+        if (offlineCoverage.isOpenHikesMap && offlineCoverage.crossed.isNotEmpty()) {
+            HikeOfflineCountryButton(
+                coverage = offlineCoverage,
+                onClick = onOpenOfflineDialog,
+                modifier = Modifier.fillMaxWidth()
             )
-            Spacer(modifier = Modifier.width(ButtonDefaults.IconSpacing))
-            Text(text = stringResource(R.string.hike_detail_export_gpx), maxLines = 1)
         }
     }
 }

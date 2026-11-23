@@ -10,6 +10,7 @@ import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.testing.MainDispatcherRule
 import app.openhikes.core.testing.android.FakeHikeRepository
+import app.openhikes.core.testing.android.FakeOfflineCountryRepository
 import app.openhikes.core.testing.android.FakeUserSettingsRepository
 import com.google.common.truth.Truth.assertThat
 import java.io.IOException
@@ -34,6 +35,7 @@ class HikeDetailViewModelTest {
             rawHikeId = hike.id.value,
             hikeRepository = repo,
             userSettingsRepository = FakeUserSettingsRepository(),
+            offlineCountryRepository = FakeOfflineCountryRepository(),
             mapClaimCoordinator = coordinator,
             routeHighlightState = highlightState,
             defaultDispatcher = mainDispatcherRule.testDispatcher

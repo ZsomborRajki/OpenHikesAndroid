@@ -13,4 +13,5 @@
     <string name="map_sheet_collapse_action">Collapse sheet</string>
     <string name="action_record_hike">Record hike</string>
     <string name="action_open_active_recording">Open active recording</string>
+    <string name="action_offline_maps">Offline maps</string>
 </resources>

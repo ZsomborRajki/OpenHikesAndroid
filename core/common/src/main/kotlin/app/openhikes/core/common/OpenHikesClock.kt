@@ -8,6 +8,8 @@ import java.time.Instant
 interface OpenHikesClock {
     fun now(): Instant
 
+    fun nowEpochMillis(): Long = now().toEpochMilli()
+
     fun monotonicMillis(): Long = now().toEpochMilli()
 }
 
