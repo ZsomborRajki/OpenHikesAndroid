@@ -1,5 +1,6 @@
 package app.openhikes.core.data
 
+import android.database.sqlite.SQLiteConstraintException
 import android.database.sqlite.SQLiteException
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
@@ -237,6 +238,43 @@ class OfflineFirstHikeRepositoryTest {
         assertThat(repo.hikes.first().map { it.id }).containsExactly(activeId)
         assertThat(repo.mapRoutes.first().map { it.hikeId }).containsExactly(activeId)
         assertThat(repo.observeLocalState(activeId).first()?.ownsRecordingDraft).isFalse()
+        assertThat(portableDb.hikeWalkDao().getByHikeId(activeId.value)).hasSize(1)
+    }
+
+    @Test
+    fun roomConstraintFailureOnWalkInsertReturnsFailureAndLeavesDraftRetryable() = runTest {
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        val repo = createRepository(LaunchConfigHolder(LaunchConfig.Production), LinkedHashMap(), dispatcher)
+        val activeId = HikeId("draft-walk-constraint")
+        assertThat(repo.createOrClaimRecordingDraft(activeId, 12_000L, "Ridge Trial").isSuccess).isTrue()
+
+        val prepared = PreparedRecording(
+            route = listOf(
+                RouteCoordinate(47.71842, 12.83177, 533.0, 12_000L),
+                RouteCoordinate(47.71910, 12.83080, 548.0, 22_000L)
+            ),
+            distanceMeters = 95.0,
+            routeLengthMeters = 95.0,
+            recordedSeconds = 10.0,
+            elevationGainMeters = 15.0,
+            elevationLossMeters = null,
+            startedAtEpochMillis = 12_000L
+        )
+
+        portableDb.openHelper.writableDatabase.execSQL(
+            "CREATE TRIGGER block_walk_insert BEFORE INSERT ON hike_walks " +
+                "BEGIN SELECT RAISE(ABORT, 'forced walk failure'); END;"
+        )
+        val failed = repo.finalizeRecordingDraft(activeId, "Ridge Trial", null, 12_000L, 22_000L, prepared)
+        assertThat(failed.isFailure).isTrue()
+        assertThat(failed.exceptionOrNull()).isInstanceOf(SQLiteConstraintException::class.java)
+        assertThat(repo.observeHike(activeId).first()?.isRecording).isTrue()
+        assertThat(repo.hikes.first()).isEmpty()
+
+        portableDb.openHelper.writableDatabase.execSQL("DROP TRIGGER block_walk_insert")
+        val retried = repo.finalizeRecordingDraft(activeId, "Ridge Trial", null, 12_000L, 22_000L, prepared)
+        assertThat(retried.isSuccess).isTrue()
+        assertThat(repo.hikes.first().map { it.id }).containsExactly(activeId)
         assertThat(portableDb.hikeWalkDao().getByHikeId(activeId.value)).hasSize(1)
     }
 

@@ -137,6 +137,34 @@ class LiveUpdateNotificationControllerTest {
         assertThat(poster.cancelCount).isEqualTo(1)
     }
 
+    @Test
+    fun buildInitialForegroundNotificationPreservesActiveSessionPayloadAndChronometer() {
+        val startMillis = clock.now().toEpochMilli()
+        controller.onRecordingUpdate(
+            LiveUpdatePayload(
+                kind = LiveUpdateKind.RECORDING,
+                sessionId = "rec-resume-1",
+                title = "Morning Hike – Jun 15, 2026",
+                runState = LiveUpdateRunState.RECORDING,
+                distanceMeters = 1_250.0,
+                elevationGainMeters = 140.0,
+                timerStartEpochMillis = startMillis
+            )
+        )
+
+        val foregroundNotification = controller.buildInitialForegroundNotification(
+            title = "Morning Hike – Jun 15, 2026",
+            sessionId = "rec-resume-1"
+        )
+
+        assertThat(foregroundNotification.extras.getString(Notification.EXTRA_SUB_TEXT)).isEqualTo("Recording")
+        assertThat(foregroundNotification.extras.getCharSequence(Notification.EXTRA_TEXT).toString())
+            .contains("1.2 km")
+        assertThat(foregroundNotification.extras.getBoolean(Notification.EXTRA_SHOW_CHRONOMETER)).isTrue()
+        assertThat(foregroundNotification.extras.getBoolean(Notification.EXTRA_SHOW_WHEN)).isTrue()
+        assertThat(foregroundNotification.`when`).isEqualTo(startMillis)
+    }
+
     private class RecordingTestPoster : NotificationPoster {
         val posted = mutableListOf<Pair<Int, Notification>>()
         var cancelCount = 0

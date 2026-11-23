@@ -8,6 +8,9 @@ import androidx.core.app.ServiceCompat
 import app.openhikes.core.common.MainDispatcher
 import app.openhikes.core.common.OpenHikesClock
 import app.openhikes.core.common.RecordingTitle
+import app.openhikes.core.model.LiveUpdateKind
+import app.openhikes.core.model.LiveUpdatePayload
+import app.openhikes.core.model.LiveUpdateRunState
 import app.openhikes.core.model.RecordingPhase
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
@@ -66,11 +69,28 @@ class RecordingForegroundService : Service() {
 
     private fun handleStart() {
         val state = recordingController.state.value
+        val stats = recordingController.stats.value
         val title = state.draftTitle
             ?: RecordingTitle.defaultTitle(state.sessionStartedAtEpochMillis ?: clock.now().toEpochMilli())
+        val sessionId = state.sessionId ?: "pending"
+        val fallbackPayload = state.sessionId?.let { activeSessionId ->
+            toFallbackRunState(state)?.let { runState ->
+                LiveUpdatePayload(
+                    kind = LiveUpdateKind.RECORDING,
+                    sessionId = activeSessionId,
+                    title = title,
+                    runState = runState,
+                    distanceMeters = stats.distanceMeters,
+                    elevationGainMeters = stats.elevationGainMeters,
+                    averageSpeedMps = stats.averageSpeedMps,
+                    timerStartEpochMillis = state.sessionStartedAtEpochMillis
+                )
+            }
+        }
         val notification = notificationController.buildInitialForegroundNotification(
             title = title,
-            sessionId = state.sessionId ?: "pending"
+            sessionId = sessionId,
+            fallbackPayload = fallbackPayload
         )
         ServiceCompat.startForeground(
             this,
@@ -79,6 +99,16 @@ class RecordingForegroundService : Service() {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
         )
         observeRecordingCompletion()
+    }
+
+    private fun toFallbackRunState(state: RecordingSessionState): LiveUpdateRunState? = when (state.phase) {
+        RecordingPhase.WAITING_FOR_FIX -> LiveUpdateRunState.FINDING_GPS
+        RecordingPhase.RECORDING -> LiveUpdateRunState.RECORDING
+        RecordingPhase.PAUSED -> if (state.isAutoPaused) LiveUpdateRunState.AUTO_PAUSED else LiveUpdateRunState.PAUSED
+        RecordingPhase.SAVING -> LiveUpdateRunState.SAVING
+        RecordingPhase.IDLE,
+        RecordingPhase.RECOVERING,
+        RecordingPhase.FAILED -> null
     }
 
     private fun observeRecordingCompletion() {

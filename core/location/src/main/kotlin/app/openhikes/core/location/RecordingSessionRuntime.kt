@@ -20,11 +20,10 @@ import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteTint
 import app.openhikes.core.model.TrackJournalSession
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 internal data class PendingPreparedSave(
     val session: TrackJournalSession,
@@ -34,24 +33,43 @@ internal data class PendingPreparedSave(
 )
 
 /**
- * FIFO serial executor used to keep async disk operations on [TrackJournal] ordered after
- * synchronous UI triggers such as [RecordingController.pause].
+ * FIFO serial executor chaining queued disk operations on [TrackJournal] so every task runs
+ * strictly in enqueue order regardless of dispatcher scheduling.
  */
 internal class SerialTaskQueue(private val scope: CoroutineScope) {
-    private val mutex = Mutex()
+    private val lock = Any()
     private var tailJob: Job? = null
 
     fun enqueue(block: suspend () -> Unit): Job {
-        val job = scope.launch {
-            mutex.withLock { block() }
+        var previous: Job?
+        lateinit var job: Job
+        synchronized(lock) {
+            previous = tailJob
+            job = scope.launch(start = CoroutineStart.LAZY) {
+                previous?.join()
+                block()
+            }
+            tailJob = job
+            job.invokeOnCompletion {
+                synchronized(lock) {
+                    if (tailJob === job) {
+                        tailJob = null
+                    }
+                }
+            }
         }
-        tailJob = job
+        job.start()
         return job
     }
 
     suspend fun drain() {
-        tailJob?.join()
-        mutex.withLock { /* Barrier ensuring all queued work completed */ }
+        while (true) {
+            val currentTail = synchronized(lock) { tailJob } ?: return
+            currentTail.join()
+            if (synchronized(lock) { tailJob === currentTail || tailJob == null }) {
+                return
+            }
+        }
     }
 }
 
@@ -70,6 +88,7 @@ internal class RecordingSessionRuntime(
     val stateFlow = MutableStateFlow(RecordingSessionState())
     val statsFlow = MutableStateFlow(RecordingStatsSnapshot())
     val traceFlow = MutableStateFlow(RecordingTraceSnapshot())
+    val completedSaveFlow = MutableStateFlow<CompletedRecordingSave?>(null)
 
     var startRequested: Boolean = false
     var activeActivationId: String? = null
@@ -188,7 +207,7 @@ internal class RecordingSessionRuntime(
         serviceBridge.stopService()
     }
 
-    fun resetSession() {
+    fun resetSession(preserveCompletedSave: Boolean = false) {
         locationFeed.stopUpdates()
         motionFeed.stop()
         startRequested = false
@@ -203,6 +222,9 @@ internal class RecordingSessionRuntime(
         tracePoints.clear()
         pendingPreparedSave = null
         lastOfferedTitle = null
+        if (!preserveCompletedSave) {
+            completedSaveFlow.value = null
+        }
         stateFlow.value = RecordingSessionState()
         statsFlow.value = RecordingStatsSnapshot()
         traceFlow.value = RecordingTraceSnapshot()

@@ -11,6 +11,7 @@ import android.os.Looper
 import androidx.core.content.ContextCompat
 import app.openhikes.core.model.LocationFix
 import app.openhikes.core.model.RecordingEnergyProfile
+import app.openhikes.core.model.RecordingEnergyReason
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -57,10 +58,18 @@ internal class AndroidLocationFeed @Inject constructor(@ApplicationContext priva
         if (provider != null && manager != null) {
             stopUpdates()
             activeProfileState.value = profile
+            val minDistanceMeters = if (
+                profile.reason == RecordingEnergyReason.AUTO_PAUSED ||
+                profile.reason == RecordingEnergyReason.PAUSED_WATCH
+            ) {
+                profile.distanceFilterMeters.toFloat()
+            } else {
+                ACTIVE_MIN_DISTANCE_METERS
+            }
             manager.requestLocationUpdates(
                 provider,
                 profile.updateIntervalMillis,
-                profile.distanceFilterMeters.toFloat(),
+                minDistanceMeters,
                 listener,
                 Looper.getMainLooper()
             )
@@ -120,5 +129,6 @@ internal class AndroidLocationFeed @Inject constructor(@ApplicationContext priva
 
     private companion object {
         const val FIX_BUFFER_CAPACITY = 64
+        const val ACTIVE_MIN_DISTANCE_METERS = 0f
     }
 }

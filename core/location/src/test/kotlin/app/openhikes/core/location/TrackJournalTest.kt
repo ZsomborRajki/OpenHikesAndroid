@@ -12,7 +12,10 @@ import java.nio.ByteOrder
 import java.time.Duration
 import java.util.UUID
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertThrows
 import org.junit.Rule
@@ -76,6 +79,31 @@ class TrackJournalTest {
         assertThat(journal.journalFile.length()).isEqualTo(
             (TrackJournalCodec.HEADER_BYTE_COUNT + 11 * TrackJournalCodec.RECORD_BYTE_COUNT).toLong()
         )
+    }
+
+    @Test
+    fun scheduledFlushPersistsSmallBatchWhenGpsGoesQuiet() = runTest {
+        val dir = tempFolder.newFolder("journal-quiet-flush")
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val journal = TrackJournal(
+            directory = dir,
+            clock = clock,
+            ioDispatcher = dispatcher,
+            flushScope = backgroundScope
+        )
+        journal.start(sessionId = UUID.randomUUID().toString(), startedAtEpochMillis = clock.now().toEpochMilli())
+        journal.append(pointAt(offsetSeconds = 1L))
+        journal.append(pointAt(offsetSeconds = 2L))
+        runCurrent()
+        assertThat(journal.journalFile.length()).isEqualTo(TrackJournalCodec.HEADER_BYTE_COUNT.toLong())
+
+        clock.advanceBy(Duration.ofSeconds(45))
+        advanceTimeBy(45_000L)
+        runCurrent()
+
+        val readerJournal = TrackJournal(directory = dir, clock = clock, ioDispatcher = dispatcher)
+        val loaded = checkNotNull(readerJournal.loadSession())
+        assertThat(loaded.points).hasSize(2)
     }
 
     @Test

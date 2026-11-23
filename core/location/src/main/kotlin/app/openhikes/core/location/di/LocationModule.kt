@@ -1,6 +1,7 @@
 package app.openhikes.core.location.di
 
 import android.content.Context
+import app.openhikes.core.common.ApplicationScope
 import app.openhikes.core.common.IoDispatcher
 import app.openhikes.core.common.OpenHikesClock
 import app.openhikes.core.location.AndroidDevicePowerMonitor
@@ -26,6 +27,7 @@ import java.io.File
 import javax.inject.Qualifier
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
@@ -47,11 +49,13 @@ abstract class LocationBindingsModule {
         fun provideTrackJournal(
             @RecordingJournalDir journalDir: File,
             clock: OpenHikesClock,
-            @IoDispatcher ioDispatcher: CoroutineDispatcher
+            @IoDispatcher ioDispatcher: CoroutineDispatcher,
+            @ApplicationScope applicationScope: CoroutineScope
         ): TrackJournal = TrackJournal(
             directory = journalDir,
             clock = clock,
-            ioDispatcher = ioDispatcher
+            ioDispatcher = ioDispatcher,
+            flushScope = applicationScope
         )
     }
 }

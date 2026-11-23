@@ -1,6 +1,7 @@
 package app.openhikes.core.location
 
 import app.openhikes.core.model.Hike
+import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.RecordingEnergyProfile
 import app.openhikes.core.model.RecordingFailure
 import app.openhikes.core.model.RecordingPhase
@@ -44,6 +45,12 @@ data class RecordingSessionState(
 }
 
 /**
+ * App-scoped completion token published when a recording save finishes into [hikeId], surviving
+ * temporary navigation away from the recording screen.
+ */
+data class CompletedRecordingSave(val sessionId: String, val hikeId: HikeId)
+
+/**
  * App-scoped live recording engine contract shared between `:feature:recording`, `:app`,
  * and [RecordingForegroundService].
  */
@@ -52,8 +59,11 @@ interface RecordingController {
     val state: StateFlow<RecordingSessionState>
     val stats: StateFlow<RecordingStatsSnapshot>
     val trace: StateFlow<RecordingTraceSnapshot>
+    val completedSave: StateFlow<CompletedRecordingSave?>
 
     fun elapsedSeconds(): Double
+
+    fun consumeCompletedSave(hikeId: HikeId)
 
     suspend fun start()
 

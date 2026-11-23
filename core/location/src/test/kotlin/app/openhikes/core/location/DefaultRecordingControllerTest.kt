@@ -1,5 +1,6 @@
 package app.openhikes.core.location
 
+import android.app.ForegroundServiceStartNotAllowedException
 import androidx.test.core.app.ApplicationProvider
 import app.openhikes.core.common.LaunchConfig
 import app.openhikes.core.common.LaunchConfigHolder
@@ -21,12 +22,19 @@ import java.io.File
 import java.io.IOException
 import java.time.Duration
 import java.util.UUID
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
@@ -39,6 +47,7 @@ import org.robolectric.annotation.Config
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
+@Suppress("TooManyFunctions")
 class DefaultRecordingControllerTest {
     @get:Rule
     val tempFolder = TemporaryFolder()
@@ -268,13 +277,302 @@ class DefaultRecordingControllerTest {
         }
     }
 
+    @Test
+    fun recoverPausedJournalAndStopDirectlyFinalizesHike() = runTest {
+        val journalDir = tempFolder.newFolder("recover-paused-stop")
+        val t0 = clockNowMillis()
+        val seedJournal = TrackJournal(journalDir, TestClock(), UnconfinedTestDispatcher(testScheduler))
+        seedJournal.start(sessionId = UUID.randomUUID().toString(), startedAtEpochMillis = t0, title = "Morning Trail")
+        seedJournal.append(pointAt(t0, 47.71842))
+        seedJournal.append(pointAt(t0 + 10_000L, 47.71900))
+        seedJournal.pause(t0 + 15_000L)
+        seedJournal.close()
+
+        val harness = createHarness(UnconfinedTestDispatcher(testScheduler), journalDir = journalDir)
+        try {
+            harness.controller.recoverOpenSession(automaticallyResume = false)
+            assertThat(harness.controller.state.value.phase).isEqualTo(RecordingPhase.PAUSED)
+
+            val saved = harness.controller.stop(customName = "Recovered Ridge", offeredTitle = "Morning Trail")
+            assertThat(saved.isSuccess).isTrue()
+            assertThat(saved.getOrThrow().customName).isEqualTo("Recovered Ridge")
+            assertThat(harness.journal.journalFile.exists()).isFalse()
+            assertThat(harness.controller.state.value.phase).isEqualTo(RecordingPhase.IDLE)
+        } finally {
+            harness.scope.cancel()
+        }
+    }
+
+    @Test
+    fun serialTaskQueueExecutesInFifoOrderEvenWithOutOfOrderDispatch() = runTest {
+        val pendingRunnables = ArrayDeque<Runnable>()
+        val reorderedDispatcher = object : CoroutineDispatcher() {
+            override fun dispatch(context: CoroutineContext, block: Runnable) {
+                pendingRunnables.addLast(block)
+            }
+        }
+        val queueScope = CoroutineScope(SupervisorJob() + reorderedDispatcher)
+        val queue = SerialTaskQueue(queueScope)
+        val events = mutableListOf<String>()
+
+        try {
+            queue.enqueue { events.add("first-append") }
+            queue.enqueue { events.add("second-pause") }
+
+            val drainDeferred = async { queue.drain() }
+            while (pendingRunnables.isNotEmpty()) {
+                val secondOrNext = if (pendingRunnables.size >= 2) {
+                    pendingRunnables.removeLast()
+                } else {
+                    pendingRunnables.removeFirst()
+                }
+                secondOrNext.run()
+            }
+            drainDeferred.await()
+
+            assertThat(events).containsExactly("first-append", "second-pause").inOrder()
+        } finally {
+            queueScope.cancel()
+        }
+    }
+
+    @Test
+    fun stopContinuesToCompletionOnApplicationScopeWhenCallerCancelled() = runTest {
+        val harness = createHarness(StandardTestDispatcher(testScheduler))
+        val gate = CompletableDeferred<Unit>()
+        harness.hikeRepository.finalizeGate = gate
+        val callerScope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
+
+        try {
+            harness.controller.start()
+            harness.locationFeed.emitFix(fixAt(0L, 47.71842, clock = harness.clock))
+            harness.clock.advanceBy(Duration.ofSeconds(10))
+            harness.locationFeed.emitFix(fixAt(0L, 47.71900, clock = harness.clock))
+            testScheduler.runCurrent()
+
+            val sessionId = checkNotNull(harness.controller.state.value.sessionId)
+            val callerJob = callerScope.launch {
+                harness.controller.stop(customName = "Back Navigation Hike", offeredTitle = "Hike")
+            }
+            testScheduler.runCurrent()
+            assertThat(harness.controller.state.value.phase).isEqualTo(RecordingPhase.SAVING)
+
+            callerJob.cancel()
+            callerScope.cancel()
+            gate.complete(Unit)
+            testScheduler.advanceUntilIdle()
+
+            assertThat(harness.controller.state.value.phase).isEqualTo(RecordingPhase.IDLE)
+            assertThat(harness.controller.completedSave.value?.hikeId).isEqualTo(HikeId(sessionId))
+            assertThat(harness.hikeRepository.hikes.first().map { it.displayTitle })
+                .containsExactly("Back Navigation Hike")
+        } finally {
+            harness.scope.cancel()
+        }
+    }
+
+    @Test
+    fun foregroundServiceStartRejectionStopsFeedsAndKeepsDraftRecoverable() = runTest {
+        val harness = createHarness(UnconfinedTestDispatcher(testScheduler))
+        try {
+            harness.serviceBridge.nextEnsureStartedError =
+                ForegroundServiceStartNotAllowedException("App is backgrounded")
+
+            harness.controller.start()
+            assertThat(harness.controller.state.value.phase).isEqualTo(RecordingPhase.FAILED)
+            assertThat(harness.controller.state.value.failure).isInstanceOf(RecordingFailure.Storage::class.java)
+            assertThat(harness.controller.state.value.sessionId).isNotNull()
+            assertThat(harness.locationFeed.activeProfile.value).isNull()
+            assertThat(harness.locationFeed.stopCount).isAtLeast(1)
+            assertThat(harness.journal.loadSession()).isNotNull()
+
+            harness.controller.dismissFailure()
+            assertThat(harness.controller.state.value.phase).isEqualTo(RecordingPhase.PAUSED)
+
+            harness.controller.resume()
+            assertThat(harness.controller.state.value.phase).isEqualTo(RecordingPhase.WAITING_FOR_FIX)
+            assertThat(harness.locationFeed.activeProfile.value).isNotNull()
+        } finally {
+            harness.scope.cancel()
+        }
+    }
+
+    @Test
+    fun autoPauseJournalFailureReportsStorageErrorWithoutUncaughtCrash() = runTest {
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        var uncaughtError: Throwable? = null
+        val handler = CoroutineExceptionHandler { _, throwable -> uncaughtError = throwable }
+        val autoPauseDir = tempFolder.newFolder("autopause-fail")
+        val harness = createHarness(
+            dispatcher = dispatcher,
+            launchConfig = LaunchConfig(isUiTesting = true, autoPauseSecondsOverride = 5.0),
+            journalDir = autoPauseDir,
+            exceptionHandler = handler
+        )
+        try {
+            harness.controller.start()
+            harness.locationFeed.emitFix(fixAt(0L, 47.71842, clock = harness.clock))
+            harness.clock.advanceBy(Duration.ofSeconds(10))
+            harness.locationFeed.emitFix(fixAt(0L, 47.71880, clock = harness.clock))
+            val blockingTmp = File(autoPauseDir, "${TrackJournal.METADATA_FILE_NAME}.tmp")
+            blockingTmp.mkdirs()
+
+            harness.clock.advanceBy(Duration.ofSeconds(6))
+            harness.locationFeed.emitFix(fixAt(0L, 47.71881, clock = harness.clock))
+            assertThat(uncaughtError).isNull()
+            assertThat(harness.controller.state.value.phase).isEqualTo(RecordingPhase.FAILED)
+            assertThat(harness.controller.state.value.failure).isInstanceOf(RecordingFailure.Storage::class.java)
+            blockingTmp.deleteRecursively()
+        } finally {
+            harness.scope.cancel()
+        }
+    }
+
+    @Test
+    fun autoResumeJournalFailureReportsStorageErrorWithoutUncaughtCrash() = runTest {
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        var uncaughtError: Throwable? = null
+        val handler = CoroutineExceptionHandler { _, throwable -> uncaughtError = throwable }
+        val autoResumeDir = tempFolder.newFolder("autoresume-fail")
+        val harness = createHarness(
+            dispatcher = dispatcher,
+            launchConfig = LaunchConfig(isUiTesting = true, autoPauseSecondsOverride = 5.0),
+            journalDir = autoResumeDir,
+            exceptionHandler = handler
+        )
+        try {
+            harness.controller.start()
+            harness.locationFeed.emitFix(fixAt(0L, 47.71842, clock = harness.clock))
+            harness.clock.advanceBy(Duration.ofSeconds(10))
+            harness.locationFeed.emitFix(fixAt(0L, 47.71880, clock = harness.clock))
+            harness.clock.advanceBy(Duration.ofSeconds(6))
+            harness.locationFeed.emitFix(fixAt(0L, 47.71881, clock = harness.clock))
+            assertThat(harness.controller.state.value.isAutoPaused).isTrue()
+
+            val blockingTmp = File(autoResumeDir, "${TrackJournal.METADATA_FILE_NAME}.tmp")
+            blockingTmp.mkdirs()
+            harness.clock.advanceBy(Duration.ofSeconds(10))
+            harness.locationFeed.emitFix(fixAt(0L, 47.71950, clock = harness.clock))
+            assertThat(uncaughtError).isNull()
+            assertThat(harness.controller.state.value.phase).isEqualTo(RecordingPhase.FAILED)
+            assertThat(harness.controller.state.value.failure).isInstanceOf(RecordingFailure.Storage::class.java)
+            blockingTmp.deleteRecursively()
+        } finally {
+            harness.scope.cancel()
+        }
+    }
+
+    @Test
+    fun autoRecoveryStartsPausedSegmentExcludesGapDistanceAndRejectsStaleFixes() = runTest {
+        val journalDir = tempFolder.newFolder("recover-segment-gap")
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        val t0 = clockNowMillis()
+        val seedJournal = TrackJournal(journalDir, TestClock(), dispatcher)
+        seedJournal.start(sessionId = UUID.randomUUID().toString(), startedAtEpochMillis = t0, title = "Split Trail")
+        seedJournal.append(pointAt(t0, 47.71842))
+        seedJournal.append(pointAt(t0 + 10_000L, 47.71900))
+        seedJournal.close()
+
+        val harness = createHarness(dispatcher, journalDir = journalDir)
+        try {
+            harness.clock.advanceBy(Duration.ofMinutes(2))
+            harness.controller.recoverOpenSession(automaticallyResume = true)
+            assertThat(harness.controller.state.value.recoveryState).isEqualTo(RecordingRecoveryState.Resumed)
+            val preGapDistance = harness.controller.stats.value.distanceMeters
+
+            // Cached fix older than recovery timestamp must be ignored by reopened fix window.
+            harness.locationFeed.emitFix(fixAt(offsetSeconds = -30L, lat = 47.72000, clock = harness.clock))
+            assertThat(harness.controller.stats.value.pointCount).isEqualTo(2)
+
+            // Fix 220 m away starts Segment 2 with PAUSED boundary and excluded gap distance/time.
+            harness.locationFeed.emitFix(fixAt(0L, 47.72100, clock = harness.clock))
+            harness.clock.advanceBy(Duration.ofSeconds(10))
+            harness.locationFeed.emitFix(fixAt(0L, 47.72160, clock = harness.clock))
+
+            assertThat(harness.controller.trace.value.points[2].boundary).isEqualTo(RouteBoundary.PAUSED)
+            assertThat(harness.controller.stats.value.segments).hasSize(2)
+            assertThat(harness.controller.stats.value.recordedDurationSeconds).isWithin(0.01).of(20.0)
+            assertThat(harness.controller.stats.value.distanceMeters - preGapDistance).isLessThan(100.0)
+        } finally {
+            harness.scope.cancel()
+        }
+    }
+
+    @Test
+    fun stoppedJournalPersistsOfferedTitleAndCustomNameAcrossFailedSaveAndRecovery() = runTest {
+        val journalDir = tempFolder.newFolder("recover-custom-name")
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        val firstHarness = createHarness(dispatcher, journalDir = journalDir)
+        try {
+            firstHarness.controller.start()
+            firstHarness.locationFeed.emitFix(fixAt(0L, 47.71842, clock = firstHarness.clock))
+            firstHarness.clock.advanceBy(Duration.ofSeconds(10))
+            firstHarness.locationFeed.emitFix(fixAt(0L, 47.71900, clock = firstHarness.clock))
+
+            firstHarness.hikeRepository.nextFinalizeFailure = IOException("Room write failed")
+            val stopResult = firstHarness.controller.stop(
+                customName = "Ridge Attempt",
+                offeredTitle = "Afternoon Hike"
+            )
+            assertThat(stopResult.isFailure).isTrue()
+            assertThat(firstHarness.controller.state.value.canRetrySave).isTrue()
+            assertThat(firstHarness.journal.loadSession()?.metadata?.customName).isEqualTo("Ridge Attempt")
+        } finally {
+            firstHarness.scope.cancel()
+        }
+
+        val recoveryHarness = createHarness(dispatcher, journalDir = journalDir)
+        try {
+            recoveryHarness.controller.recoverOpenSession(automaticallyResume = true)
+            assertThat(recoveryHarness.controller.state.value.phase).isEqualTo(RecordingPhase.IDLE)
+            val saved = recoveryHarness.hikeRepository.hikes.first().single()
+            assertThat(saved.title).isEqualTo("Afternoon Hike")
+            assertThat(saved.customName).isEqualTo("Ridge Attempt")
+            assertThat(saved.displayTitle).isEqualTo("Ridge Attempt")
+        } finally {
+            recoveryHarness.scope.cancel()
+        }
+    }
+
+    @Test
+    fun pausedRecordingWithSinglePointPerSegmentStopsEmptyAndRejectsSave() = runTest {
+        val harness = createHarness(UnconfinedTestDispatcher(testScheduler))
+        try {
+            harness.controller.start()
+            harness.locationFeed.emitFix(fixAt(0L, 47.71842, clock = harness.clock))
+            harness.controller.pause()
+            harness.clock.advanceBy(Duration.ofSeconds(30))
+            harness.controller.resume()
+            harness.locationFeed.emitFix(fixAt(0L, 47.72100, clock = harness.clock))
+
+            assertThat(harness.controller.stats.value.pointCount).isEqualTo(2)
+            assertThat(harness.controller.stats.value.distanceMeters).isEqualTo(0.0)
+            assertThat(harness.controller.settledStopStep()).isEqualTo(RecordingStopStep.END_EMPTY)
+
+            val stopResult = harness.controller.stop(customName = "No Leg", offeredTitle = "Hike")
+            assertThat(stopResult.isFailure).isTrue()
+            assertThat(harness.controller.state.value.failure).isEqualTo(RecordingFailure.TooShort)
+        } finally {
+            harness.scope.cancel()
+        }
+    }
+
+    private fun clockNowMillis(): Long = TestClock().now().toEpochMilli()
+
     private fun createHarness(
         dispatcher: CoroutineDispatcher,
-        launchConfig: LaunchConfig = LaunchConfig.Production
+        launchConfig: LaunchConfig = LaunchConfig.Production,
+        journalDir: File = tempFolder.newFolder(),
+        exceptionHandler: CoroutineExceptionHandler? = null
     ): Harness {
         val clock = TestClock()
-        val journalDir: File = tempFolder.newFolder()
-        val journal = TrackJournal(journalDir, clock, dispatcher)
+        val baseContext: CoroutineContext = if (exceptionHandler != null) {
+            SupervisorJob() + dispatcher + exceptionHandler
+        } else {
+            SupervisorJob() + dispatcher
+        }
+        val scope = CoroutineScope(baseContext)
+        val journal = TrackJournal(journalDir, clock, dispatcher, flushScope = scope)
         val locationFeed = LocalFakeLocationFeed()
         val motionFeed = LocalFakeMotionFeed()
         val powerMonitor = LocalFakeDevicePowerMonitor()
@@ -287,7 +585,6 @@ class DefaultRecordingControllerTest {
             clock = clock
         )
         val serviceBridge = LocalFakeServiceBridge()
-        val scope = CoroutineScope(SupervisorJob() + dispatcher)
         val controller = DefaultRecordingController(
             clock = clock,
             locationFeed = locationFeed,

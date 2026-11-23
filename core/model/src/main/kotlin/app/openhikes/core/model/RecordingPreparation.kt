@@ -32,9 +32,15 @@ object RecordingPreparation {
     const val MINIMUM_POINT_COUNT = 2
     private const val WIDGET_DUPLICATE_TOLERANCE_MILLIS = 5_000L
 
+    fun hasDrawableLeg(points: List<RecordingPoint>): Boolean =
+        (1 until points.size).any { index -> !points[index].hasFlag(RecordingPointFlags.RESUMED) }
+
+    fun hasDrawableRouteLeg(route: List<RouteCoordinate>): Boolean =
+        (1 until route.size).any { index -> !route[index].isPauseBoundary }
+
     fun prepare(points: List<RecordingPoint>, startedAtEpochMillis: Long): RecordingPreparationResult {
         val normalized = normalizedPoints(points)
-        if (normalized.size < MINIMUM_POINT_COUNT) return RecordingPreparationResult.TooShort
+        if (!hasDrawableLeg(normalized)) return RecordingPreparationResult.TooShort
 
         val accumulator = RecordingDistanceAccumulator()
         var routeLengthMeters = 0.0

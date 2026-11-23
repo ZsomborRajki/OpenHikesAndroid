@@ -29,6 +29,7 @@ import app.openhikes.core.model.ThermalSeverity
 import app.openhikes.core.model.UserSettings
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -100,9 +101,14 @@ internal class LocalFakeDevicePowerMonitor @Inject constructor() : DevicePowerMo
 internal class LocalFakeServiceBridge @Inject constructor() : RecordingServiceBridge {
     var ensureStartedCount: Int = 0
         private set
+    var nextEnsureStartedError: Throwable? = null
 
     override fun ensureStarted() {
         ensureStartedCount += 1
+        nextEnsureStartedError?.let { error ->
+            nextEnsureStartedError = null
+            throw error
+        }
     }
 
     override fun stopService() = Unit
@@ -137,6 +143,7 @@ internal class LocalFakeHikeRepository : HikeRepository {
     private val hikesState = MutableStateFlow<List<Hike>>(emptyList())
     private val localStateMap = MutableStateFlow<Map<HikeId, HikeLocalState>>(emptyMap())
     var nextFinalizeFailure: Throwable? = null
+    var finalizeGate: CompletableDeferred<Unit>? = null
 
     override val hikes: Flow<List<HikeSummary>> = hikesState.map { list ->
         list.filterNot { it.isRecording }.map { it.toSummary() }
@@ -188,6 +195,7 @@ internal class LocalFakeHikeRepository : HikeRepository {
         endedAtEpochMillis: Long,
         prepared: PreparedRecording
     ): Result<Hike> {
+        finalizeGate?.await()
         val failure = nextFinalizeFailure?.also { nextFinalizeFailure = null }
         val finalized = Hike(
             id = hikeId,
@@ -232,6 +240,7 @@ internal class LocalFakeRecordingController @Inject constructor() : RecordingCon
     override val state: StateFlow<RecordingSessionState> = stateFlow.asStateFlow()
     override val stats: StateFlow<RecordingStatsSnapshot> = MutableStateFlow(RecordingStatsSnapshot())
     override val trace: StateFlow<RecordingTraceSnapshot> = MutableStateFlow(RecordingTraceSnapshot())
+    override val completedSave: StateFlow<CompletedRecordingSave?> = MutableStateFlow(null)
 
     var pauseCount: Int = 0
         private set
@@ -239,6 +248,7 @@ internal class LocalFakeRecordingController @Inject constructor() : RecordingCon
         private set
 
     override fun elapsedSeconds(): Double = 0.0
+    override fun consumeCompletedSave(hikeId: HikeId) = Unit
     override suspend fun start() {
         stateFlow.value = RecordingSessionState(
             phase = RecordingPhase.WAITING_FOR_FIX,
