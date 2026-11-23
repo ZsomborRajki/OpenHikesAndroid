@@ -2,10 +2,10 @@ package app.openhikes.core.data
 
 import app.openhikes.core.common.IoDispatcher
 import app.openhikes.core.common.offline.OfflineCountryStore
-import app.openhikes.core.model.InstalledCountryRecord
 import app.openhikes.core.model.OfflineCountriesState
 import app.openhikes.core.model.OfflineCountry
 import app.openhikes.core.model.OfflineCountryDownload
+import app.openhikes.core.model.OfflineCountryFile
 import app.openhikes.core.model.OfflineDownloadFailure
 import app.openhikes.core.model.OfflineDownloadPhase
 import app.openhikes.core.model.OfflineFileRole
@@ -48,17 +48,17 @@ internal class DefaultOfflineCountryRepository @Inject constructor(
     private val reconciler: OfflineCountryReconciler,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : OfflineCountryRepository {
+    private val prepareMutex = Mutex()
     private val mutationMutex = Mutex()
     private val refreshMutex = Mutex()
     private val catalogRevisionCounter = AtomicLong(0L)
     private val stateFlow = MutableStateFlow(OfflineCountriesState())
+    private var pendingReadyToFinishIds: List<String> = emptyList()
 
     override val state: StateFlow<OfflineCountriesState> = stateFlow.asStateFlow()
 
     private val executorCallbacks = object : OfflineCountryDownloadExecutor.Callbacks {
         override fun currentDownload(countryId: String): OfflineCountryDownload? = stateFlow.value.downloads[countryId]
-
-        override fun currentInstalled(): Map<String, InstalledCountryRecord> = stateFlow.value.installed
 
         override fun updateDownload(countryId: String, transform: (OfflineCountryDownload) -> OfflineCountryDownload) {
             stateFlow.update { current ->
@@ -82,58 +82,57 @@ internal class DefaultOfflineCountryRepository @Inject constructor(
             }
         }
 
-        override suspend fun commitInstalledAndFinish(
+        override suspend fun installAndCommit(
             countryId: String,
             download: OfflineCountryDownload,
-            newRecord: InstalledCountryRecord,
-            previousRecord: InstalledCountryRecord?,
-            reopenedUnopenable: Map<String, Set<OfflineFileRole>>
-        ): Boolean {
-            mutationMutex.withLock {
-                stateFlow.update { current ->
-                    current.copy(
-                        installed = current.installed + (countryId to newRecord),
-                        downloads = current.downloads - countryId,
-                        unopenable = reopenedUnopenable
-                    )
+            files: List<OfflineCountryFile>,
+            installedAtEpochMillis: Long
+        ): OfflineDownloadExecutionResult {
+            val result = mutationMutex.withLock {
+                if (countryId !in stateFlow.value.downloads) {
+                    return@withLock OfflineDownloadExecutionResult.CANCELLED
                 }
-                persistPendingLocked()
+                val outcome = reconciler.installVerifiedCountry(
+                    countryId = countryId,
+                    download = download,
+                    files = files,
+                    currentInstalled = stateFlow.value.installed,
+                    installedAtEpochMillis = installedAtEpochMillis
+                )
+                when (outcome) {
+                    OfflineCountryReconciler.InstallOutcome.FailedSpace -> {
+                        failDownload(countryId, OfflineDownloadFailure.SPACE)
+                        OfflineDownloadExecutionResult.FAILED
+                    }
+
+                    is OfflineCountryReconciler.InstallOutcome.Installed -> {
+                        stateFlow.update { current ->
+                            current.copy(
+                                installed = outcome.nextInstalled,
+                                downloads = current.downloads - countryId,
+                                unopenable = outcome.unopenable
+                            )
+                        }
+                        persistPendingLocked()
+                        OfflineDownloadExecutionResult.COMPLETED
+                    }
+                }
             }
-            reconcileAfterStateChange()
-            return true
+            if (result == OfflineDownloadExecutionResult.COMPLETED) {
+                reconcileAfterStateChange()
+            }
+            return result
         }
     }
 
     override suspend fun start() {
-        val includesDetail = runCatching { userSettingsRepository.userSettings.first().offlineCountriesExtraDetail }
-            .getOrDefault(UserSettings.DEFAULT_OFFLINE_COUNTRIES_EXTRA_DETAIL)
-        val snapshot = reconciler.loadInitialSnapshot()
-        mutationMutex.withLock {
-            if (snapshot.holdings == OfflineHoldingsState.UNREADABLE) {
-                stateFlow.update { current ->
-                    current.copy(
-                        isAvailable = false,
-                        isPrepared = true,
-                        holdings = OfflineHoldingsState.UNREADABLE,
-                        includesDetail = includesDetail
-                    )
-                }
-                return
-            }
-            stateFlow.update { current ->
-                current.copy(
-                    isAvailable = true,
-                    isPrepared = true,
-                    holdings = OfflineHoldingsState.READY,
-                    offered = if (current.offered.isEmpty()) snapshot.cachedOffered else current.offered,
-                    installed = snapshot.installed,
-                    downloads = snapshot.recoveredDownloads,
-                    unopenable = snapshot.unopenable,
-                    includesDetail = includesDetail
-                )
-            }
+        ensurePrepared()
+        val readyIds = prepareMutex.withLock {
+            val ids = pendingReadyToFinishIds
+            pendingReadyToFinishIds = emptyList()
+            ids
         }
-        for (readyId in snapshot.readyToFinishIds) {
+        for (readyId in readyIds) {
             val download = stateFlow.value.downloads[readyId] ?: continue
             executor.verifyAndInstall(readyId, download, executorCallbacks)
         }
@@ -141,9 +140,7 @@ internal class DefaultOfflineCountryRepository @Inject constructor(
     }
 
     override suspend fun refreshCatalog() {
-        if (!stateFlow.value.isPrepared) {
-            start()
-        }
+        ensurePrepared()
         refreshMutex.withLock {
             if (stateFlow.value.holdings == OfflineHoldingsState.UNREADABLE) return
             stateFlow.update { it.copy(listPhase = OfflineListPhase.LOADING) }
@@ -161,14 +158,15 @@ internal class DefaultOfflineCountryRepository @Inject constructor(
                     )
                 }
             } catch (_: IOException) {
-                stateFlow.update { current ->
-                    current.copy(listPhase = OfflineListPhase.FAILED)
-                }
+                stateFlow.update { current -> current.copy(listPhase = OfflineListPhase.FAILED) }
+            } catch (_: IllegalArgumentException) {
+                stateFlow.update { current -> current.copy(listPhase = OfflineListPhase.FAILED) }
             }
         }
     }
 
     override suspend fun downloadCountry(countryId: String) {
+        ensurePrepared()
         mutationMutex.withLock {
             val current = stateFlow.value
             val ready = current.isAvailable && current.holdings == OfflineHoldingsState.READY
@@ -185,6 +183,7 @@ internal class DefaultOfflineCountryRepository @Inject constructor(
     }
 
     override suspend fun retryDownload(countryId: String) {
+        ensurePrepared()
         val failed = stateFlow.value.downloads[countryId] ?: return
         refreshCatalog()
         mutationMutex.withLock {
@@ -209,6 +208,7 @@ internal class DefaultOfflineCountryRepository @Inject constructor(
     }
 
     override suspend fun repairCountry(countryId: String) {
+        ensurePrepared()
         mutationMutex.withLock {
             val current = stateFlow.value
             val record = if (current.isAvailable && current.holdings == OfflineHoldingsState.READY) {
@@ -225,12 +225,14 @@ internal class DefaultOfflineCountryRepository @Inject constructor(
     }
 
     override suspend fun cancelDownload(countryId: String) {
+        ensurePrepared()
         mutationMutex.withLock {
             cancelDownloadLocked(countryId)
         }
     }
 
     override suspend fun deleteCountry(countryId: String) {
+        ensurePrepared()
         mutationMutex.withLock {
             val current = stateFlow.value
             val existing = current.installed[countryId] ?: return
@@ -254,13 +256,54 @@ internal class DefaultOfflineCountryRepository @Inject constructor(
     }
 
     override suspend fun setIncludesDetail(enabled: Boolean) {
+        ensurePrepared()
         runCatching { userSettingsRepository.setOfflineCountriesExtraDetail(enabled) }
         stateFlow.update { it.copy(includesDetail = enabled) }
         reconcileAfterStateChange()
     }
 
-    override suspend fun runScheduledDownload(countryId: String): OfflineDownloadExecutionResult =
-        executor.execute(countryId, executorCallbacks)
+    override suspend fun runScheduledDownload(countryId: String): OfflineDownloadExecutionResult {
+        ensurePrepared()
+        return executor.execute(countryId, executorCallbacks)
+    }
+
+    private suspend fun ensurePrepared() {
+        if (stateFlow.value.isPrepared) return
+        prepareMutex.withLock {
+            if (stateFlow.value.isPrepared) return
+            val includesDetail = runCatching {
+                userSettingsRepository.userSettings.first().offlineCountriesExtraDetail
+            }.getOrDefault(UserSettings.DEFAULT_OFFLINE_COUNTRIES_EXTRA_DETAIL)
+            val snapshot = reconciler.loadInitialSnapshot()
+            mutationMutex.withLock {
+                if (snapshot.holdings == OfflineHoldingsState.UNREADABLE) {
+                    stateFlow.update { current ->
+                        current.copy(
+                            isAvailable = false,
+                            isPrepared = true,
+                            holdings = OfflineHoldingsState.UNREADABLE,
+                            includesDetail = includesDetail
+                        )
+                    }
+                    pendingReadyToFinishIds = emptyList()
+                } else {
+                    stateFlow.update { current ->
+                        current.copy(
+                            isAvailable = true,
+                            isPrepared = true,
+                            holdings = OfflineHoldingsState.READY,
+                            offered = if (current.offered.isEmpty()) snapshot.cachedOffered else current.offered,
+                            installed = snapshot.installed,
+                            downloads = snapshot.recoveredDownloads,
+                            unopenable = snapshot.unopenable,
+                            includesDetail = includesDetail
+                        )
+                    }
+                    pendingReadyToFinishIds = snapshot.readyToFinishIds
+                }
+            }
+        }
+    }
 
     private suspend fun reconcileAfterStateChange() {
         val current = stateFlow.value
@@ -298,7 +341,7 @@ internal class DefaultOfflineCountryRepository @Inject constructor(
         val decision = tileNetworkPolicy.decide(TileNetworkPurpose.SPECULATIVE)
         val preflightFailure = checkPreflightFailure(country.id, baseDownload, decision)
         if (preflightFailure != null) {
-            recordFailureLocked(country.id, baseDownload, preflightFailure)
+            stateFlow.recordFailure(country.id, baseDownload, preflightFailure)
             return
         }
         val initialPhase = if (decision is TileNetworkDecision.Allowed) {
@@ -343,23 +386,6 @@ internal class DefaultOfflineCountryRepository @Inject constructor(
         return if (available != null && available < requiredSpace) OfflineDownloadFailure.SPACE else null
     }
 
-    private fun recordFailureLocked(
-        countryId: String,
-        baseDownload: OfflineCountryDownload,
-        failure: OfflineDownloadFailure
-    ) {
-        stateFlow.update { current ->
-            current.copy(
-                downloads = current.downloads + (
-                    countryId to baseDownload.copy(
-                        phase = OfflineDownloadPhase.FAILED,
-                        failure = failure
-                    )
-                    )
-            )
-        }
-    }
-
     private suspend fun cancelDownloadLocked(countryId: String) {
         val existing = stateFlow.value.downloads[countryId] ?: return
         scheduler.cancel(countryId)
@@ -378,6 +404,23 @@ internal class DefaultOfflineCountryRepository @Inject constructor(
         return withContext(ioDispatcher) {
             runCatching { store.writePending(pending) }.isSuccess
         }
+    }
+}
+
+private fun MutableStateFlow<OfflineCountriesState>.recordFailure(
+    countryId: String,
+    baseDownload: OfflineCountryDownload,
+    failure: OfflineDownloadFailure
+) {
+    update { current ->
+        current.copy(
+            downloads = current.downloads + (
+                countryId to baseDownload.copy(
+                    phase = OfflineDownloadPhase.FAILED,
+                    failure = failure
+                )
+                )
+        )
     }
 }
 

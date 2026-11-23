@@ -8,16 +8,29 @@ import app.openhikes.core.model.OfflineCountryManifest
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import java.net.HttpURLConnection
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
+
+/**
+ * Outcome of streaming a single country archive transfer with optional byte-slice budgeting
+ * and cooperative policy/cancellation interruption.
+ */
+enum class OfflineFileTransferStatus {
+    COMPLETE,
+    PARTIAL_SLICE,
+    INTERRUPTED
+}
 
 /**
  * Network seam for fetching `countries/manifest.json` and downloading country `.pmtiles` archives
@@ -29,15 +42,18 @@ interface OfflineCountryServer {
     fun fileUrl(file: OfflineCountryFile): String
 
     /**
-     * Streams [file] into [destinationFile], resuming from [partialFile] when present, and reporting
-     * cumulative bytes written via [onProgress].
+     * Streams [file] into [destinationFile], resuming from [partialFile] when present, honoring
+     * optional [maxBytesToTransfer] slice bounds and [shouldContinue] cooperative stop checks, and
+     * reporting cumulative bytes written via [onProgress].
      */
     suspend fun downloadFile(
         file: OfflineCountryFile,
         partialFile: File,
         destinationFile: File,
+        maxBytesToTransfer: Long? = null,
+        shouldContinue: () -> Boolean = { true },
         onProgress: (Long) -> Unit
-    )
+    ): OfflineFileTransferStatus
 }
 
 @Singleton
@@ -54,7 +70,12 @@ internal class HttpOfflineCountryServer @Inject constructor(
             if (response.code != HttpURLConnection.HTTP_OK) {
                 throw IOException("Unexpected country manifest status ${response.code}")
             }
-            OfflineCountryManifestParser.parseCatalog(response.body.string())
+            val raw = response.body.string()
+            try {
+                OfflineCountryManifestParser.parseCatalog(raw)
+            } catch (ex: IllegalArgumentException) {
+                throw IOException("Malformed offline country catalog", ex)
+            }
         }
     }
 
@@ -67,50 +88,141 @@ internal class HttpOfflineCountryServer @Inject constructor(
         file: OfflineCountryFile,
         partialFile: File,
         destinationFile: File,
+        maxBytesToTransfer: Long?,
+        shouldContinue: () -> Boolean,
         onProgress: (Long) -> Unit
-    ) = withContext(ioDispatcher) {
+    ): OfflineFileTransferStatus = withContext(ioDispatcher) {
         val url = fileUrl(file)
         partialFile.parentFile?.mkdirs()
         val existingBytes = if (partialFile.isFile) partialFile.length() else 0L
         val resumeOffset = if (existingBytes in 1L until file.byteCount) existingBytes else 0L
+        val remainingBytes = (file.byteCount - resumeOffset).coerceAtLeast(0L)
+        val sliceBytes = maxBytesToTransfer?.takeIf { it > 0L && it < remainingBytes }
 
-        val requestBuilder = Request.Builder().url(url).get()
-        if (resumeOffset > 0L) {
-            requestBuilder.header(HEADER_RANGE, "bytes=$resumeOffset-")
+        val request = buildDownloadRequest(url, resumeOffset, sliceBytes)
+        val call = downloadClient.newCall(request)
+        val cancelHandle = currentCoroutineContext()[Job]?.invokeOnCompletion { cause ->
+            if (cause != null) call.cancel()
         }
-        downloadClient.newCall(requestBuilder.build()).execute().use { response ->
-            streamResponseToFile(response, file.fileName, partialFile, resumeOffset, onProgress)
+        val status = try {
+            call.execute().use { response ->
+                streamResponseToFile(
+                    StreamTransferContext(
+                        response = response,
+                        file = file,
+                        partialFile = partialFile,
+                        resumeOffset = resumeOffset,
+                        sliceBytes = sliceBytes,
+                        shouldContinue = shouldContinue,
+                        onProgress = onProgress
+                    )
+                )
+            }
+        } finally {
+            cancelHandle?.dispose()
         }
-        promotePartialFile(partialFile, destinationFile)
+        if (status == OfflineFileTransferStatus.COMPLETE) {
+            promotePartialFile(partialFile, destinationFile)
+        }
+        status
     }
 
-    private suspend fun streamResponseToFile(
-        response: Response,
-        fileName: String,
-        partialFile: File,
-        resumeOffset: Long,
-        onProgress: (Long) -> Unit
-    ) {
-        val append = response.code == HttpURLConnection.HTTP_PARTIAL && resumeOffset > 0L
-        if (!append && response.code != HttpURLConnection.HTTP_OK) {
-            throw IOException("Unexpected download status ${response.code} for $fileName")
+    private fun buildDownloadRequest(url: String, resumeOffset: Long, sliceBytes: Long?): Request {
+        val builder = Request.Builder().url(url).get()
+        when {
+            sliceBytes != null -> {
+                val endInclusive = resumeOffset + sliceBytes - 1L
+                builder.header(HEADER_RANGE, "bytes=$resumeOffset-$endInclusive")
+            }
+
+            resumeOffset > 0L -> builder.header(HEADER_RANGE, "bytes=$resumeOffset-")
         }
-        var totalWritten = if (append) resumeOffset else 0L
-        onProgress(totalWritten)
-        val buffer = ByteArray(STREAM_BUFFER_BYTES)
-        response.body.byteStream().use { input ->
-            FileOutputStream(partialFile, append).use { output ->
-                while (true) {
-                    currentCoroutineContext().ensureActive()
-                    val read = input.read(buffer)
-                    if (read <= 0) break
-                    output.write(buffer, 0, read)
-                    totalWritten += read
-                    onProgress(totalWritten)
-                }
+        return builder.build()
+    }
+
+    private class StreamTransferContext(
+        val response: Response,
+        val file: OfflineCountryFile,
+        val partialFile: File,
+        val resumeOffset: Long,
+        val sliceBytes: Long?,
+        val shouldContinue: () -> Boolean,
+        val onProgress: (Long) -> Unit
+    )
+
+    private suspend fun streamResponseToFile(ctx: StreamTransferContext): OfflineFileTransferStatus {
+        val append = resolveAppendMode(ctx)
+        var totalWritten = if (append) ctx.resumeOffset else 0L
+        ctx.onProgress(totalWritten)
+        val outcome = copyStreamToPartial(ctx, append, totalWritten)
+        totalWritten = outcome.totalWritten
+        return when {
+            outcome.interrupted -> OfflineFileTransferStatus.INTERRUPTED
+            ctx.sliceBytes != null && totalWritten < ctx.file.byteCount -> OfflineFileTransferStatus.PARTIAL_SLICE
+            else -> OfflineFileTransferStatus.COMPLETE
+        }
+    }
+
+    private fun resolveAppendMode(ctx: StreamTransferContext): Boolean {
+        val append = ctx.response.code == HttpURLConnection.HTTP_PARTIAL && ctx.resumeOffset > 0L
+        val validPartial = ctx.response.code == HttpURLConnection.HTTP_PARTIAL && ctx.sliceBytes != null
+        if (!append && !validPartial && ctx.response.code != HttpURLConnection.HTTP_OK) {
+            throw IOException("Unexpected download status ${ctx.response.code} for ${ctx.file.fileName}")
+        }
+        return append
+    }
+
+    private data class StreamCopyOutcome(val totalWritten: Long, val interrupted: Boolean)
+
+    private suspend fun copyStreamToPartial(
+        ctx: StreamTransferContext,
+        append: Boolean,
+        initialWritten: Long
+    ): StreamCopyOutcome = ctx.response.body.byteStream().use { input ->
+        FileOutputStream(ctx.partialFile, append).use { output ->
+            try {
+                copyLoop(input, output, ctx, initialWritten)
+            } finally {
                 output.flush()
             }
         }
+    }
+
+    private suspend fun copyLoop(
+        input: InputStream,
+        output: OutputStream,
+        ctx: StreamTransferContext,
+        initialWritten: Long
+    ): StreamCopyOutcome {
+        var totalWritten = initialWritten
+        var bytesThisCall = 0L
+        var interrupted = false
+        var done = false
+        val buffer = ByteArray(STREAM_BUFFER_BYTES)
+        while (!done) {
+            currentCoroutineContext().ensureActive()
+            val sliceDone = ctx.sliceBytes != null && bytesThisCall >= ctx.sliceBytes
+            when {
+                sliceDone -> done = true
+                !ctx.shouldContinue() -> {
+                    interrupted = true
+                    done = true
+                }
+
+                else -> {
+                    val read = input.read(buffer)
+                    if (read <= 0) {
+                        done = true
+                    } else {
+                        output.write(buffer, 0, read)
+                        totalWritten += read
+                        bytesThisCall += read
+                        ctx.onProgress(totalWritten)
+                    }
+                }
+            }
+        }
+        return StreamCopyOutcome(totalWritten = totalWritten, interrupted = interrupted)
     }
 
     private fun promotePartialFile(partialFile: File, destinationFile: File) {
@@ -161,12 +273,21 @@ internal class LaunchAwareOfflineCountryServer @Inject constructor(
         file: OfflineCountryFile,
         partialFile: File,
         destinationFile: File,
+        maxBytesToTransfer: Long?,
+        shouldContinue: () -> Boolean,
         onProgress: (Long) -> Unit
-    ) {
+    ): OfflineFileTransferStatus {
         if (currentScenario() != null) {
             throw IOException("Downloads disabled for seeded UI test scenario '${currentScenario()}'")
         }
-        httpServer.downloadFile(file, partialFile, destinationFile, onProgress)
+        return httpServer.downloadFile(
+            file = file,
+            partialFile = partialFile,
+            destinationFile = destinationFile,
+            maxBytesToTransfer = maxBytesToTransfer,
+            shouldContinue = shouldContinue,
+            onProgress = onProgress
+        )
     }
 
     private fun currentScenario(): String? = launchConfigHolder.current.value.offlineCountriesScenarioName

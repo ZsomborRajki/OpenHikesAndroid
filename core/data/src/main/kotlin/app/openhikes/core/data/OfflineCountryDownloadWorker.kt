@@ -15,13 +15,19 @@ import dagger.assisted.AssistedInject
 class OfflineCountryDownloadWorker @AssistedInject constructor(
     @Assisted appContext: Context,
     @Assisted workerParams: WorkerParameters,
-    private val offlineCountryRepository: OfflineCountryRepository
+    private val offlineCountryRepository: OfflineCountryRepository,
+    private val scheduler: OfflineCountryDownloadScheduler
 ) : CoroutineWorker(appContext, workerParams) {
     override suspend fun doWork(): Result {
         val countryId = inputData.getString(KEY_COUNTRY_ID)?.takeIf { it.isNotBlank() }
             ?: return Result.failure()
         return when (offlineCountryRepository.runScheduledDownload(countryId)) {
             OfflineDownloadExecutionResult.RETRY_LATER -> Result.retry()
+            OfflineDownloadExecutionResult.CONTINUE_SLICE -> {
+                scheduler.enqueueContinuation(countryId)
+                Result.success()
+            }
+
             OfflineDownloadExecutionResult.COMPLETED,
             OfflineDownloadExecutionResult.FAILED,
             OfflineDownloadExecutionResult.CANCELLED -> Result.success()

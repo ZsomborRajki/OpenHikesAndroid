@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
  */
 enum class OfflineDownloadExecutionResult {
     COMPLETED,
+    CONTINUE_SLICE,
     FAILED,
     CANCELLED,
     RETRY_LATER

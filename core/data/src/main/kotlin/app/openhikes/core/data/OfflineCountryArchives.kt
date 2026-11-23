@@ -27,9 +27,13 @@ class OfflineCountryArchives @Inject constructor() :
     private val lock = Any()
     private val revisionCounter = AtomicLong(0L)
     private val revisionState = MutableStateFlow(0L)
+    private val maxBasemapZoomState = MutableStateFlow(0)
+    private val maxExtrasZoomState = MutableStateFlow(0)
     private var openedCountries: List<OpenedCountry> = emptyList()
 
     override val archiveRevision: StateFlow<Long> = revisionState.asStateFlow()
+    override val maximumBasemapZoom: StateFlow<Int> = maxBasemapZoomState.asStateFlow()
+    override val maximumExtrasZoom: StateFlow<Int> = maxExtrasZoomState.asStateFlow()
 
     /**
      * Reopens archives for [records] from [store], atomically swaps the active handle list,
@@ -73,12 +77,21 @@ class OfflineCountryArchives @Inject constructor() :
             }
         }
 
+        val nextMaxBasemapZoom = nextOpened.maxOfOrNull { country ->
+            maxOf(country.basemap.header.maximumZoom, country.detail?.header?.maximumZoom ?: 0)
+        } ?: 0
+        val nextMaxExtrasZoom = nextOpened.maxOfOrNull { country ->
+            maxOf(country.extras?.header?.maximumZoom ?: 0, country.detailExtras?.header?.maximumZoom ?: 0)
+        } ?: 0
+
         val previous = synchronized(lock) {
             val old = openedCountries
             openedCountries = nextOpened
             old
         }
         previous.forEach { it.close() }
+        maxBasemapZoomState.value = nextMaxBasemapZoom
+        maxExtrasZoomState.value = nextMaxExtrasZoom
         revisionState.value = revisionCounter.incrementAndGet()
         return unopenable
     }
@@ -110,6 +123,8 @@ class OfflineCountryArchives @Inject constructor() :
             old
         }
         previous.forEach { it.close() }
+        maxBasemapZoomState.value = 0
+        maxExtrasZoomState.value = 0
     }
 
     private fun readTile(
@@ -132,15 +147,17 @@ class OfflineCountryArchives @Inject constructor() :
     }
 
     private fun readFromArchive(archive: PMTilesArchive?, address: TileAddress): ByteArray? {
-        if (archive == null || address.z < archive.header.minimumZoom) return null
-        val dataTile = address.overzoomedTo(archive.header.maximumZoom)
-        return runCatching { archive.tile(dataTile.z, dataTile.x, dataTile.y) }.getOrNull()
+        if (archive == null || address.z !in archive.header.minimumZoom..archive.header.maximumZoom) {
+            return null
+        }
+        return runCatching { archive.tile(address.z, address.x, address.y) }.getOrNull()
     }
 
     private fun archiveContains(archive: PMTilesArchive?, address: TileAddress): Boolean {
-        if (archive == null || address.z < archive.header.minimumZoom) return false
-        val dataTile = address.overzoomedTo(archive.header.maximumZoom)
-        return runCatching { archive.contains(dataTile.z, dataTile.x, dataTile.y) }.getOrDefault(false)
+        if (archive == null || address.z !in archive.header.minimumZoom..archive.header.maximumZoom) {
+            return false
+        }
+        return runCatching { archive.contains(address.z, address.x, address.y) }.getOrDefault(false)
     }
 
     private class OpenedCountry(

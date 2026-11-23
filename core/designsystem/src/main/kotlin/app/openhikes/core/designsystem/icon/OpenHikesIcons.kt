@@ -74,4 +74,16 @@ object OpenHikesIcons {
     @DrawableRes val ExpandLess: Int = R.drawable.ic_expand_less_24
 
     @DrawableRes val WifiOff: Int = R.drawable.ic_wifi_off_24
+
+    @DrawableRes val PoiWater: Int = R.drawable.ic_poi_water_24
+
+    @DrawableRes val PoiToilets: Int = R.drawable.ic_poi_toilets_24
+
+    @DrawableRes val PoiBench: Int = R.drawable.ic_poi_bench_24
+
+    @DrawableRes val PoiShelter: Int = R.drawable.ic_poi_shelter_24
+
+    @DrawableRes val PoiViewpoint: Int = R.drawable.ic_poi_viewpoint_24
+
+    @DrawableRes val PoiParking: Int = R.drawable.ic_poi_parking_24
 }

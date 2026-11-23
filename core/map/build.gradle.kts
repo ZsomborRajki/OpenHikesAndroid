@@ -12,6 +12,7 @@ dependencies {
     api(projects.core.model)
     implementation(projects.core.common)
     implementation(projects.core.data)
+    implementation(projects.core.designsystem)
     implementation(projects.core.network)
     implementation(projects.core.ui)
     implementation(libs.androidx.lifecycle.runtime.compose)
@@ -21,6 +22,7 @@ dependencies {
 
     testImplementation(projects.core.testing)
     testImplementation(libs.junit4)
+    testImplementation(libs.okhttp.mockwebserver)
     testImplementation(libs.truth)
     testImplementation(libs.turbine)
     testImplementation(libs.kotlinx.coroutines.test)

@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -20,6 +21,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openhikes.core.data.OfflineTileArchiveSource
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.MapStyleId
+import app.openhikes.core.network.VectorTileArchivesManager
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -91,7 +93,8 @@ internal class MapLibreTrailMapRenderer @Inject constructor(
     private val mapNetworkPolicy: MapNetworkPolicy,
     private val basemapTileProvider: OpenHikesBasemapTileProvider,
     private val extrasTileProvider: OpenHikesExtrasTileProvider,
-    private val offlineTileArchives: OfflineTileArchiveSource
+    private val offlineTileArchives: OfflineTileArchiveSource,
+    private val vectorTileArchivesManager: VectorTileArchivesManager
 ) : TrailMapRenderer {
     @Composable
     override fun Render(
@@ -107,16 +110,13 @@ internal class MapLibreTrailMapRenderer @Inject constructor(
     ) {
         val currentInteractions by rememberUpdatedState(interactions)
         val allowRemoteRequests by mapNetworkPolicy.allowsInteractiveMapRequests.collectAsStateWithLifecycle()
-        val archiveRevision by offlineTileArchives.archiveRevision.collectAsStateWithLifecycle()
         var hasLoadedRemoteStyle by remember { mutableStateOf(false) }
 
-        LaunchedEffect(allowRemoteRequests) {
-            MapConnectivity.mode = if (allowRemoteRequests) {
-                ConnectivityMode.Automatic
-            } else {
-                ConnectivityMode.ForceOffline
-            }
-        }
+        val sourceSpec = rememberOpenHikesVectorSourceSpec(
+            allowRemoteRequests = allowRemoteRequests,
+            offlineTileArchives = offlineTileArchives,
+            vectorTileArchivesManager = vectorTileArchivesManager
+        )
 
         val stylePlan = resolveMapStylePlan(
             overlayState = overlayState,
@@ -127,7 +127,7 @@ internal class MapLibreTrailMapRenderer @Inject constructor(
             stylePlan = stylePlan,
             basemapProvider = basemapTileProvider,
             extrasProvider = extrasTileProvider,
-            archiveRevision = archiveRevision,
+            sourceSpec = sourceSpec,
             countryOutlines = overlayState.countryOutlines,
             routes = overlayState.routes,
             highlightState = highlightState,
@@ -162,11 +162,52 @@ internal class MapLibreTrailMapRenderer @Inject constructor(
 }
 
 @Composable
+private fun rememberOpenHikesVectorSourceSpec(
+    allowRemoteRequests: Boolean,
+    offlineTileArchives: OfflineTileArchiveSource,
+    vectorTileArchivesManager: VectorTileArchivesManager
+): OpenHikesVectorSourceSpec {
+    val archiveRevision by offlineTileArchives.archiveRevision.collectAsStateWithLifecycle()
+    val offlineBasemapMaxZoom by offlineTileArchives.maximumBasemapZoom.collectAsStateWithLifecycle()
+    val offlineExtrasMaxZoom by offlineTileArchives.maximumExtrasZoom.collectAsStateWithLifecycle()
+    val activeOnlineSource by vectorTileArchivesManager.activeSource.collectAsStateWithLifecycle()
+    var previousAllowRemote by remember { mutableStateOf(allowRemoteRequests) }
+    var onlineRecoveryGeneration by remember { mutableLongStateOf(0L) }
+
+    LaunchedEffect(allowRemoteRequests) {
+        if (allowRemoteRequests && !previousAllowRemote) {
+            onlineRecoveryGeneration += 1L
+        }
+        previousAllowRemote = allowRemoteRequests
+        MapConnectivity.mode = if (allowRemoteRequests) {
+            ConnectivityMode.Automatic
+        } else {
+            ConnectivityMode.ForceOffline
+        }
+    }
+
+    val (basemapMaxZoom, extrasMaxZoom) = resolveOpenHikesVectorZooms(
+        allowRemoteRequests = allowRemoteRequests,
+        onlineMaxZoom = activeOnlineSource?.maximumZoom,
+        offlineBasemapMaxZoom = offlineBasemapMaxZoom,
+        offlineExtrasMaxZoom = offlineExtrasMaxZoom
+    )
+    return OpenHikesVectorSourceSpec(
+        archiveRevision = archiveRevision,
+        onlineRecoveryGeneration = onlineRecoveryGeneration,
+        activeBasemapArchive = activeOnlineSource?.basemapArchiveName,
+        activeExtrasArchive = activeOnlineSource?.extras?.archiveName,
+        basemapMaxZoom = basemapMaxZoom,
+        extrasMaxZoom = extrasMaxZoom
+    )
+}
+
+@Composable
 private fun rememberTrailMapState(
     stylePlan: MapStylePlan,
     basemapProvider: OpenHikesBasemapTileProvider,
     extrasProvider: OpenHikesExtrasTileProvider,
-    archiveRevision: Long,
+    sourceSpec: OpenHikesVectorSourceSpec,
     countryOutlines: List<MapCountryOutline>,
     routes: List<MapRouteOverlay>,
     highlightState: StateFlow<MapRouteHighlight?>,
@@ -180,7 +221,7 @@ private fun rememberTrailMapState(
         OpenHikesVectorBaseLayers(
             basemapProvider = basemapProvider,
             extrasProvider = extrasProvider,
-            archiveRevision = archiveRevision
+            sourceSpec = sourceSpec
         )
     }
     stylePlan.hikingRoutesTileUrl?.let { tileUrl ->
