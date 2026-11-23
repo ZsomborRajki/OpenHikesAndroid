@@ -2,7 +2,9 @@ package app.openhikes.core.map
 
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -20,6 +22,7 @@ interface TrailMapRenderer {
         onCameraCommandHandled: (Long) -> Unit,
         highlightState: StateFlow<MapRouteHighlight?>,
         liveRecordingOverlayState: StateFlow<MapRouteOverlay?>,
-        modifier: Modifier
+        modifier: Modifier,
+        walkCoverageOverlayState: StateFlow<MapWalkCoverageOverlay?> = remember { MutableStateFlow(null) }
     )
 }

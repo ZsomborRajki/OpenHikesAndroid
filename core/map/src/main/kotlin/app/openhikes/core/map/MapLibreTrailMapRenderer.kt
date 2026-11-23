@@ -106,7 +106,8 @@ internal class MapLibreTrailMapRenderer @Inject constructor(
         onCameraCommandHandled: (Long) -> Unit,
         highlightState: StateFlow<MapRouteHighlight?>,
         liveRecordingOverlayState: StateFlow<MapRouteOverlay?>,
-        modifier: Modifier
+        modifier: Modifier,
+        walkCoverageOverlayState: StateFlow<MapWalkCoverageOverlay?>
     ) {
         val currentInteractions by rememberUpdatedState(interactions)
         val allowRemoteRequests by mapNetworkPolicy.allowsInteractiveMapRequests.collectAsStateWithLifecycle()
@@ -132,6 +133,7 @@ internal class MapLibreTrailMapRenderer @Inject constructor(
             routes = overlayState.routes,
             highlightState = highlightState,
             liveRecordingOverlayState = liveRecordingOverlayState,
+            walkCoverageOverlayState = walkCoverageOverlayState,
             initialCameraState = cameraState
         )
 
@@ -212,6 +214,7 @@ private fun rememberTrailMapState(
     routes: List<MapRouteOverlay>,
     highlightState: StateFlow<MapRouteHighlight?>,
     liveRecordingOverlayState: StateFlow<MapRouteOverlay?>,
+    walkCoverageOverlayState: StateFlow<MapWalkCoverageOverlay?>,
     initialCameraState: MapCameraState
 ) = rememberMapState(
     baseStyle = stylePlan.baseStyle,
@@ -240,6 +243,7 @@ private fun rememberTrailMapState(
     }
     CountryOutlineLayers(outlines = countryOutlines)
     RouteOverlayLayers(routes = routes)
+    WalkCoverageOverlayLayers(walkCoverageState = walkCoverageOverlayState)
     LiveRecordingRouteLayers(liveOverlayState = liveRecordingOverlayState)
     HighlightMarkerLayers(highlightState = highlightState)
 }

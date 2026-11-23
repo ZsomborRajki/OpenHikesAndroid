@@ -24,6 +24,8 @@ object HikeMetricsFormatter {
     private const val SECONDS_PER_MINUTE = 60
     private const val MINUTES_PER_HOUR = 60
     private const val HIGH_DISTANCE_DECIMALS_THRESHOLD = 100.0
+    private const val PERCENT_SCALE = 100.0
+    private const val MAX_PERCENT = 100
 
     fun formatDistance(meters: Double, unit: DistanceUnit, locale: Locale = Locale.getDefault()): String {
         val safeMeters = meters.coerceAtLeast(0.0)
@@ -149,6 +151,40 @@ object HikeMetricsFormatter {
         unit: DistanceUnit,
         locale: Locale = Locale.getDefault()
     ): String = "${formatDistance(distanceMeters, unit, locale)} · ${formatDate(dateEpochMillis, locale)}"
+
+    fun wholePercent(fraction: Double): Int = if (!fraction.isFinite()) {
+        0
+    } else {
+        (
+            fraction.coerceIn(
+                0.0,
+                1.0
+            ) * PERCENT_SCALE
+            ).roundToInt().coerceIn(0, MAX_PERCENT)
+    }
+
+    fun formatPercent(fraction: Double, locale: Locale = Locale.getDefault()): String =
+        "${NumberFormat.getIntegerInstance(locale).format(wholePercent(fraction))}%"
+
+    fun formatTimeLeft(seconds: Double): String = "${formatDuration(seconds)} left"
+
+    fun formatDateTime(
+        epochMillis: Long,
+        locale: Locale = Locale.getDefault(),
+        zoneId: ZoneId = ZoneId.systemDefault()
+    ): String = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
+        .withLocale(locale)
+        .withZone(zoneId)
+        .format(Instant.ofEpochMilli(epochMillis))
+
+    fun formatTimeOfDay(
+        epochMillis: Long,
+        locale: Locale = Locale.getDefault(),
+        zoneId: ZoneId = ZoneId.systemDefault()
+    ): String = DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT)
+        .withLocale(locale)
+        .withZone(zoneId)
+        .format(Instant.ofEpochMilli(epochMillis))
 
     private fun formatNumber(value: Double, fractionDigits: Int, locale: Locale): String {
         val formatter = NumberFormat.getNumberInstance(locale).apply {
