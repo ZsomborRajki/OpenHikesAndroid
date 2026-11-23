@@ -9,4 +9,6 @@
     <string name="hike_segment_label">Segment %1$d</string>
     <string name="hike_segment_paused_label">Paused</string>
     <string name="hike_segment_climb_description">Elevation gain %1$s</string>
+    <string name="hike_row_walk_active">Active</string>
+    <string name="hike_row_walk_paused">Paused</string>
 </resources>

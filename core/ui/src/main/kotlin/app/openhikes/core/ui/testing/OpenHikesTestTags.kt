@@ -3,6 +3,7 @@ package app.openhikes.core.ui.testing
 /**
  * Shared kebab-case semantic `testTag` identifiers aligned with OpenHikes UI tests.
  */
+@Suppress("TooManyFunctions")
 object OpenHikesTestTags {
     const val APP_ROOT = "app-root"
     const val TRAIL_MAP = "trail-map"
@@ -104,6 +105,33 @@ object OpenHikesTestTags {
     const val OFFLINE_MAPS_UNAVAILABLE = "offline-maps-unavailable"
     const val OFFLINE_COUNTRY_BUTTON = "offline-country-button"
     const val OFFLINE_COUNTRY_DIALOG = "offline-country-dialog"
+    const val WALK_TOGGLE = "walk-toggle"
+    const val WALK_PHASE = "walk-phase"
+    const val WALK_CONTROLS = "walk-controls"
+    const val WALK_NOTICE = "walk-notice"
+    const val TRAIL_PROGRESS = "trail-progress"
+    const val FOLLOW_TRAIL_SWITCH = "follow-trail-switch"
+    const val WALK_SEGMENT = "walk-segment"
+    const val WALK_SEGMENT_DETAILS = "walk-segment-details"
+    const val WALK_SEGMENT_HISTORY = "walk-segment-history"
+    const val WALK_HISTORY_EMPTY = "walk-history-empty"
+    const val WALK_ROW = "walk-row"
+    const val WALK_STARTED_PILL = "walk-started-pill"
+    const val WALK_STARTED_PILL_DISMISS = "walk-started-pill-dismiss"
+    const val WALK_TIME_LEFT = "walk-time-left"
+    const val MAP_JUNCTION_WARNINGS_BUTTON = "map-junction-warnings-button"
+    const val WALK_SUMMARY_SCREEN = "walk-summary-screen"
+    const val WALK_SUMMARY_BACK = "walk-summary-back"
+    const val WALK_COMPLETION = "walk-completion"
+    const val WALK_SHOW_ON_MAP = "walk-show-on-map"
+    const val WALK_TRAIL_CHANGED = "walk-trail-changed"
+    const val WALK_END_DIALOG = "walk-end-dialog"
+    const val WALK_END_CONFIRM_BUTTON = "walk-end-confirm-button"
+    const val WALK_END_REFUSED_DIALOG = "walk-end-refused-dialog"
+    const val WALK_OFF_TRAIL_DIALOG = "walk-off-trail-dialog"
+    const val WALK_RECORDING_CONFIRM_DIALOG = "walk-recording-confirm-dialog"
+
+    fun walkRow(walkId: String): String = "$WALK_ROW-$walkId"
 
     fun hikeSegment(number: Int): String = "$HIKE_SEGMENT-$number"
 

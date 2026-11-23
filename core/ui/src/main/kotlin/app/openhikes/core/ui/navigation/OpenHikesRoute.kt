@@ -37,6 +37,12 @@ data class HikeDetailRoute(override val hikeId: HikeId) : HikeScopedRoute
 data class RouteStyleRoute(override val hikeId: HikeId) : HikeScopedRoute
 
 /**
+ * Finished walk summary destination pushed from [HikeDetailRoute] or walk completion.
+ */
+@Serializable
+data class WalkSummaryRoute(override val hikeId: HikeId, val walkId: String) : HikeScopedRoute
+
+/**
  * Application settings destination pushed onto the shared adaptive back stack.
  */
 @Serializable

@@ -54,6 +54,8 @@ private const val ICON_PADDING_DP = 4f
 private const val HALF_DIVISOR = 2f
 private const val HIGHLIGHT_RADIUS_DP = 7.0f
 private const val HIGHLIGHT_STROKE_DP = 2.5f
+private const val WALK_COVERAGE_CASING_WIDTH_DP = 9.0f
+private const val WALK_COVERAGE_LINE_WIDTH_DP = 6.0f
 private const val COLOR_RADIX = 16
 private const val HEX_RGB_LENGTH = 6
 private const val HEX_RGBA_LENGTH = 8
@@ -313,6 +315,38 @@ internal fun LiveRecordingRouteLayers(liveOverlayState: StateFlow<MapRouteOverla
     val liveRoute by liveOverlayState.collectAsStateWithLifecycle()
     val current = liveRoute ?: return
     RouteOverlayLayers(routes = listOf(current))
+}
+
+@Composable
+@MaplibreComposable
+internal fun WalkCoverageOverlayLayers(walkCoverageState: StateFlow<MapWalkCoverageOverlay?>) {
+    val coverage by walkCoverageState.collectAsStateWithLifecycle()
+    val current = coverage ?: return
+    if (current.segments.isEmpty()) return
+    val lineColor = parseHexColorOrDefault(
+        current.tintHex,
+        parseHexColorOrDefault(RouteTint.DEFAULT_HEX, Color.Green)
+    )
+    val data = remember(current.segments) { buildMultiLineFeatureCollection(current.segments) }
+    val source = rememberGeoJsonSource(data = data)
+    LineLayer(
+        id = "walk-coverage-casing",
+        source = source,
+        color = const(Color.White),
+        width = const(WALK_COVERAGE_CASING_WIDTH_DP.dp),
+        opacity = const(SELECTED_OPACITY),
+        cap = const(LineCap.Round),
+        join = const(LineJoin.Round)
+    )
+    LineLayer(
+        id = "walk-coverage-line",
+        source = source,
+        color = const(lineColor),
+        width = const(WALK_COVERAGE_LINE_WIDTH_DP.dp),
+        opacity = const(SELECTED_OPACITY),
+        cap = const(LineCap.Round),
+        join = const(LineJoin.Round)
+    )
 }
 
 @Composable

@@ -86,4 +86,10 @@ object OpenHikesIcons {
     @DrawableRes val PoiViewpoint: Int = R.drawable.ic_poi_viewpoint_24
 
     @DrawableRes val PoiParking: Int = R.drawable.ic_poi_parking_24
+
+    @DrawableRes val VolumeUp: Int = R.drawable.ic_volume_up_24
+
+    @DrawableRes val VolumeOff: Int = R.drawable.ic_volume_off_24
+
+    @DrawableRes val Directions: Int = R.drawable.ic_directions_24
 }

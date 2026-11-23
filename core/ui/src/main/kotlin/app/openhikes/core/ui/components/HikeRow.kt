@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import app.openhikes.core.designsystem.icon.OpenHikesIcons
 import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.HikeSummary
+import app.openhikes.core.model.TrailWalkPhase
 import app.openhikes.core.ui.R
 import app.openhikes.core.ui.format.HikeMetricsFormatter
 import app.openhikes.core.ui.testing.OpenHikesTestTags
@@ -62,7 +63,8 @@ fun HikeRow(
     isSelected: Boolean,
     onClick: () -> Unit,
     onDeleteClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    walkPhase: TrailWalkPhase? = null
 ) {
     val routeTint = parseHexColorOrDefault(hike.tintHex, MaterialTheme.colorScheme.primary).toOpaque()
     val containerColor = if (isSelected) {
@@ -94,6 +96,7 @@ fun HikeRow(
                 subtitle = subtitle,
                 routeTint = routeTint,
                 isSelected = isSelected,
+                walkPhase = walkPhase,
                 onClick = onClick,
                 modifier = Modifier.weight(1f)
             )
@@ -108,6 +111,7 @@ private fun HikeRowSummaryButton(
     subtitle: String,
     routeTint: Color,
     isSelected: Boolean,
+    walkPhase: TrailWalkPhase?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -140,13 +144,22 @@ private fun HikeRowSummaryButton(
             )
         }
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = hike.displayTitle,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = hike.displayTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                if (walkPhase != null) {
+                    WalkPhaseChip(phase = walkPhase)
+                }
+            }
             Text(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
@@ -155,6 +168,33 @@ private fun HikeRowSummaryButton(
                 overflow = TextOverflow.Ellipsis
             )
         }
+    }
+}
+
+@Composable
+private fun WalkPhaseChip(phase: TrailWalkPhase) {
+    val (labelRes, containerColor, contentColor) = when (phase) {
+        TrailWalkPhase.FOLLOWING -> Triple(
+            R.string.hike_row_walk_active,
+            MaterialTheme.colorScheme.primaryContainer,
+            MaterialTheme.colorScheme.onPrimaryContainer
+        )
+        TrailWalkPhase.PAUSED -> Triple(
+            R.string.hike_row_walk_paused,
+            MaterialTheme.colorScheme.secondaryContainer,
+            MaterialTheme.colorScheme.onSecondaryContainer
+        )
+    }
+    Surface(
+        color = containerColor,
+        shape = CircleShape
+    ) {
+        Text(
+            text = stringResource(labelRes),
+            style = MaterialTheme.typography.labelSmall,
+            color = contentColor,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+        )
     }
 }
 
