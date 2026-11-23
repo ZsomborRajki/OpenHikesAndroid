@@ -18,6 +18,7 @@ import app.openhikes.core.map.MapOverlayState
 import app.openhikes.core.map.MapRouteHighlight
 import app.openhikes.core.map.MapRouteOverlay
 import app.openhikes.core.map.TrailMapRenderer
+import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -47,6 +48,13 @@ class FakeTrailMapRenderer @Inject constructor() : TrailMapRenderer {
     val lastViewportPadding: StateFlow<PaddingValues?> = viewportPaddingFlow.asStateFlow()
     val handledCommands: StateFlow<List<MapCameraCommand>> = handledCommandsFlow.asStateFlow()
 
+    @Volatile
+    private var latestOnMapTap: ((GeoCoordinate) -> Unit)? = null
+
+    fun simulateMapTap(coordinate: GeoCoordinate) {
+        latestOnMapTap?.invoke(coordinate)
+    }
+
     @Composable
     override fun Render(
         cameraState: MapCameraState,
@@ -59,6 +67,8 @@ class FakeTrailMapRenderer @Inject constructor() : TrailMapRenderer {
         liveRecordingOverlayState: StateFlow<MapRouteOverlay?>,
         modifier: Modifier
     ) {
+        latestOnMapTap = interactions.onMapTap
+
         LaunchedEffect(cameraState) {
             cameraStateFlow.value = cameraState
         }

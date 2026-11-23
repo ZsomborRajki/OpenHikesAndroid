@@ -17,7 +17,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.openhikes.core.data.OfflineTileArchiveSource
 import app.openhikes.core.model.GeoCoordinate
+import app.openhikes.core.model.MapStyleId
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -44,33 +46,53 @@ import org.maplibre.compose.util.DpPadding
 import org.maplibre.spatialk.geojson.BoundingBox
 import org.maplibre.spatialk.geojson.Position
 
-internal data class MapStylePlan(val baseStyle: BaseStyle, val hikingRoutesTileUrl: String?)
+internal data class MapStylePlan(
+    val baseStyle: BaseStyle,
+    val hikingRoutesTileUrl: String?,
+    val usesOpenHikesVector: Boolean = false
+)
 
 internal fun resolveMapStylePlan(
     overlayState: MapOverlayState,
     allowRemoteRequests: Boolean,
     hasLoadedRemoteStyle: Boolean
 ): MapStylePlan {
-    if (!allowRemoteRequests && !hasLoadedRemoteStyle) {
-        return MapStylePlan(baseStyle = BaseStyle.Empty, hikingRoutesTileUrl = null)
-    }
-    val baseStyle = when (overlayState.mapStyleId) {
-        else -> BaseStyle.Uri(OPENFREEMAP_LIBERTY_STYLE_URL)
-    }
     val hikingTileUrl = if (overlayState.showsHikingRoutes && (allowRemoteRequests || hasLoadedRemoteStyle)) {
         WAYMARKED_HIKING_TILES_URL
     } else {
         null
     }
-    return MapStylePlan(baseStyle = baseStyle, hikingRoutesTileUrl = hikingTileUrl)
+    return when {
+        overlayState.mapStyleId != MapStyleId.OPENFREEMAP -> MapStylePlan(
+            baseStyle = BaseStyle.Empty,
+            hikingRoutesTileUrl = hikingTileUrl,
+            usesOpenHikesVector = true
+        )
+
+        !allowRemoteRequests && !hasLoadedRemoteStyle -> MapStylePlan(
+            baseStyle = BaseStyle.Empty,
+            hikingRoutesTileUrl = null,
+            usesOpenHikesVector = false
+        )
+
+        else -> MapStylePlan(
+            baseStyle = BaseStyle.Uri(OPENFREEMAP_LIBERTY_STYLE_URL),
+            hikingRoutesTileUrl = hikingTileUrl,
+            usesOpenHikesVector = false
+        )
+    }
 }
 
 /**
  * Production [TrailMapRenderer] backed by MapLibre Compose.
  */
 @Singleton
-internal class MapLibreTrailMapRenderer @Inject constructor(private val mapNetworkPolicy: MapNetworkPolicy) :
-    TrailMapRenderer {
+internal class MapLibreTrailMapRenderer @Inject constructor(
+    private val mapNetworkPolicy: MapNetworkPolicy,
+    private val basemapTileProvider: OpenHikesBasemapTileProvider,
+    private val extrasTileProvider: OpenHikesExtrasTileProvider,
+    private val offlineTileArchives: OfflineTileArchiveSource
+) : TrailMapRenderer {
     @Composable
     override fun Render(
         cameraState: MapCameraState,
@@ -85,6 +107,7 @@ internal class MapLibreTrailMapRenderer @Inject constructor(private val mapNetwo
     ) {
         val currentInteractions by rememberUpdatedState(interactions)
         val allowRemoteRequests by mapNetworkPolicy.allowsInteractiveMapRequests.collectAsStateWithLifecycle()
+        val archiveRevision by offlineTileArchives.archiveRevision.collectAsStateWithLifecycle()
         var hasLoadedRemoteStyle by remember { mutableStateOf(false) }
 
         LaunchedEffect(allowRemoteRequests) {
@@ -102,6 +125,10 @@ internal class MapLibreTrailMapRenderer @Inject constructor(private val mapNetwo
         )
         val mapState = rememberTrailMapState(
             stylePlan = stylePlan,
+            basemapProvider = basemapTileProvider,
+            extrasProvider = extrasTileProvider,
+            archiveRevision = archiveRevision,
+            countryOutlines = overlayState.countryOutlines,
             routes = overlayState.routes,
             highlightState = highlightState,
             liveRecordingOverlayState = liveRecordingOverlayState,
@@ -137,6 +164,10 @@ internal class MapLibreTrailMapRenderer @Inject constructor(private val mapNetwo
 @Composable
 private fun rememberTrailMapState(
     stylePlan: MapStylePlan,
+    basemapProvider: OpenHikesBasemapTileProvider,
+    extrasProvider: OpenHikesExtrasTileProvider,
+    archiveRevision: Long,
+    countryOutlines: List<MapCountryOutline>,
     routes: List<MapRouteOverlay>,
     highlightState: StateFlow<MapRouteHighlight?>,
     liveRecordingOverlayState: StateFlow<MapRouteOverlay?>,
@@ -145,6 +176,13 @@ private fun rememberTrailMapState(
     baseStyle = stylePlan.baseStyle,
     initialCameraPosition = initialCameraState.toMapLibreCameraPosition()
 ) {
+    if (stylePlan.usesOpenHikesVector) {
+        OpenHikesVectorBaseLayers(
+            basemapProvider = basemapProvider,
+            extrasProvider = extrasProvider,
+            archiveRevision = archiveRevision
+        )
+    }
     stylePlan.hikingRoutesTileUrl?.let { tileUrl ->
         val hikingSource = rememberRasterTileSource(
             tiles = listOf(tileUrl),
@@ -159,6 +197,7 @@ private fun rememberTrailMapState(
             opacity = const(HIKING_ROUTES_OPACITY)
         )
     }
+    CountryOutlineLayers(outlines = countryOutlines)
     RouteOverlayLayers(routes = routes)
     LiveRecordingRouteLayers(liveOverlayState = liveRecordingOverlayState)
     HighlightMarkerLayers(highlightState = highlightState)

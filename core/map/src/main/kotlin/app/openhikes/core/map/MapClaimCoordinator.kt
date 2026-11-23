@@ -1,5 +1,6 @@
 package app.openhikes.core.map
 
+import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeId
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
@@ -9,33 +10,59 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 /**
- * Overlay, selection, and camera claim owned by a route entry on the Navigation 3 back stack.
+ * Consumed tap event forwarded from [TrailMapHost] to the deepest map-owning route (such as Offline Maps).
+ */
+data class MapTapEvent(val id: Long, val coordinate: GeoCoordinate)
+
+/**
+ * Overlay, selection, outline, and camera claim owned by a route entry on the Navigation 3 back stack.
  */
 data class MapClaim(
     val routeKey: Any,
     val depth: Int,
     val overlayOverride: MapOverlayState? = null,
     val cameraCommand: MapCameraCommand? = null,
-    val selectedHikeId: HikeId? = null
+    val selectedHikeId: HikeId? = null,
+    val countryOutlines: List<MapCountryOutline>? = null
 )
 
 /**
- * Arbitrates map camera, route selection, and overlay ownership so the deepest active
- * back-stack entry always owns the map, independent of composition entry/exit timing.
+ * Arbitrates map camera, route selection, country outlines, tap delivery, and overlay ownership
+ * so the deepest active back-stack entry always owns the map, independent of composition timing.
  */
 @Singleton
 class MapClaimCoordinator @Inject constructor() {
     private val lock = Any()
     private val commandIdGenerator = AtomicLong(0L)
+    private val tapIdGenerator = AtomicLong(0L)
     private val claimsByRoute = LinkedHashMap<Any, MapClaim>()
     private val lastKnownDepthByKey = HashMap<Any, Int>()
     private val activeClaimState = MutableStateFlow<MapClaim?>(null)
     private val pendingCameraCommandState = MutableStateFlow<MapCameraCommand?>(null)
+    private val pendingMapTapState = MutableStateFlow<MapTapEvent?>(null)
 
     val activeClaim: StateFlow<MapClaim?> = activeClaimState.asStateFlow()
     val pendingCameraCommand: StateFlow<MapCameraCommand?> = pendingCameraCommandState.asStateFlow()
+    val pendingMapTap: StateFlow<MapTapEvent?> = pendingMapTapState.asStateFlow()
 
     fun nextCommandId(): Long = commandIdGenerator.incrementAndGet()
+
+    fun dispatchMapTap(coordinate: GeoCoordinate) {
+        synchronized(lock) {
+            pendingMapTapState.value = MapTapEvent(
+                id = tapIdGenerator.incrementAndGet(),
+                coordinate = coordinate
+            )
+        }
+    }
+
+    fun consumeMapTap(tapId: Long) {
+        synchronized(lock) {
+            if (pendingMapTapState.value?.id == tapId) {
+                pendingMapTapState.value = null
+            }
+        }
+    }
 
     fun registerClaim(claim: MapClaim) {
         synchronized(lock) {

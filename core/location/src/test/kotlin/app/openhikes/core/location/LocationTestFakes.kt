@@ -136,6 +136,7 @@ internal class LocalFakeUserSettingsRepository : UserSettingsRepository {
     override suspend fun setAutoSaveTilesEnabled(enabled: Boolean) = Unit
     override suspend fun setSavePhotosToLibrary(enabled: Boolean) = Unit
     override suspend fun setMapStyleId(styleId: String) = Unit
+    override suspend fun setOfflineCountriesExtraDetail(enabled: Boolean) = Unit
 }
 
 @Suppress("TooManyFunctions")

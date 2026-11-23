@@ -2,6 +2,7 @@ package app.openhikes.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.openhikes.core.data.OfflineCountryRepository
 import app.openhikes.core.data.UserSettingsRepository
 import app.openhikes.core.model.AppBuildInfo
 import app.openhikes.core.model.DistanceUnit
@@ -15,6 +16,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -24,6 +27,7 @@ import kotlinx.coroutines.launch
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val userSettingsRepository: UserSettingsRepository,
+    offlineCountryRepository: OfflineCountryRepository,
     appBuildInfo: AppBuildInfo
 ) : ViewModel() {
     private val errorIdGenerator = AtomicLong(0L)
@@ -38,11 +42,13 @@ class SettingsViewModel @Inject constructor(
                 throw exception
             }
         },
+        offlineCountryRepository.state.map { it.installedByteCount }.distinctUntilChanged(),
         saveErrorState
-    ) { settings, saveError ->
+    ) { settings, offlineInstalledBytes, saveError ->
         SettingsUiState(
             settings = settings,
             appVersion = appBuildInfo.displayVersion,
+            offlineInstalledBytes = offlineInstalledBytes,
             isLoaded = true,
             saveError = saveError
         )

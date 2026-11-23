@@ -16,6 +16,7 @@ data class SettingsSaveError(val id: Long)
 data class SettingsUiState(
     val settings: UserSettings = UserSettings(),
     val appVersion: String = "",
+    val offlineInstalledBytes: Long = 0L,
     val isLoaded: Boolean = false,
     val saveError: SettingsSaveError? = null
 )

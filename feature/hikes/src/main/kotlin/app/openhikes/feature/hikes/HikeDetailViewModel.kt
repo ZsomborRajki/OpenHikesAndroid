@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.openhikes.core.common.DefaultDispatcher
 import app.openhikes.core.data.HikeRepository
+import app.openhikes.core.data.OfflineCountryRepository
 import app.openhikes.core.data.UserSettingsRepository
 import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapClaim
@@ -15,6 +16,11 @@ import app.openhikes.core.model.GeoBoundingBox
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeRouteStatistics
+import app.openhikes.core.model.MapStyleId
+import app.openhikes.core.model.OfflineCountriesState
+import app.openhikes.core.model.OfflineListPhase
+import app.openhikes.core.model.OfflineRouteCoverage
+import app.openhikes.core.model.OfflineRouteCoverageCalculator
 import app.openhikes.core.model.RouteProfile
 import app.openhikes.core.model.RouteSegment
 import app.openhikes.core.model.RouteSegments
@@ -53,6 +59,7 @@ class HikeDetailViewModel @AssistedInject constructor(
     @Assisted rawHikeId: String,
     private val hikeRepository: HikeRepository,
     userSettingsRepository: UserSettingsRepository,
+    private val offlineCountryRepository: OfflineCountryRepository,
     private val mapClaimCoordinator: MapClaimCoordinator,
     private val routeHighlightState: RouteHighlightState,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
@@ -73,6 +80,7 @@ class HikeDetailViewModel @AssistedInject constructor(
     private val actionErrorState = MutableStateFlow<HikeDetailError?>(null)
     private val pendingExportState = MutableStateFlow<ExportedGpx?>(null)
     private val exportSuccessState = MutableStateFlow(false)
+    private val showOfflineDialogState = MutableStateFlow(false)
     private val scrubDistanceState = MutableStateFlow(0.0)
 
     @Volatile
@@ -129,6 +137,25 @@ class HikeDetailViewModel @AssistedInject constructor(
         )
     }
 
+    private val routeCoverageFlow = combine(
+        hikeRepository.observeHike(hikeId).map { it?.route }.distinctUntilChanged(),
+        offlineCountryRepository.state.map { it.catalogRevision to it.listedCountries }.distinctUntilChanged()
+    ) { route, (_, countries) ->
+        if (route.isNullOrEmpty() || countries.isEmpty()) {
+            OfflineRouteCoverage()
+        } else {
+            OfflineRouteCoverageCalculator.compute(route, countries)
+        }
+    }.flowOn(defaultDispatcher)
+
+    private val offlineCoverageStateFlow = combine(
+        routeCoverageFlow,
+        offlineCountryRepository.state,
+        showOfflineDialogState
+    ) { coverage, repoState, showDialog ->
+        Triple(coverage, repoState, showDialog)
+    }
+
     val uiState: StateFlow<HikeDetailUiState> = combine(
         hikeFlow,
         preparedFlow,
@@ -139,8 +166,9 @@ class HikeDetailViewModel @AssistedInject constructor(
                 throw exception
             }
         },
-        editUiStateFlow
-    ) { hike: Hike?, prepared, settings, transient ->
+        editUiStateFlow,
+        offlineCoverageStateFlow
+    ) { hike: Hike?, prepared, settings, transient, (coverage, repoState, showOfflineDialog) ->
         HikeDetailUiState(
             hikeId = hikeId,
             hike = hike,
@@ -148,6 +176,7 @@ class HikeDetailViewModel @AssistedInject constructor(
             statistics = prepared?.statistics,
             routeSegments = prepared?.segments.orEmpty(),
             distanceUnit = settings.distanceUnit,
+            offlineCoverage = buildOfflineCoverageState(coverage, repoState, settings, showOfflineDialog),
             isLoaded = true,
             isRenaming = transient.isRenaming,
             titleDraft = transient.titleDraft,
@@ -170,6 +199,12 @@ class HikeDetailViewModel @AssistedInject constructor(
                 selectedHikeId = hikeId
             )
         )
+        viewModelScope.launch {
+            val snapshot = offlineCountryRepository.state.value
+            if (snapshot.listPhase == OfflineListPhase.IDLE && snapshot.listedCountries.isEmpty()) {
+                offlineCountryRepository.refreshCatalog()
+            }
+        }
     }
 
     override fun onCleared() {
@@ -280,6 +315,24 @@ class HikeDetailViewModel @AssistedInject constructor(
         exportSuccessState.value = false
     }
 
+    fun onOfflineAction(action: HikeOfflineAction) {
+        when (action) {
+            HikeOfflineAction.OpenDialog -> showOfflineDialogState.value = true
+            HikeOfflineAction.DismissDialog -> showOfflineDialogState.value = false
+            is HikeOfflineAction.Download -> viewModelScope.launch {
+                offlineCountryRepository.downloadCountry(action.countryId)
+            }
+
+            is HikeOfflineAction.Retry -> viewModelScope.launch {
+                offlineCountryRepository.retryDownload(action.countryId)
+            }
+
+            is HikeOfflineAction.Cancel -> viewModelScope.launch {
+                offlineCountryRepository.cancelDownload(action.countryId)
+            }
+        }
+    }
+
     private fun dispatchFitBounds(bounds: GeoBoundingBox) {
         mapClaimCoordinator.requestCameraCommand(
             routeKey = routeKey,
@@ -309,4 +362,33 @@ class HikeDetailViewModel @AssistedInject constructor(
         const val STOP_TIMEOUT_MILLIS = 5_000L
         const val INITIAL_CLAIM_DEPTH = 1
     }
+}
+
+private fun buildOfflineCoverageState(
+    coverage: OfflineRouteCoverage,
+    repoState: OfflineCountriesState,
+    settings: UserSettings,
+    showDialog: Boolean
+): HikeOfflineCoverageState {
+    val isOpenHikes = settings.mapStyleId.ifBlank { MapStyleId.OPENHIKES } == MapStyleId.OPENHIKES
+    val drawnIds = repoState.installed.keys.filter { repoState.isDrawn(it) }.toSet()
+    val saving = OfflineRouteCoverageCalculator.evaluateSaving(coverage, drawnIds)
+    val crossedIds = coverage.crossed.map { it.id }
+    val activeDownload = crossedIds.firstNotNullOfOrNull { repoState.downloads[it] }
+    val missing = coverage.crossed.mapNotNull { crossed ->
+        if (crossed.id in drawnIds || crossed.id in repoState.downloads) {
+            null
+        } else {
+            repoState.offered.firstOrNull { it.id == crossed.id } ?: crossed
+        }
+    }
+    return HikeOfflineCoverageState(
+        isOpenHikesMap = isOpenHikes,
+        crossed = coverage.crossed,
+        missing = missing,
+        activeDownload = activeDownload,
+        saving = saving,
+        includesDetail = repoState.includesDetail,
+        showDialog = showDialog
+    )
 }

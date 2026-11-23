@@ -49,6 +49,15 @@ data object SettingsRoute : OpenHikesRoute
 data object RecordingRoute : OpenHikesRoute
 
 /**
+ * Offline countries catalog & download manager destination.
+ *
+ * When [overMap] is `true`, draws country polygon outlines on the live map and supports tapping
+ * countries on the map or framing the camera on row selection.
+ */
+@Serializable
+data class OfflineMapsRoute(val overMap: Boolean = true) : OpenHikesRoute
+
+/**
  * Multibound installer registering a feature module's destinations on the shared [EntryProviderScope].
  */
 typealias EntryProviderInstaller = EntryProviderScope<NavKey>.(OpenHikesNavigator) -> Unit

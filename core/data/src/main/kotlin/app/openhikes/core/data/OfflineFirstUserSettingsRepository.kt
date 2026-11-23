@@ -53,4 +53,8 @@ internal class OfflineFirstUserSettingsRepository @Inject constructor(
     override suspend fun setMapStyleId(styleId: String) = withContext(ioDispatcher) {
         preferencesDataSource.setMapStyleId(styleId)
     }
+
+    override suspend fun setOfflineCountriesExtraDetail(enabled: Boolean) = withContext(ioDispatcher) {
+        preferencesDataSource.setOfflineCountriesExtraDetail(enabled)
+    }
 }

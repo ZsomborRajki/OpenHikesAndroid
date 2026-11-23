@@ -1,5 +1,6 @@
 package app.openhikes.core.location
 
+import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.LocationFix
 import app.openhikes.core.model.RecordingEnergyProfile
 import kotlinx.coroutines.flow.Flow
@@ -30,4 +31,10 @@ interface LocationFeed {
     fun updateProfile(profile: RecordingEnergyProfile)
 
     fun stopUpdates()
+
+    /**
+     * One-shot best-effort last known hiker coordinate for sorting nearby offline countries
+     * without starting continuous GPS updates.
+     */
+    fun lastKnownCoordinate(): GeoCoordinate? = null
 }

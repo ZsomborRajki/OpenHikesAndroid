@@ -1,6 +1,7 @@
 package app.openhikes.core.map
 
 import android.net.ConnectivityManager
+import app.openhikes.core.model.MapStyleId
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
 import org.maplibre.compose.style.BaseStyle
@@ -70,29 +71,40 @@ class MapNetworkPolicyTest {
     }
 
     @Test
-    fun stylePlanUsesEmptyStyleWhenRemoteBlockedOnColdStartAndAddsWaymarkedWhenEnabled() {
-        val blockedColdStart = resolveMapStylePlan(
-            overlayState = MapOverlayState(showsHikingRoutes = true),
+    fun stylePlanUsesOpenHikesVectorOfflineAndOpenFreeMapWhenSelectedOnline() {
+        val openHikesOffline = resolveMapStylePlan(
+            overlayState = MapOverlayState(mapStyleId = MapStyleId.OPENHIKES, showsHikingRoutes = true),
             allowRemoteRequests = false,
             hasLoadedRemoteStyle = false
         )
-        assertThat(blockedColdStart.baseStyle).isEqualTo(BaseStyle.Empty)
-        assertThat(blockedColdStart.hikingRoutesTileUrl).isNull()
+        assertThat(openHikesOffline.usesOpenHikesVector).isTrue()
+        assertThat(openHikesOffline.baseStyle).isEqualTo(BaseStyle.Empty)
+        assertThat(openHikesOffline.hikingRoutesTileUrl).isNull()
 
-        val onlineWithRoutes = resolveMapStylePlan(
-            overlayState = MapOverlayState(showsHikingRoutes = true),
+        val openHikesOnline = resolveMapStylePlan(
+            overlayState = MapOverlayState(mapStyleId = MapStyleId.OPENHIKES, showsHikingRoutes = true),
             allowRemoteRequests = true,
             hasLoadedRemoteStyle = false
         )
-        assertThat(onlineWithRoutes.baseStyle).isEqualTo(BaseStyle.Uri(OPENFREEMAP_LIBERTY_STYLE_URL))
-        assertThat(onlineWithRoutes.hikingRoutesTileUrl).isEqualTo(WAYMARKED_HIKING_TILES_URL)
+        assertThat(openHikesOnline.usesOpenHikesVector).isTrue()
+        assertThat(openHikesOnline.hikingRoutesTileUrl).isEqualTo(WAYMARKED_HIKING_TILES_URL)
 
-        val onlineWithoutRoutes = resolveMapStylePlan(
-            overlayState = MapOverlayState(showsHikingRoutes = false),
+        val openFreeMapOffline = resolveMapStylePlan(
+            overlayState = MapOverlayState(mapStyleId = MapStyleId.OPENFREEMAP, showsHikingRoutes = true),
+            allowRemoteRequests = false,
+            hasLoadedRemoteStyle = false
+        )
+        assertThat(openFreeMapOffline.usesOpenHikesVector).isFalse()
+        assertThat(openFreeMapOffline.baseStyle).isEqualTo(BaseStyle.Empty)
+        assertThat(openFreeMapOffline.hikingRoutesTileUrl).isNull()
+
+        val openFreeMapOnline = resolveMapStylePlan(
+            overlayState = MapOverlayState(mapStyleId = MapStyleId.OPENFREEMAP, showsHikingRoutes = false),
             allowRemoteRequests = true,
             hasLoadedRemoteStyle = true
         )
-        assertThat(onlineWithoutRoutes.baseStyle).isEqualTo(BaseStyle.Uri(OPENFREEMAP_LIBERTY_STYLE_URL))
-        assertThat(onlineWithoutRoutes.hikingRoutesTileUrl).isNull()
+        assertThat(openFreeMapOnline.usesOpenHikesVector).isFalse()
+        assertThat(openFreeMapOnline.baseStyle).isEqualTo(BaseStyle.Uri(OPENFREEMAP_LIBERTY_STYLE_URL))
+        assertThat(openFreeMapOnline.hikingRoutesTileUrl).isNull()
     }
 }

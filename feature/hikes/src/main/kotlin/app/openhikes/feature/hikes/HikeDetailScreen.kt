@@ -92,6 +92,7 @@ fun HikeDetailRoute(
         onConfirmDelete = { viewModel.onConfirmDelete(onHikeDeleted) },
         onCancelDelete = viewModel::onCancelDelete,
         onDismissMessages = viewModel::onDismissMessages,
+        onOfflineAction = viewModel::onOfflineAction,
         modifier = modifier
     )
 }
@@ -116,7 +117,8 @@ fun HikeDetailScreen(
     onConfirmDelete: () -> Unit,
     onCancelDelete: () -> Unit,
     modifier: Modifier = Modifier,
-    onDismissMessages: () -> Unit = {}
+    onDismissMessages: () -> Unit = {},
+    onOfflineAction: (HikeOfflineAction) -> Unit = {}
 ) {
     val hike = uiState.hike
     val listState = rememberLazyListState()
@@ -138,6 +140,7 @@ fun HikeDetailScreen(
                 onScrubDistance = onScrubDistance,
                 onZoomToRoute = onZoomToRoute,
                 onExportGpx = onExportGpx,
+                onOpenOfflineDialog = { onOfflineAction(HikeOfflineAction.OpenDialog) },
                 onOpenRouteStyle = onOpenRouteStyle,
                 onStartRename = {
                     onStartRename()
@@ -159,6 +162,16 @@ fun HikeDetailScreen(
             onDismiss = onCancelDelete
         )
     }
+
+    if (uiState.offlineCoverage.showDialog && uiState.offlineCoverage.canOpenDialog) {
+        HikeOfflineCountryDialog(
+            coverage = uiState.offlineCoverage,
+            onDownloadCountry = { onOfflineAction(HikeOfflineAction.Download(it)) },
+            onRetryCountry = { onOfflineAction(HikeOfflineAction.Retry(it)) },
+            onCancelCountry = { onOfflineAction(HikeOfflineAction.Cancel(it)) },
+            onDismiss = { onOfflineAction(HikeOfflineAction.DismissDialog) }
+        )
+    }
 }
 
 @Composable
@@ -169,6 +182,7 @@ private fun HikeDetailContentList(
     onScrubDistance: (Double) -> Unit,
     onZoomToRoute: () -> Unit,
     onExportGpx: () -> Unit,
+    onOpenOfflineDialog: () -> Unit,
     onOpenRouteStyle: () -> Unit,
     onStartRename: () -> Unit,
     onTitleDraftChange: (String) -> Unit,
@@ -215,7 +229,12 @@ private fun HikeDetailContentList(
             }
         }
         item(key = "actions") {
-            HikeDetailActionsRow(onZoomToRoute = onZoomToRoute, onExportGpx = onExportGpx)
+            HikeDetailActionsRow(
+                onZoomToRoute = onZoomToRoute,
+                onExportGpx = onExportGpx,
+                offlineCoverage = uiState.offlineCoverage,
+                onOpenOfflineDialog = onOpenOfflineDialog
+            )
         }
         item(key = "headline_stats") {
             HikeHeadlineStatsStrip(

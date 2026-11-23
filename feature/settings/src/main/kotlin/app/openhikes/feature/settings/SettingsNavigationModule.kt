@@ -1,6 +1,7 @@
 package app.openhikes.feature.settings
 
 import app.openhikes.core.ui.navigation.EntryProviderInstaller
+import app.openhikes.core.ui.navigation.OfflineMapsRoute
 import app.openhikes.core.ui.navigation.SettingsRoute
 import dagger.Module
 import dagger.Provides
@@ -18,7 +19,10 @@ object SettingsNavigationModule {
     @IntoSet
     fun provideSettingsEntryProvider(): EntryProviderInstaller = { navigator ->
         entry<SettingsRoute> {
-            SettingsRoute(onClose = { navigator.pop() })
+            SettingsRoute(
+                onClose = { navigator.pop() },
+                onOpenOfflineMaps = { navigator.navigate(OfflineMapsRoute(overMap = false)) }
+            )
         }
     }
 }

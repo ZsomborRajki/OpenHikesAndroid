@@ -11,6 +11,8 @@ android {
 dependencies {
     api(projects.core.model)
     implementation(projects.core.common)
+    implementation(projects.core.data)
+    implementation(projects.core.network)
     implementation(projects.core.ui)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.maplibre.compose)

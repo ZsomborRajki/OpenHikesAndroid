@@ -27,6 +27,7 @@ import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.map.RouteHighlightState
 import app.openhikes.core.model.AppBuildInfo
 import app.openhikes.core.testing.android.FakeHikeRepository
+import app.openhikes.core.testing.android.FakeOfflineCountryRepository
 import app.openhikes.core.testing.android.FakeRecordingController
 import app.openhikes.core.testing.android.FakeTrailMapRenderer
 import app.openhikes.core.testing.android.FakeUserSettingsRepository
@@ -121,6 +122,7 @@ class OpenHikesLiveResizeTest {
     ): MapShellViewModel = MapShellViewModel(
         userSettingsRepository = settingsRepo,
         hikeRepository = FakeHikeRepository(),
+        offlineCountryRepository = FakeOfflineCountryRepository(),
         mapClaimCoordinator = MapClaimCoordinator(),
         recordingController = FakeRecordingController(),
         routeHighlightState = RouteHighlightState(),
@@ -145,6 +147,7 @@ class OpenHikesLiveResizeTest {
     private fun createSettingsInstaller(settingsRepo: FakeUserSettingsRepository): EntryProviderInstaller {
         val settingsViewModel = SettingsViewModel(
             userSettingsRepository = settingsRepo,
+            offlineCountryRepository = FakeOfflineCountryRepository(),
             appBuildInfo = AppBuildInfo(versionName = "0.1.0", versionCode = 1)
         )
         return { navigator ->

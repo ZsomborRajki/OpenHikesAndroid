@@ -5,4 +5,5 @@ package app.openhikes.core.model
  */
 object MapStyleId {
     const val OPENHIKES = "openhikes"
+    const val OPENFREEMAP = "openfreemap"
 }

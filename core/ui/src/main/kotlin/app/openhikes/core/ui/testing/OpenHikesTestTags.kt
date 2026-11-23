@@ -89,11 +89,33 @@ object OpenHikesTestTags {
     const val RECORDING_CURRENT_SPEED_ROW = "recording-current-speed-row"
     const val RECORDING_ACCURACY_ROW = "recording-accuracy-row"
     const val HIKE_SEGMENT = "hike-segment"
+    const val MAP_OFFLINE_MAPS_BUTTON = "map-offline-maps-button"
+    const val SETTINGS_OFFLINE_MAPS = "settings-offline-maps"
+    const val OFFLINE_MAPS_SCREEN = "offline-maps-screen"
+    const val OFFLINE_MAPS_BACK = "offline-maps-back"
     const val OFFLINE_MAPS_SEARCH = "offline-maps-search"
+    const val OFFLINE_MAPS_CLEAR_SEARCH = "offline-maps-clear-search"
+    const val OFFLINE_MAPS_ORDER_BUTTON = "offline-maps-order-button"
+    const val OFFLINE_MAPS_EXTRA_DETAIL = "offline-maps-extra-detail"
+    const val OFFLINE_MAPS_USE_OPENHIKES_MAP = "offline-maps-use-openhikes-map"
+    const val OFFLINE_MAPS_EMPTY_SEARCH = "offline-maps-empty-search"
+    const val OFFLINE_MAPS_LOAD_ERROR = "offline-maps-load-error"
+    const val OFFLINE_MAPS_TRY_AGAIN = "offline-maps-try-again"
+    const val OFFLINE_MAPS_UNAVAILABLE = "offline-maps-unavailable"
+    const val OFFLINE_COUNTRY_BUTTON = "offline-country-button"
+    const val OFFLINE_COUNTRY_DIALOG = "offline-country-dialog"
 
     fun hikeSegment(number: Int): String = "$HIKE_SEGMENT-$number"
 
     fun offlineCountry(countryCode: String): String = "offline-country-$countryCode"
+
+    fun offlineCountryGroup(groupCode: String): String = "offline-country-group-$groupCode"
+
+    fun offlineCountryAction(countryCode: String): String = "offline-country-action-$countryCode"
+
+    fun offlineCountryDelete(countryCode: String): String = "offline-country-delete-$countryCode"
+
+    fun offlineCountryCancel(countryCode: String): String = "offline-country-cancel-$countryCode"
 
     fun hikeRow(hikeId: String): String = "hike-row-$hikeId"
 

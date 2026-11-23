@@ -19,4 +19,5 @@ message UserPreferences {
     bool auto_save_tiles_enabled = 7;
     bool save_photos_to_library = 8;
     string map_style_id = 9;
+    optional bool offline_countries_extra_detail = 10;
 }

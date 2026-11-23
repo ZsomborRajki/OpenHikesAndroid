@@ -85,5 +85,10 @@ data class MapAttribution(val credits: List<MapAttributionCredit>) {
             }
             return MapAttribution(list)
         }
+
+        fun forStyle(mapStyleId: String, showsHikingRoutes: Boolean): MapAttribution = when (mapStyleId) {
+            MapStyleId.OPENFREEMAP -> forOpenFreeMap(showsHikingRoutes)
+            else -> forOpenHikes(showsHikingRoutes)
+        }
     }
 }

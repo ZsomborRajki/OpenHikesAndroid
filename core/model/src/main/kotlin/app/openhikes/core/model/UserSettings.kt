@@ -15,7 +15,8 @@ data class UserSettings(
     val keepScreenAwake: Boolean = DEFAULT_KEEP_SCREEN_AWAKE,
     val autoSaveTilesEnabled: Boolean = DEFAULT_AUTO_SAVE_TILES_ENABLED,
     val savePhotosToLibrary: Boolean = DEFAULT_SAVE_PHOTOS_TO_LIBRARY,
-    val mapStyleId: String = MapStyleId.OPENHIKES
+    val mapStyleId: String = MapStyleId.OPENHIKES,
+    val offlineCountriesExtraDetail: Boolean = DEFAULT_OFFLINE_COUNTRIES_EXTRA_DETAIL
 ) {
     companion object {
         const val DEFAULT_SHOWS_HIKING_ROUTES = true
@@ -25,5 +26,6 @@ data class UserSettings(
         const val DEFAULT_KEEP_SCREEN_AWAKE = false
         const val DEFAULT_AUTO_SAVE_TILES_ENABLED = false
         const val DEFAULT_SAVE_PHOTOS_TO_LIBRARY = false
+        const val DEFAULT_OFFLINE_COUNTRIES_EXTRA_DETAIL = true
     }
 }

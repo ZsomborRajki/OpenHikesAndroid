@@ -60,4 +60,18 @@ object OpenHikesIcons {
     @DrawableRes val History: Int = R.drawable.ic_history_24
 
     @DrawableRes val TrendingUp: Int = R.drawable.ic_trending_up_24
+
+    @DrawableRes val Map: Int = R.drawable.ic_map_24
+
+    @DrawableRes val Sort: Int = R.drawable.ic_sort_24
+
+    @DrawableRes val Refresh: Int = R.drawable.ic_refresh_24
+
+    @DrawableRes val CheckCircle: Int = R.drawable.ic_check_circle_24
+
+    @DrawableRes val ExpandMore: Int = R.drawable.ic_expand_more_24
+
+    @DrawableRes val ExpandLess: Int = R.drawable.ic_expand_less_24
+
+    @DrawableRes val WifiOff: Int = R.drawable.ic_wifi_off_24
 }

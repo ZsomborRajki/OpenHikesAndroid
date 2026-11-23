@@ -14,6 +14,7 @@ dependencies {
     api(projects.core.data)
     api(projects.core.location)
     api(projects.core.map)
+    api(projects.core.network)
     api(libs.androidx.test.runner)
     api(libs.androidx.test.ext.junit)
     api(libs.androidx.test.espresso.core)
