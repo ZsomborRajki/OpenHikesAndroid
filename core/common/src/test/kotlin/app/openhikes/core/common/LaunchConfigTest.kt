@@ -19,6 +19,9 @@ class LaunchConfigTest {
         assertThat(config.offlineCountriesScenarioName).isNull()
         assertThat(config.failsFirstSave).isFalse()
         assertThat(config.refusesHikeDeletion).isFalse()
+        assertThat(config.enableSimulatedLocation).isFalse()
+        assertThat(config.autoPauseSecondsOverride).isNull()
+        assertThat(config.disableAutomaticRecovery).isFalse()
     }
 
     @Test

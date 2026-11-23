@@ -27,6 +27,7 @@ import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.map.RouteHighlightState
 import app.openhikes.core.model.AppBuildInfo
 import app.openhikes.core.testing.android.FakeHikeRepository
+import app.openhikes.core.testing.android.FakeRecordingController
 import app.openhikes.core.testing.android.FakeTrailMapRenderer
 import app.openhikes.core.testing.android.FakeUserSettingsRepository
 import app.openhikes.core.ui.navigation.EntryProviderInstaller
@@ -53,14 +54,7 @@ class OpenHikesLiveResizeTest {
         val fakeRenderer = FakeTrailMapRenderer()
         val settingsRepo = FakeUserSettingsRepository()
         val launchConfig = LaunchConfig(isUiTesting = true, simulatesOffline = true)
-        val shellViewModel = MapShellViewModel(
-            userSettingsRepository = settingsRepo,
-            hikeRepository = FakeHikeRepository(),
-            mapClaimCoordinator = MapClaimCoordinator(),
-            routeHighlightState = RouteHighlightState(),
-            launchConfigHolder = LaunchConfigHolder(launchConfig),
-            defaultDispatcher = DefaultOpenHikesDispatchers().default
-        )
+        val shellViewModel = createLiveResizeShellViewModel(settingsRepo, launchConfig)
         val settingsInstaller = createSettingsInstaller(settingsRepo)
         var windowSizeClass by mutableStateOf(
             WindowSizeClass.BREAKPOINTS_V2.computeWindowSizeClass(411f, 891f)
@@ -96,11 +90,7 @@ class OpenHikesLiveResizeTest {
         composeRule.onNodeWithTag(OpenHikesTestTags.MAP_SHEET).assertIsDisplayed()
         assertThat(fakeRenderer.lastViewportPadding.value?.calculateBottomPadding()).isEqualTo(112.dp)
 
-        composeRule.onNodeWithTag(OpenHikesTestTags.SETTINGS_BUTTON).performClick()
-        composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.SETTINGS_SCREEN))
-        composeRule.onNodeWithTag(OpenHikesTestTags.SETTINGS_SCREEN).performScrollToKey("offline_photos")
-        composeRule.onNodeWithTag(OpenHikesTestTags.SAVE_PHOTOS_TO_LIBRARY_TOGGLE).performScrollTo().performClick()
-        composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.SAVE_PHOTOS_TO_LIBRARY_TOGGLE) and isOn())
+        toggleSavePhotosSettingInSheet()
 
         windowSizeClass = WindowSizeClass.BREAKPOINTS_V2.computeWindowSizeClass(800f, 400f)
         assertSidePanelPreservesSettingsAndFitsViewport(fakeRenderer)
@@ -116,6 +106,27 @@ class OpenHikesLiveResizeTest {
         composeRule.onNodeWithTag(OpenHikesTestTags.SETTINGS_SCREEN).performScrollToKey("offline_photos")
         composeRule.onNodeWithTag(OpenHikesTestTags.SAVE_PHOTOS_TO_LIBRARY_TOGGLE).performScrollTo().assertIsOn()
     }
+
+    private fun toggleSavePhotosSettingInSheet() {
+        composeRule.onNodeWithTag(OpenHikesTestTags.SETTINGS_BUTTON).performClick()
+        composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.SETTINGS_SCREEN))
+        composeRule.onNodeWithTag(OpenHikesTestTags.SETTINGS_SCREEN).performScrollToKey("offline_photos")
+        composeRule.onNodeWithTag(OpenHikesTestTags.SAVE_PHOTOS_TO_LIBRARY_TOGGLE).performScrollTo().performClick()
+        composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.SAVE_PHOTOS_TO_LIBRARY_TOGGLE) and isOn())
+    }
+
+    private fun createLiveResizeShellViewModel(
+        settingsRepo: FakeUserSettingsRepository,
+        launchConfig: LaunchConfig
+    ): MapShellViewModel = MapShellViewModel(
+        userSettingsRepository = settingsRepo,
+        hikeRepository = FakeHikeRepository(),
+        mapClaimCoordinator = MapClaimCoordinator(),
+        recordingController = FakeRecordingController(),
+        routeHighlightState = RouteHighlightState(),
+        launchConfigHolder = LaunchConfigHolder(launchConfig),
+        defaultDispatcher = DefaultOpenHikesDispatchers().default
+    )
 
     private fun assertSidePanelPreservesSettingsAndFitsViewport(fakeRenderer: FakeTrailMapRenderer) {
         composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.MAP_SIDE_PANEL))

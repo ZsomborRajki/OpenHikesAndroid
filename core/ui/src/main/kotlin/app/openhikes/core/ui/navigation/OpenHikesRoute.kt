@@ -43,6 +43,12 @@ data class RouteStyleRoute(override val hikeId: HikeId) : HikeScopedRoute
 data object SettingsRoute : OpenHikesRoute
 
 /**
+ * Live GPS trail recording destination pushed onto the shared adaptive back stack.
+ */
+@Serializable
+data object RecordingRoute : OpenHikesRoute
+
+/**
  * Multibound installer registering a feature module's destinations on the shared [EntryProviderScope].
  */
 typealias EntryProviderInstaller = EntryProviderScope<NavKey>.(OpenHikesNavigator) -> Unit

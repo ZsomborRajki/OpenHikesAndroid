@@ -6,9 +6,7 @@ import app.openhikes.core.common.DefaultDispatcher
 import app.openhikes.core.common.DefaultOpenHikesDispatchers
 import app.openhikes.core.common.IoDispatcher
 import app.openhikes.core.common.MainDispatcher
-import app.openhikes.core.common.OpenHikesClock
 import app.openhikes.core.common.OpenHikesDispatchers
-import app.openhikes.core.common.SystemOpenHikesClock
 import app.openhikes.core.model.AppBuildInfo
 import dagger.Module
 import dagger.Provides
@@ -60,10 +58,6 @@ object CoreModule {
         default = default,
         main = main
     )
-
-    @Provides
-    @Singleton
-    fun provideClock(): OpenHikesClock = SystemOpenHikesClock()
 
     @Provides
     @Singleton

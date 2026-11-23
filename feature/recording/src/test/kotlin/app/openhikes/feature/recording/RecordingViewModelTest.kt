@@ -1,0 +1,154 @@
+package app.openhikes.feature.recording
+
+import androidx.lifecycle.ViewModelStore
+import app.cash.turbine.test
+import app.openhikes.core.common.LaunchConfig
+import app.openhikes.core.common.LaunchConfigHolder
+import app.openhikes.core.location.RecordingEntryCoordinator
+import app.openhikes.core.map.MapCameraCommand
+import app.openhikes.core.map.MapClaimCoordinator
+import app.openhikes.core.model.GeoCoordinate
+import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.RecordingFailure
+import app.openhikes.core.model.RecordingPhase
+import app.openhikes.core.model.RecordingStatsSnapshot
+import app.openhikes.core.model.RecordingStopStep
+import app.openhikes.core.model.RecordingTraceSnapshot
+import app.openhikes.core.model.RouteCoordinate
+import app.openhikes.core.testing.MainDispatcherRule
+import app.openhikes.core.testing.android.FakeRecordingController
+import app.openhikes.core.testing.android.FakeUserSettingsRepository
+import app.openhikes.core.ui.navigation.RecordingRoute
+import com.google.common.truth.Truth.assertThat
+import java.io.IOException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.runTest
+import org.junit.Rule
+import org.junit.Test
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class RecordingViewModelTest {
+    @get:Rule
+    val mainDispatcherRule = MainDispatcherRule()
+
+    @Test
+    fun consumesAutoStartClaimsMapTracksLiveCoordinateAndReleasesOnClear() = runTest {
+        val controller = FakeRecordingController()
+        val entryCoordinator = RecordingEntryCoordinator().apply { requestAutoStart() }
+        val coordinator = MapClaimCoordinator()
+        val viewModel = RecordingViewModel(
+            recordingController = controller,
+            recordingEntryCoordinator = entryCoordinator,
+            userSettingsRepository = FakeUserSettingsRepository(),
+            mapClaimCoordinator = coordinator,
+            launchConfigHolder = LaunchConfigHolder(LaunchConfig(isUiTesting = true, enableSimulatedLocation = true))
+        )
+        val store = ViewModelStore().apply { put("rec", viewModel) }
+
+        advanceUntilIdle()
+        assertThat(controller.startCount).isEqualTo(1)
+        assertThat(entryCoordinator.pendingAutoStart.value).isFalse()
+        assertThat(coordinator.activeClaim.value?.routeKey).isEqualTo(RecordingRoute)
+
+        controller.emitTrace(
+            RecordingTraceSnapshot(
+                hikeId = HikeId("rec-1"),
+                points = listOf(RouteCoordinate(latitude = 47.71842, longitude = 12.83177))
+            )
+        )
+        advanceUntilIdle()
+        val command = coordinator.pendingCameraCommand.value as? MapCameraCommand.MoveTo
+        assertThat(command?.center).isEqualTo(GeoCoordinate(47.71842, 12.83177))
+
+        store.clear()
+        assertThat(coordinator.activeClaim.value).isNull()
+    }
+
+    @Test
+    fun permissionGatingRequestsRuntimePermissionOutsideSimulatedMode() = runTest {
+        val controller = FakeRecordingController()
+        val viewModel = RecordingViewModel(
+            recordingController = controller,
+            recordingEntryCoordinator = RecordingEntryCoordinator(),
+            userSettingsRepository = FakeUserSettingsRepository(),
+            mapClaimCoordinator = MapClaimCoordinator(),
+            launchConfigHolder = LaunchConfigHolder(LaunchConfig.Production)
+        )
+
+        viewModel.uiState.test {
+            awaitItem()
+            viewModel.onAction(RecordingAction.Start)
+            advanceUntilIdle()
+            val prompted = expectMostRecentItem()
+            assertThat(prompted.requestLocationPermission).isTrue()
+            assertThat(controller.startCount).isEqualTo(0)
+
+            viewModel.onAction(RecordingAction.PermissionResult(grantedFine = false))
+            advanceUntilIdle()
+            val denied = expectMostRecentItem()
+            assertThat(denied.requestLocationPermission).isFalse()
+            assertThat(denied.session.failure).isEqualTo(RecordingFailure.LocationDenied)
+
+            viewModel.onAction(RecordingAction.PermissionResult(grantedFine = true))
+            advanceUntilIdle()
+            assertThat(controller.state.value.phase).isEqualTo(RecordingPhase.WAITING_FOR_FIX)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun stopFlowHandlesZeroPointDiscardAndPreselectedTitleSaveAndRetry() = runTest {
+        val controller = FakeRecordingController()
+        val viewModel = RecordingViewModel(
+            recordingController = controller,
+            recordingEntryCoordinator = RecordingEntryCoordinator(),
+            userSettingsRepository = FakeUserSettingsRepository(),
+            mapClaimCoordinator = MapClaimCoordinator(),
+            launchConfigHolder = LaunchConfigHolder(LaunchConfig(isUiTesting = true, enableSimulatedLocation = true))
+        )
+
+        viewModel.uiState.test {
+            awaitItem()
+            viewModel.onAction(RecordingAction.Start)
+            advanceUntilIdle()
+
+            viewModel.onAction(RecordingAction.Stop)
+            advanceUntilIdle()
+            val discardedEmpty = expectMostRecentItem()
+            assertThat(discardedEmpty.discardCompleted).isTrue()
+            viewModel.consumeNavigation()
+
+            viewModel.onAction(RecordingAction.Start)
+            advanceUntilIdle()
+            controller.emitStats(RecordingStatsSnapshot(distanceMeters = 120.0, pointCount = 2))
+            controller.emitTrace(
+                RecordingTraceSnapshot(
+                    hikeId = HikeId(controller.state.value.sessionId!!),
+                    points = listOf(
+                        RouteCoordinate(47.71842, 12.83177),
+                        RouteCoordinate(47.71920, 12.83090)
+                    )
+                )
+            )
+
+            viewModel.onAction(RecordingAction.Stop)
+            advanceUntilIdle()
+            val askName = expectMostRecentItem()
+            assertThat(askName.stopDialogStep).isEqualTo(RecordingStopStep.ASK_NAME)
+            assertThat(askName.stopNameDraft).isEqualTo(askName.offeredTitle)
+
+            controller.nextStopFailure = IOException("Save failed")
+            viewModel.onAction(RecordingAction.ConfirmStopSave)
+            advanceUntilIdle()
+            val failed = expectMostRecentItem()
+            assertThat(failed.session.canRetrySave).isTrue()
+
+            viewModel.onAction(RecordingAction.RetrySave)
+            advanceUntilIdle()
+            val saved = expectMostRecentItem()
+            assertThat(saved.savedHikeId).isNotNull()
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+}

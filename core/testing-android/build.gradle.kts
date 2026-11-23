@@ -12,6 +12,7 @@ dependencies {
     api(projects.core.testing)
     api(projects.core.ui)
     api(projects.core.data)
+    api(projects.core.location)
     api(projects.core.map)
     api(libs.androidx.test.runner)
     api(libs.androidx.test.ext.junit)

@@ -309,6 +309,14 @@ private fun PausedRouteLayer(route: MapRouteOverlay, lineColor: Color, widthDp: 
 
 @Composable
 @MaplibreComposable
+internal fun LiveRecordingRouteLayers(liveOverlayState: StateFlow<MapRouteOverlay?>) {
+    val liveRoute by liveOverlayState.collectAsStateWithLifecycle()
+    val current = liveRoute ?: return
+    RouteOverlayLayers(routes = listOf(current))
+}
+
+@Composable
+@MaplibreComposable
 internal fun HighlightMarkerLayers(highlightState: StateFlow<MapRouteHighlight?>) {
     val highlight by highlightState.collectAsStateWithLifecycle()
     val current = highlight ?: return

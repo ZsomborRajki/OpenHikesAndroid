@@ -16,6 +16,7 @@ import app.openhikes.core.map.MapCameraState
 import app.openhikes.core.map.MapInteractionEvents
 import app.openhikes.core.map.MapOverlayState
 import app.openhikes.core.map.MapRouteHighlight
+import app.openhikes.core.map.MapRouteOverlay
 import app.openhikes.core.map.TrailMapRenderer
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 import javax.inject.Inject
@@ -35,12 +36,14 @@ class FakeTrailMapRenderer @Inject constructor() : TrailMapRenderer {
     private val cameraStateFlow = MutableStateFlow(MapCameraState())
     private val overlayStateFlow = MutableStateFlow<MapOverlayState?>(null)
     private val highlightStateFlow = MutableStateFlow<MapRouteHighlight?>(null)
+    private val liveRecordingOverlayFlow = MutableStateFlow<MapRouteOverlay?>(null)
     private val viewportPaddingFlow = MutableStateFlow<PaddingValues?>(null)
     private val handledCommandsFlow = MutableStateFlow<List<MapCameraCommand>>(emptyList())
 
     val lastCameraState: StateFlow<MapCameraState> = cameraStateFlow.asStateFlow()
     val lastOverlayState: StateFlow<MapOverlayState?> = overlayStateFlow.asStateFlow()
     val lastHighlight: StateFlow<MapRouteHighlight?> = highlightStateFlow.asStateFlow()
+    val lastLiveRecordingOverlay: StateFlow<MapRouteOverlay?> = liveRecordingOverlayFlow.asStateFlow()
     val lastViewportPadding: StateFlow<PaddingValues?> = viewportPaddingFlow.asStateFlow()
     val handledCommands: StateFlow<List<MapCameraCommand>> = handledCommandsFlow.asStateFlow()
 
@@ -53,6 +56,7 @@ class FakeTrailMapRenderer @Inject constructor() : TrailMapRenderer {
         interactions: MapInteractionEvents,
         onCameraCommandHandled: (Long) -> Unit,
         highlightState: StateFlow<MapRouteHighlight?>,
+        liveRecordingOverlayState: StateFlow<MapRouteOverlay?>,
         modifier: Modifier
     ) {
         LaunchedEffect(cameraState) {
@@ -62,6 +66,12 @@ class FakeTrailMapRenderer @Inject constructor() : TrailMapRenderer {
         LaunchedEffect(highlightState) {
             highlightState.collect { highlight ->
                 highlightStateFlow.value = highlight
+            }
+        }
+
+        LaunchedEffect(liveRecordingOverlayState) {
+            liveRecordingOverlayState.collect { overlay ->
+                liveRecordingOverlayFlow.value = overlay
             }
         }
 

@@ -10,9 +10,16 @@ import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapCameraState
 import app.openhikes.core.map.MapInteractionEvents
 import app.openhikes.core.map.MapOverlayState
+import app.openhikes.core.map.MapRouteOverlay
 import app.openhikes.core.map.TrailMapHost
+import app.openhikes.core.model.GeoCoordinate
+import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.RouteBorder
+import app.openhikes.core.model.RouteLinePattern
+import app.openhikes.core.model.RouteTint
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 import com.google.common.truth.Truth.assertThat
+import kotlinx.coroutines.flow.MutableStateFlow
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -27,6 +34,23 @@ class FakeTrailMapRendererTest {
     fun exposesTrailMapSemanticTagAndAppliesCameraCommands() {
         val renderer = FakeTrailMapRenderer()
         val handledIds = mutableListOf<Long>()
+        val liveOverlay = MutableStateFlow(
+            MapRouteOverlay(
+                hikeId = HikeId("rec-1"),
+                walkedSegments = listOf(
+                    listOf(
+                        GeoCoordinate(latitude = 47.718420, longitude = 12.831774),
+                        GeoCoordinate(latitude = 47.719219, longitude = 12.830877)
+                    )
+                ),
+                pausedSegments = emptyList(),
+                tintHex = RouteTint.DEFAULT_HEX,
+                borderHex = RouteBorder.DEFAULT_HEX,
+                widthDp = 4f,
+                linePattern = RouteLinePattern.SOLID,
+                isSelected = true
+            )
+        )
 
         composeRule.setContent {
             OpenHikesTheme(dynamicColor = false) {
@@ -37,6 +61,7 @@ class FakeTrailMapRendererTest {
                     overlayState = MapOverlayState(showsHikingRoutes = false),
                     viewportPadding = PaddingValues(16.dp),
                     interactions = MapInteractionEvents(),
+                    liveRecordingOverlayState = liveOverlay,
                     onCameraCommandHandled = { handledIds.add(it) }
                 )
             }
@@ -46,5 +71,6 @@ class FakeTrailMapRendererTest {
         assertThat(handledIds).containsExactly(42L)
         assertThat(renderer.lastCameraState.value.zoom).isEqualTo(13.0)
         assertThat(renderer.lastOverlayState.value?.showsHikingRoutes).isFalse()
+        assertThat(renderer.lastLiveRecordingOverlay.value?.hikeId).isEqualTo(HikeId("rec-1"))
     }
 }

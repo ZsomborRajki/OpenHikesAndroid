@@ -19,6 +19,7 @@ interface TrailMapRenderer {
         interactions: MapInteractionEvents,
         onCameraCommandHandled: (Long) -> Unit,
         highlightState: StateFlow<MapRouteHighlight?>,
+        liveRecordingOverlayState: StateFlow<MapRouteOverlay?>,
         modifier: Modifier
     )
 }

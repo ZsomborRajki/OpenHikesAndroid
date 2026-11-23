@@ -26,6 +26,18 @@ class OpenHikesNavigator(val backStack: NavBackStack<NavKey>, private val onColl
     }
 
     /**
+     * Replaces the current top destination above the root entry with [route], or pushes [route]
+     * if currently at the root entry.
+     */
+    fun replaceTop(route: OpenHikesRoute) {
+        if (backStack.size > 1) {
+            backStack[backStack.lastIndex] = route
+        } else if (backStack.lastOrNull() != route) {
+            backStack.add(route)
+        }
+    }
+
+    /**
      * Pops the top destination while always keeping the root entry intact.
      */
     fun pop(): Boolean {

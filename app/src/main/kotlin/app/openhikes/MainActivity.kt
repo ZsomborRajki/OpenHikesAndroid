@@ -1,13 +1,20 @@
 package app.openhikes
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.lifecycleScope
 import app.openhikes.core.common.LaunchConfigHolder
 import app.openhikes.core.designsystem.theme.OpenHikesTheme
+import app.openhikes.core.location.RecordingController
+import app.openhikes.core.location.RecordingEntryCoordinator
+import app.openhikes.core.location.RecordingForegroundService
 import app.openhikes.core.map.TrailMapRenderer
 import app.openhikes.core.ui.navigation.EntryProviderInstaller
 import app.openhikes.launch.LaunchConfigReader
@@ -18,6 +25,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Inject
+import kotlinx.coroutines.launch
 
 /**
  * Single-activity entry point for OpenHikes.
@@ -33,6 +41,14 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var launchConfigHolder: LaunchConfigHolder
 
+    @Inject
+    lateinit var recordingController: RecordingController
+
+    @Inject
+    lateinit var recordingEntryCoordinator: RecordingEntryCoordinator
+
+    private var openRecordingRequestCount by mutableIntStateOf(0)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // Apply debug launch Intent overrides before super.onCreate constructs Hilt ViewModels
         // and DataStore instances that depend on the effective LaunchConfig.
@@ -42,6 +58,9 @@ class MainActivity : ComponentActivity() {
             .mergeWith { base -> LaunchConfigReader.merge(base, intent) }
 
         super.onCreate(savedInstanceState)
+        if (savedInstanceState == null && wantsOpenRecording(intent)) {
+            openRecordingRequestCount += 1
+        }
         enableEdgeToEdge()
         setContent {
             val effectiveLaunchConfig by launchConfigHolder.current.collectAsStateWithLifecycle()
@@ -49,11 +68,31 @@ class MainActivity : ComponentActivity() {
                 OpenHikesApp(
                     trailMapRenderer = trailMapRenderer,
                     entryProviderInstallers = entryProviderInstallers,
-                    launchConfig = effectiveLaunchConfig
+                    launchConfig = effectiveLaunchConfig,
+                    openRecordingRequestCount = openRecordingRequestCount,
+                    onRequestAutoStartRecording = recordingEntryCoordinator::requestAutoStart
                 )
             }
         }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (wantsOpenRecording(intent)) {
+            openRecordingRequestCount += 1
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        lifecycleScope.launch {
+            recordingController.flushJournal()
+        }
+    }
+
+    private fun wantsOpenRecording(targetIntent: Intent?): Boolean =
+        targetIntent?.getBooleanExtra(RecordingForegroundService.EXTRA_OPEN_RECORDING, false) == true
 
     @EntryPoint
     @InstallIn(SingletonComponent::class)

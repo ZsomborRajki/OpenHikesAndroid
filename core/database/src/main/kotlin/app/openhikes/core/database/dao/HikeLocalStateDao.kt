@@ -18,6 +18,9 @@ interface HikeLocalStateDao {
     @Query("SELECT * FROM hike_local_state WHERE hike_id = :hikeId LIMIT 1")
     suspend fun getByHikeId(hikeId: String): HikeLocalStateEntity?
 
+    @Query("SELECT hike_id FROM hike_local_state WHERE owns_recording_draft = 1")
+    suspend fun getOwnedRecordingDraftIds(): List<String>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(entity: HikeLocalStateEntity)
 

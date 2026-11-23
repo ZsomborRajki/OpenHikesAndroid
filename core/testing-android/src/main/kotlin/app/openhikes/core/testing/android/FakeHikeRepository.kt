@@ -15,6 +15,7 @@ import app.openhikes.core.model.HikeLocalState
 import app.openhikes.core.model.HikeMapRoute
 import app.openhikes.core.model.HikeRouteStatistics
 import app.openhikes.core.model.HikeSummary
+import app.openhikes.core.model.PreparedRecording
 import app.openhikes.core.model.RouteBorder
 import app.openhikes.core.model.RouteLinePattern
 import app.openhikes.core.model.RouteStyleUpdate
@@ -30,6 +31,7 @@ import kotlinx.coroutines.flow.update
 /**
  * In-memory [HikeRepository] fake for deterministic ViewModel, Compose screen, and shell tests.
  */
+@Suppress("TooManyFunctions")
 class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepository {
     private val hikesState = MutableStateFlow(initialHikes)
     private val localStateMap = MutableStateFlow<Map<HikeId, HikeLocalState>>(emptyMap())
@@ -40,16 +42,23 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
     var nextStyleFailure: Throwable? = null
     var nextDeleteFailure: Throwable? = null
     var nextExportFailure: Throwable? = null
+    var nextFinalizeFailure: Throwable? = null
     var seededFixtureBytes: Pair<String, ByteArray>? = null
     var lastExportedUri: Pair<String, String>? = null
         private set
 
     override val hikes: Flow<List<HikeSummary>> = hikesState.map { list ->
         val local = localStateMap.value
-        list.sortedByDescending { it.dateEpochMillis }.map { hike ->
-            val state = local[hike.id]
-            hike.toSummary(climbMeters = state?.climbMeters, descentMeters = state?.descentMeters)
-        }
+        list.filterNot { it.isRecording }
+            .sortedByDescending { it.dateEpochMillis }
+            .map { hike ->
+                val state = local[hike.id]
+                hike.toSummary(climbMeters = state?.climbMeters, descentMeters = state?.descentMeters)
+            }
+    }
+
+    fun setLocalStateForTest(localState: HikeLocalState) {
+        localStateMap.update { it + (localState.hikeId to localState) }
     }
 
     override val mapRoutes: Flow<List<HikeMapRoute>> = hikesState.map { list ->
@@ -227,6 +236,110 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
         } else {
             Result.failure(IOException("Hike not found"))
         }
+    }
+
+    override suspend fun createOrClaimRecordingDraft(
+        hikeId: HikeId,
+        startedAtEpochMillis: Long,
+        title: String
+    ): Result<Hike> {
+        val existing = hikesState.value.firstOrNull { it.id == hikeId }
+        if (existing != null) {
+            if (existing.isRecording) {
+                localStateMap.update { map ->
+                    val current = map[hikeId] ?: HikeLocalState(hikeId = hikeId)
+                    map + (hikeId to current.copy(ownsRecordingDraft = true))
+                }
+            }
+            return Result.success(existing)
+        }
+        val draft = Hike(
+            id = hikeId,
+            title = HikeTitle.bounded(title).orEmpty().ifBlank { "Hike" },
+            distanceMeters = 0.0,
+            dateEpochMillis = startedAtEpochMillis,
+            tintHex = RouteTint.forIndex(hikesState.value.size),
+            isRecording = true
+        )
+        hikesState.update { list -> list + draft }
+        localStateMap.update { map -> map + (hikeId to HikeLocalState(hikeId = hikeId, ownsRecordingDraft = true)) }
+        return Result.success(draft)
+    }
+
+    override suspend fun finalizeRecordingDraft(
+        hikeId: HikeId,
+        title: String,
+        customName: String?,
+        startedAtEpochMillis: Long,
+        endedAtEpochMillis: Long,
+        prepared: PreparedRecording
+    ): Result<Hike> {
+        val injectedFailure = nextFinalizeFailure?.also { nextFinalizeFailure = null }
+        val existing = hikesState.value.firstOrNull { it.id == hikeId }
+        return when {
+            injectedFailure != null -> Result.failure(injectedFailure)
+            existing != null && !existing.isRecording -> Result.success(existing)
+            else -> Result.success(
+                commitFinalizedDraft(hikeId, title, customName, startedAtEpochMillis, prepared, existing)
+            )
+        }
+    }
+
+    private fun commitFinalizedDraft(
+        hikeId: HikeId,
+        title: String,
+        customName: String?,
+        startedAtEpochMillis: Long,
+        prepared: PreparedRecording,
+        existing: Hike?
+    ): Hike {
+        val finalized = Hike(
+            id = hikeId,
+            title = HikeTitle.bounded(title).orEmpty().ifBlank { "Hike" },
+            customName = HikeTitle.bounded(customName),
+            distanceMeters = prepared.distanceMeters,
+            durationSeconds = prepared.recordedSeconds,
+            dateEpochMillis = startedAtEpochMillis,
+            tintHex = existing?.tintHex ?: RouteTint.forIndex(hikesState.value.size),
+            routeWidthDp = existing?.routeWidthDp ?: HikeSummary.DEFAULT_ROUTE_WIDTH_DP,
+            linePattern = existing?.linePattern ?: RouteLinePattern.Default,
+            routeBorderHex = existing?.routeBorderHex ?: RouteBorder.NONE_HEX,
+            isRecording = false,
+            route = prepared.route,
+            places = existing?.places.orEmpty()
+        )
+        hikesState.update { list -> list.filterNot { it.id == hikeId } + finalized }
+        localStateMap.update { map ->
+            val current = map[hikeId] ?: HikeLocalState(hikeId = hikeId)
+            map + (
+                hikeId to current.copy(
+                    ownsRecordingDraft = false,
+                    climbMeters = prepared.elevationGainMeters,
+                    descentMeters = prepared.elevationLossMeters
+                )
+                )
+        }
+        return finalized
+    }
+
+    override suspend fun deleteRecordingDraft(hikeId: HikeId): Result<Unit> {
+        val existing = hikesState.value.firstOrNull { it.id == hikeId }
+        if (existing != null && existing.isRecording) {
+            hikesState.update { list -> list.filterNot { it.id == hikeId } }
+            localStateMap.update { map -> map - hikeId }
+        }
+        return Result.success(Unit)
+    }
+
+    override suspend fun deleteOwnedOrphanedRecordingDrafts(exceptHikeId: HikeId?): Result<Int> {
+        val owned = localStateMap.value.filterValues { it.ownsRecordingDraft }.keys
+        val toRemove = hikesState.value
+            .filter { it.isRecording && it.id != exceptHikeId && owned.contains(it.id) }
+            .map { it.id }
+            .toSet()
+        hikesState.update { list -> list.filterNot { toRemove.contains(it.id) } }
+        localStateMap.update { map -> map - toRemove }
+        return Result.success(toRemove.size)
     }
 
     override suspend fun seedFixtureIfConfigured(): HikeId? {

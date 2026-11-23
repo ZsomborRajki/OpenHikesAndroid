@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="recording_notification_channel_name">Live Trail Recording</string>
+    <string name="recording_notification_channel_description">Shows elapsed time, distance, and pause/resume controls while a hike is recording.</string>
+    <string name="recording_notification_state_finding_gps">Finding GPS…</string>
+    <string name="recording_notification_state_recording">Recording</string>
+    <string name="recording_notification_state_auto_paused">Auto-paused</string>
+    <string name="recording_notification_state_paused">Paused</string>
+    <string name="recording_notification_state_saving">Saving hike…</string>
+    <string name="recording_notification_state_following">Following trail</string>
+    <string name="recording_notification_chip_paused">Paused</string>
+    <string name="recording_notification_chip_gps">GPS</string>
+    <string name="recording_notification_chip_saving">Saving</string>
+    <string name="recording_notification_action_pause">Pause</string>
+    <string name="recording_notification_action_resume">Resume</string>
+    <string name="recording_notification_metrics_line">%1$s · %2$s</string>
+    <string name="recording_notification_metrics_with_gain">%1$s · +%2$s · %3$s</string>
+</resources>

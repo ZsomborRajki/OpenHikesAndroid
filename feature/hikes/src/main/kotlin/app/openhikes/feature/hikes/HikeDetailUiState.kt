@@ -7,6 +7,7 @@ import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeRouteStatistics
 import app.openhikes.core.model.RouteProfile
+import app.openhikes.core.model.RouteSegment
 
 /**
  * Coarse UI state for [HikeDetailScreen]. High-frequency chart scrub distance lives in a separate
@@ -18,6 +19,7 @@ data class HikeDetailUiState(
     val hike: Hike? = null,
     val profile: RouteProfile? = null,
     val statistics: HikeRouteStatistics? = null,
+    val routeSegments: List<RouteSegment> = emptyList(),
     val distanceUnit: DistanceUnit = DistanceUnit.METRIC,
     val isLoaded: Boolean = false,
     val isRenaming: Boolean = false,

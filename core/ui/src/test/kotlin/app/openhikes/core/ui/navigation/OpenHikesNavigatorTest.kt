@@ -27,6 +27,11 @@ class OpenHikesNavigatorTest {
         assertThat(navigator.pop()).isTrue()
         assertThat(backStack.toList()).containsExactly(MapHomeRoute)
         assertThat(navigator.pop()).isFalse()
+
+        navigator.replaceTop(RecordingRoute)
+        assertThat(backStack.toList()).containsExactly(MapHomeRoute, RecordingRoute).inOrder()
+        navigator.replaceTop(DummyHikeRoute("h-99"))
+        assertThat(backStack.toList()).containsExactly(MapHomeRoute, DummyHikeRoute("h-99")).inOrder()
     }
 
     @Test

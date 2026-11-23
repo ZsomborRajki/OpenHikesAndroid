@@ -80,6 +80,7 @@ internal class MapLibreTrailMapRenderer @Inject constructor(private val mapNetwo
         interactions: MapInteractionEvents,
         onCameraCommandHandled: (Long) -> Unit,
         highlightState: StateFlow<MapRouteHighlight?>,
+        liveRecordingOverlayState: StateFlow<MapRouteOverlay?>,
         modifier: Modifier
     ) {
         val currentInteractions by rememberUpdatedState(interactions)
@@ -103,6 +104,7 @@ internal class MapLibreTrailMapRenderer @Inject constructor(private val mapNetwo
             stylePlan = stylePlan,
             routes = overlayState.routes,
             highlightState = highlightState,
+            liveRecordingOverlayState = liveRecordingOverlayState,
             initialCameraState = cameraState
         )
 
@@ -137,6 +139,7 @@ private fun rememberTrailMapState(
     stylePlan: MapStylePlan,
     routes: List<MapRouteOverlay>,
     highlightState: StateFlow<MapRouteHighlight?>,
+    liveRecordingOverlayState: StateFlow<MapRouteOverlay?>,
     initialCameraState: MapCameraState
 ) = rememberMapState(
     baseStyle = stylePlan.baseStyle,
@@ -157,6 +160,7 @@ private fun rememberTrailMapState(
         )
     }
     RouteOverlayLayers(routes = routes)
+    LiveRecordingRouteLayers(liveOverlayState = liveRecordingOverlayState)
     HighlightMarkerLayers(highlightState = highlightState)
 }
 

@@ -8,9 +8,15 @@ import java.time.Instant
  * Deterministic [OpenHikesClock] for unit and scenario tests.
  */
 class TestClock(initialInstant: Instant = DEFAULT_START_INSTANT) : OpenHikesClock {
+    @Volatile
     private var currentInstant: Instant = initialInstant
 
+    @Volatile
+    private var currentMonotonicMillis: Long = initialInstant.toEpochMilli()
+
     override fun now(): Instant = currentInstant
+
+    override fun monotonicMillis(): Long = currentMonotonicMillis
 
     fun set(instant: Instant) {
         currentInstant = instant
@@ -18,6 +24,11 @@ class TestClock(initialInstant: Instant = DEFAULT_START_INSTANT) : OpenHikesCloc
 
     fun advanceBy(duration: Duration) {
         currentInstant = currentInstant.plus(duration)
+        currentMonotonicMillis += duration.toMillis()
+    }
+
+    fun advanceMonotonicBy(duration: Duration) {
+        currentMonotonicMillis += duration.toMillis()
     }
 
     companion object {

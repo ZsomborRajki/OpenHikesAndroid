@@ -13,6 +13,8 @@ import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.movableContentOf
@@ -45,6 +47,7 @@ import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapCameraState
 import app.openhikes.core.map.MapInteractionEvents
 import app.openhikes.core.map.MapRouteHighlight
+import app.openhikes.core.map.MapRouteOverlay
 import app.openhikes.core.map.TrailMapHost
 import app.openhikes.core.map.TrailMapRenderer
 import app.openhikes.core.model.HikeId
@@ -52,9 +55,11 @@ import app.openhikes.core.ui.navigation.EntryProviderInstaller
 import app.openhikes.core.ui.navigation.HikeDetailRoute
 import app.openhikes.core.ui.navigation.MapHomeRoute
 import app.openhikes.core.ui.navigation.OpenHikesNavigator
+import app.openhikes.core.ui.navigation.RecordingRoute
 import app.openhikes.core.ui.navigation.SettingsRoute
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 import app.openhikes.feature.hikes.HikeLibraryRoute
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 private val SheetPeekViewportInset = 112.dp
@@ -66,6 +71,7 @@ private data class ViewportChromeMetrics(val sidePanelEdge: Dp, val viewportPadd
 private data class ShellNavigationHostState(
     val sheetDetent: SheetDetent,
     val onDetentChange: (SheetDetent) -> Unit,
+    val onOpenRecording: () -> Unit,
     val navigationContent: @Composable () -> Unit
 )
 
@@ -94,6 +100,8 @@ fun OpenHikesApp(
     entryProviderInstallers: Set<EntryProviderInstaller>,
     launchConfig: LaunchConfig,
     modifier: Modifier = Modifier,
+    openRecordingRequestCount: Int = 0,
+    onRequestAutoStartRecording: () -> Unit = {},
     windowSizeClass: WindowSizeClass = currentWindowAdaptiveInfoV2().windowSizeClass,
     shellViewModel: MapShellViewModel = hiltViewModel(),
     homeContent: @Composable (ShellHomeScope) -> Unit = { scope ->
@@ -111,6 +119,7 @@ fun OpenHikesApp(
     val chromeUiState by shellViewModel.chromeUiState.collectAsStateWithLifecycle()
     val searchQueryState = shellViewModel.searchQuery.collectAsStateWithLifecycle()
     val pendingCameraCommand by shellViewModel.pendingCameraCommand.collectAsStateWithLifecycle()
+    val isRecordingActive by shellViewModel.isRecordingActive.collectAsStateWithLifecycle()
     val uriHandler = LocalUriHandler.current
 
     OpenHikesShellContent(
@@ -123,6 +132,10 @@ fun OpenHikesApp(
         initialCameraState = shellViewModel.initialCameraState,
         pendingCameraCommand = pendingCameraCommand,
         routeHighlightState = shellViewModel.routeHighlight,
+        isRecordingActive = isRecordingActive,
+        liveRecordingOverlayState = shellViewModel.liveRecordingOverlay,
+        openRecordingRequestCount = openRecordingRequestCount,
+        onRequestAutoStartRecording = onRequestAutoStartRecording,
         onSyncBackStack = shellViewModel::syncBackStack,
         onSearchQueryChange = shellViewModel::onSearchQueryChange,
         onClearSearch = shellViewModel::onClearSearch,
@@ -164,6 +177,10 @@ internal fun OpenHikesShellContent(
     onDismissAttributionDialog: () -> Unit,
     onOpenUrl: (String) -> Unit,
     modifier: Modifier = Modifier,
+    isRecordingActive: Boolean = false,
+    liveRecordingOverlayState: StateFlow<MapRouteOverlay?> = remember { MutableStateFlow(null) },
+    openRecordingRequestCount: Int = 0,
+    onRequestAutoStartRecording: () -> Unit = {},
     homeContent: @Composable (ShellHomeScope) -> Unit
 ) {
     val shellLayout = resolveShellLayout(windowSizeClass)
@@ -173,6 +190,9 @@ internal fun OpenHikesShellContent(
         entryProviderInstallers = entryProviderInstallers,
         showAttributionDialog = chromeUiState.showAttributionDialog,
         searchQueryState = searchQueryState,
+        isRecordingActive = isRecordingActive,
+        openRecordingRequestCount = openRecordingRequestCount,
+        onRequestAutoStartRecording = onRequestAutoStartRecording,
         onSyncBackStack = onSyncBackStack,
         onSearchQueryChange = onSearchQueryChange,
         onClearSearch = onClearSearch,
@@ -187,6 +207,9 @@ internal fun OpenHikesShellContent(
         initialCameraState = initialCameraState,
         pendingCameraCommand = pendingCameraCommand,
         routeHighlightState = routeHighlightState,
+        isRecordingActive = isRecordingActive,
+        liveRecordingOverlayState = liveRecordingOverlayState,
+        onOpenRecording = navHostState.onOpenRecording,
         onDetentChange = navHostState.onDetentChange,
         onToggleHikingRoutes = onToggleHikingRoutes,
         onZoomIn = onZoomIn,
@@ -208,8 +231,58 @@ private data class ShellNavActions(
     val onSearchFocusChanged: (Boolean) -> Unit,
     val onOpenSettings: () -> Unit,
     val onOpenHike: (HikeId) -> Unit,
+    val onOpenRecording: () -> Unit,
     val onHikeDeleted: (HikeId) -> Unit
 )
+
+@Stable
+private class ShellNavControllers(
+    val sheetDetentState: MutableState<SheetDetent>,
+    val detentBeforeSettingsState: MutableState<SheetDetent?>,
+    val isSearchActiveState: MutableState<Boolean>,
+    val backStack: NavBackStack<NavKey>,
+    val navigator: OpenHikesNavigator
+) {
+    var sheetDetent: SheetDetent
+        get() = sheetDetentState.value
+        set(value) {
+            sheetDetentState.value = value
+        }
+
+    var detentBeforeSettings: SheetDetent?
+        get() = detentBeforeSettingsState.value
+        set(value) {
+            detentBeforeSettingsState.value = value
+        }
+
+    var isSearchActive: Boolean
+        get() = isSearchActiveState.value
+        set(value) {
+            isSearchActiveState.value = value
+        }
+}
+
+@Composable
+private fun rememberShellNavControllers(startsWithExpandedSheet: Boolean): ShellNavControllers {
+    val sheetDetentState = rememberSaveable {
+        mutableStateOf(if (startsWithExpandedSheet) SheetDetent.HALF else SheetDetent.PEEK)
+    }
+    val detentBeforeSettingsState = rememberSaveable { mutableStateOf<SheetDetent?>(null) }
+    val isSearchActiveState = rememberSaveable { mutableStateOf(false) }
+    val backStack = rememberNavBackStack(MapHomeRoute)
+    val navigator = remember(backStack) {
+        OpenHikesNavigator(backStack, onCollapseSheet = { sheetDetentState.value = SheetDetent.PEEK })
+    }
+    return remember(sheetDetentState, detentBeforeSettingsState, isSearchActiveState, backStack, navigator) {
+        ShellNavControllers(
+            sheetDetentState = sheetDetentState,
+            detentBeforeSettingsState = detentBeforeSettingsState,
+            isSearchActiveState = isSearchActiveState,
+            backStack = backStack,
+            navigator = navigator
+        )
+    }
+}
 
 @Composable
 private fun rememberShellNavigationHost(
@@ -218,50 +291,36 @@ private fun rememberShellNavigationHost(
     entryProviderInstallers: Set<EntryProviderInstaller>,
     showAttributionDialog: Boolean,
     searchQueryState: State<String>,
+    isRecordingActive: Boolean,
+    openRecordingRequestCount: Int,
+    onRequestAutoStartRecording: () -> Unit,
     onSyncBackStack: (List<Any>) -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onClearSearch: () -> Unit,
     onDismissAttributionDialog: () -> Unit,
     homeContent: @Composable (ShellHomeScope) -> Unit
 ): ShellNavigationHostState {
-    var sheetDetent by rememberSaveable {
-        mutableStateOf(if (launchConfig.startsWithExpandedSheet) SheetDetent.HALF else SheetDetent.PEEK)
-    }
-    var detentBeforeSettings by rememberSaveable { mutableStateOf<SheetDetent?>(null) }
-    var isSearchActive by rememberSaveable { mutableStateOf(false) }
-    val backStack = rememberNavBackStack(MapHomeRoute)
-    val navigator = remember(backStack) {
-        OpenHikesNavigator(backStack, onCollapseSheet = { sheetDetent = SheetDetent.PEEK })
-    }
+    val controllers = rememberShellNavControllers(launchConfig.startsWithExpandedSheet)
     val actions = rememberShellNavActions(
-        navigator = navigator,
-        sheetDetent = sheetDetent,
-        detentBeforeSettings = detentBeforeSettings,
-        isSearchActive = isSearchActive,
+        controllers = controllers,
         searchQuery = searchQueryState.value,
-        onClearSearch = onClearSearch,
-        onSetDetent = { sheetDetent = it },
-        onSetSearchActive = { isSearchActive = it },
-        onSetDetentBeforeSettings = { detentBeforeSettings = it }
+        isRecordingActive = isRecordingActive,
+        onRequestAutoStartRecording = onRequestAutoStartRecording,
+        onClearSearch = onClearSearch
     )
     CoordinateShellNavigation(
-        backStack = backStack,
-        canPop = navigator.canPop,
-        sheetDetent = sheetDetent,
-        detentBeforeSettings = detentBeforeSettings,
+        controllers = controllers,
         showAttributionDialog = showAttributionDialog,
         searchQuery = searchQueryState.value,
-        isSearchActive = isSearchActive,
         shellLayout = shellLayout,
+        openRecordingRequestCount = openRecordingRequestCount,
         onSyncBackStack = onSyncBackStack,
-        onDetentChange = { sheetDetent = it },
-        onClearDetentBeforeSettings = { detentBeforeSettings = null },
         onDismissAttributionDialog = onDismissAttributionDialog,
         onExitSearch = actions.exitSearch
     )
     val navigationContent = rememberNavigationContent(
-        backStack = backStack,
-        navigator = navigator,
+        backStack = controllers.backStack,
+        navigator = controllers.navigator,
         entryProviderInstallers = entryProviderInstallers,
         searchQueryState = searchQueryState,
         onSearchQueryChange = onSearchQueryChange,
@@ -270,97 +329,107 @@ private fun rememberShellNavigationHost(
         homeContent = homeContent
     )
     return ShellNavigationHostState(
-        sheetDetent = sheetDetent,
+        sheetDetent = controllers.sheetDetent,
         onDetentChange = { next ->
-            sheetDetent = next
-            if (next == SheetDetent.PEEK && isSearchActive) actions.exitSearch()
+            controllers.sheetDetent = next
+            if (next == SheetDetent.PEEK && controllers.isSearchActive) actions.exitSearch()
         },
+        onOpenRecording = actions.onOpenRecording,
         navigationContent = navigationContent
     )
 }
 
 @Composable
 private fun rememberShellNavActions(
-    navigator: OpenHikesNavigator,
-    sheetDetent: SheetDetent,
-    detentBeforeSettings: SheetDetent?,
-    isSearchActive: Boolean,
+    controllers: ShellNavControllers,
     searchQuery: String,
-    onClearSearch: () -> Unit,
-    onSetDetent: (SheetDetent) -> Unit,
-    onSetSearchActive: (Boolean) -> Unit,
-    onSetDetentBeforeSettings: (SheetDetent?) -> Unit
+    isRecordingActive: Boolean,
+    onRequestAutoStartRecording: () -> Unit,
+    onClearSearch: () -> Unit
 ): ShellNavActions {
     val focusManager = LocalFocusManager.current
-    val currentSheetDetent by rememberUpdatedState(sheetDetent)
-    val currentDetentBeforeSettings by rememberUpdatedState(detentBeforeSettings)
-    val currentIsSearchActive by rememberUpdatedState(isSearchActive)
     val currentSearchQuery by rememberUpdatedState(searchQuery)
+    val currentIsRecordingActive by rememberUpdatedState(isRecordingActive)
     val exitSearch = {
         onClearSearch()
-        onSetSearchActive(false)
+        controllers.isSearchActive = false
         focusManager.clearFocus(force = true)
     }
     return ShellNavActions(
         exitSearch = exitSearch,
         onSearchFocusChanged = { focused ->
             if (focused) {
-                onSetSearchActive(true)
-                onSetDetent(SheetDetent.EXPANDED)
+                controllers.isSearchActive = true
+                controllers.sheetDetent = SheetDetent.EXPANDED
             } else if (currentSearchQuery.isBlank()) {
-                onSetSearchActive(false)
+                controllers.isSearchActive = false
             }
         },
         onOpenSettings = {
-            if (currentIsSearchActive) exitSearch()
-            if (currentDetentBeforeSettings == null) onSetDetentBeforeSettings(currentSheetDetent)
-            onSetDetent(SheetDetent.EXPANDED)
-            navigator.navigate(SettingsRoute)
+            if (controllers.isSearchActive) exitSearch()
+            if (controllers.detentBeforeSettings == null) {
+                controllers.detentBeforeSettings = controllers.sheetDetent
+            }
+            controllers.sheetDetent = SheetDetent.EXPANDED
+            controllers.navigator.navigate(SettingsRoute)
         },
         onOpenHike = { hikeId ->
             focusManager.clearFocus(force = true)
-            if (currentSheetDetent == SheetDetent.PEEK) onSetDetent(SheetDetent.HALF)
-            navigator.navigate(HikeDetailRoute(hikeId))
+            if (controllers.sheetDetent == SheetDetent.PEEK) controllers.sheetDetent = SheetDetent.HALF
+            controllers.navigator.navigate(HikeDetailRoute(hikeId))
         },
-        onHikeDeleted = { hikeId -> navigator.removeRoutesForHike(hikeId) }
+        onOpenRecording = {
+            if (controllers.isSearchActive) exitSearch()
+            focusManager.clearFocus(force = true)
+            if (controllers.sheetDetent == SheetDetent.PEEK) controllers.sheetDetent = SheetDetent.HALF
+            if (!currentIsRecordingActive) onRequestAutoStartRecording()
+            if (controllers.backStack.lastOrNull() != RecordingRoute) {
+                controllers.navigator.navigate(RecordingRoute)
+            }
+        },
+        onHikeDeleted = { hikeId -> controllers.navigator.removeRoutesForHike(hikeId) }
     )
 }
 
 @Composable
 private fun CoordinateShellNavigation(
-    backStack: NavBackStack<NavKey>,
-    canPop: Boolean,
-    sheetDetent: SheetDetent,
-    detentBeforeSettings: SheetDetent?,
+    controllers: ShellNavControllers,
     showAttributionDialog: Boolean,
     searchQuery: String,
-    isSearchActive: Boolean,
     shellLayout: ShellLayout,
+    openRecordingRequestCount: Int,
     onSyncBackStack: (List<Any>) -> Unit,
-    onDetentChange: (SheetDetent) -> Unit,
-    onClearDetentBeforeSettings: () -> Unit,
     onDismissAttributionDialog: () -> Unit,
     onExitSearch: () -> Unit
 ) {
-    LaunchedEffect(backStack.toList()) {
-        onSyncBackStack(backStack.toList())
-        if (backStack.lastOrNull() == MapHomeRoute) {
-            detentBeforeSettings?.let { previous ->
-                onDetentChange(previous)
-                onClearDetentBeforeSettings()
+    LaunchedEffect(openRecordingRequestCount) {
+        if (openRecordingRequestCount > 0) {
+            if (controllers.isSearchActive) onExitSearch()
+            if (controllers.sheetDetent == SheetDetent.PEEK) controllers.sheetDetent = SheetDetent.HALF
+            if (controllers.backStack.lastOrNull() != RecordingRoute) {
+                controllers.navigator.navigate(RecordingRoute)
+            }
+        }
+    }
+    LaunchedEffect(controllers.backStack.toList()) {
+        onSyncBackStack(controllers.backStack.toList())
+        if (controllers.backStack.lastOrNull() == MapHomeRoute) {
+            controllers.detentBeforeSettings?.let { previous ->
+                controllers.sheetDetent = previous
+                controllers.detentBeforeSettings = null
             }
         }
     }
     ShellBackHandlers(
-        canPop = canPop,
+        canPop = controllers.navigator.canPop,
         showAttributionDialog = showAttributionDialog,
         searchQuery = searchQuery,
-        isSearchActive = isSearchActive,
+        isSearchActive = controllers.isSearchActive,
         shellLayout = shellLayout,
-        sheetDetent = sheetDetent,
+        sheetDetent = controllers.sheetDetent,
         onDismissAttributionDialog = onDismissAttributionDialog,
         onExitSearch = onExitSearch,
-        onCollapseSheet = { onDetentChange(SheetDetent.PEEK) }
+        onCollapseSheet = { controllers.sheetDetent = SheetDetent.PEEK }
     )
 }
 
@@ -373,6 +442,9 @@ private fun OpenHikesShellStage(
     initialCameraState: MapCameraState,
     pendingCameraCommand: MapCameraCommand?,
     routeHighlightState: StateFlow<MapRouteHighlight?>,
+    isRecordingActive: Boolean,
+    liveRecordingOverlayState: StateFlow<MapRouteOverlay?>,
+    onOpenRecording: () -> Unit,
     onDetentChange: (SheetDetent) -> Unit,
     onToggleHikingRoutes: () -> Unit,
     onZoomIn: () -> Unit,
@@ -409,7 +481,8 @@ private fun OpenHikesShellStage(
             viewportPadding = metrics.viewportPadding,
             interactions = MapInteractionEvents(onCameraChanged = onCameraChanged),
             onCameraCommandHandled = onCameraCommandHandled,
-            highlightState = routeHighlightState
+            highlightState = routeHighlightState,
+            liveRecordingOverlayState = liveRecordingOverlayState
         )
         MapFloatingControls(
             shellLayout = shellLayout,
@@ -418,6 +491,8 @@ private fun OpenHikesShellStage(
             sidePanelEdge = metrics.sidePanelEdge,
             overlayState = chromeUiState.overlayState,
             showAttributionDialog = chromeUiState.showAttributionDialog,
+            isRecordingActive = isRecordingActive,
+            onOpenRecording = onOpenRecording,
             onToggleHikingRoutes = onToggleHikingRoutes,
             onZoomIn = onZoomIn,
             onZoomOut = onZoomOut,

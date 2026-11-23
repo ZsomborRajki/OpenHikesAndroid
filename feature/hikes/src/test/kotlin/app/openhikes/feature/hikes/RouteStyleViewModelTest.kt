@@ -195,6 +195,23 @@ class RouteStyleViewModelTest {
         override suspend fun exportHikeToUri(hikeId: HikeId, uriString: String): Result<Unit> = error("Unused")
         override suspend fun renameHike(hikeId: HikeId, draftTitle: String): Result<Unit> = error("Unused")
         override suspend fun deleteHike(hikeId: HikeId): Result<Unit> = error("Unused")
+        override suspend fun createOrClaimRecordingDraft(
+            hikeId: HikeId,
+            startedAtEpochMillis: Long,
+            title: String
+        ): Result<Hike> = error("Unused")
+
+        override suspend fun finalizeRecordingDraft(
+            hikeId: HikeId,
+            title: String,
+            customName: String?,
+            startedAtEpochMillis: Long,
+            endedAtEpochMillis: Long,
+            prepared: app.openhikes.core.model.PreparedRecording
+        ): Result<Hike> = error("Unused")
+
+        override suspend fun deleteRecordingDraft(hikeId: HikeId): Result<Unit> = error("Unused")
+        override suspend fun deleteOwnedOrphanedRecordingDrafts(exceptHikeId: HikeId?): Result<Int> = error("Unused")
         override suspend fun seedFixtureIfConfigured(): HikeId? = null
 
         override suspend fun updateRouteStyle(hikeId: HikeId, style: RouteStyleUpdate): Result<Unit> {
