@@ -15,4 +15,6 @@
     <string name="recording_notification_action_resume">Resume</string>
     <string name="recording_notification_metrics_line">%1$s · %2$s</string>
     <string name="recording_notification_metrics_with_gain">%1$s · +%2$s · %3$s</string>
+    <string name="following_notification_metrics_line">%1$s left · %2$s</string>
+    <string name="following_notification_metrics_with_eta">%1$s left · %2$s · %3$s</string>
 </resources>

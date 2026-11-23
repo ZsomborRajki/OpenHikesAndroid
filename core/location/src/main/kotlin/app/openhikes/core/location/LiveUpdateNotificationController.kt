@@ -68,6 +68,34 @@ class LiveUpdateNotificationController @Inject constructor(
     private var distanceUnit: DistanceUnit = DistanceUnit.METRIC
     private var lastDisplayedPayload: LiveUpdatePayload? = null
     private var latestRecordingPayload: LiveUpdatePayload? = null
+    private var latestFollowingPayload: LiveUpdatePayload? = null
+
+    fun buildInitialFollowingForegroundNotification(fallbackPayload: LiveUpdatePayload): Notification {
+        val normalized = fallbackPayload.copy(kind = LiveUpdateKind.FOLLOWING)
+        val (payload, unit, promoted) = synchronized(lock) {
+            val existing = latestRecordingPayload
+                ?: latestFollowingPayload?.takeIf { it.sessionId == normalized.sessionId }
+            val resolved = if (existing != null) {
+                lastDisplayedPayload = existing
+                existing
+            } else {
+                latestFollowingPayload = normalized
+                lastDisplayedPayload = normalized
+                arbiter.submit(normalized, clock.now().toEpochMilli())
+                normalized
+            }
+            Triple(
+                resolved,
+                distanceUnit,
+                liveUpdatesEnabled && poster.canPostPromotedNotifications()
+            )
+        }
+        return builder.build(
+            payload = payload,
+            distanceUnit = unit,
+            requestPromoted = promoted
+        )
+    }
 
     fun buildInitialForegroundNotification(
         title: String,
@@ -145,6 +173,8 @@ class LiveUpdateNotificationController @Inject constructor(
         val decision = synchronized(lock) {
             if (payload.kind == LiveUpdateKind.RECORDING) {
                 latestRecordingPayload = payload
+            } else {
+                latestFollowingPayload = payload
             }
             val result = arbiter.submit(payload, clock.now().toEpochMilli())
             if (result == LiveUpdateDecision.POST_IMMEDIATE) {
@@ -165,6 +195,8 @@ class LiveUpdateNotificationController @Inject constructor(
         val (restored, unit, promoted) = synchronized(lock) {
             if (kind == LiveUpdateKind.RECORDING) {
                 latestRecordingPayload = null
+            } else {
+                latestFollowingPayload = null
             }
             val fallback = arbiter.end(kind, clock.now().toEpochMilli())
             lastDisplayedPayload = fallback

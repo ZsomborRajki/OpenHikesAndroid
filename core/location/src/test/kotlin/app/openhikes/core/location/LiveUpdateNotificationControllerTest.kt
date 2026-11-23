@@ -165,6 +165,27 @@ class LiveUpdateNotificationControllerTest {
         assertThat(foregroundNotification.`when`).isEqualTo(startMillis)
     }
 
+    @Test
+    fun followingNotificationShowsEtaProgressAndPauseResumeOnlyWithoutDestructiveEnd() {
+        val following = controller.buildInitialFollowingForegroundNotification(
+            LiveUpdatePayload(
+                kind = LiveUpdateKind.FOLLOWING,
+                sessionId = "walk-h1",
+                title = "Thumsee Loop",
+                runState = LiveUpdateRunState.FOLLOWING,
+                distanceMeters = 3_200.0,
+                progressPercent = 42,
+                remainingSeconds = 2_700.0,
+                hikeId = "h1"
+            )
+        )
+        assertThat(following.extras.getCharSequence(Notification.EXTRA_TEXT).toString()).contains("3.2 km left")
+        assertThat(following.extras.getCharSequence(Notification.EXTRA_TEXT).toString()).contains("45m")
+        val actions = (0 until NotificationCompat.getActionCount(following))
+            .mapNotNull { index -> NotificationCompat.getAction(following, index)?.title?.toString() }
+        assertThat(actions).containsExactly("Pause")
+    }
+
     private class RecordingTestPoster : NotificationPoster {
         val posted = mutableListOf<Pair<Int, Notification>>()
         var cancelCount = 0

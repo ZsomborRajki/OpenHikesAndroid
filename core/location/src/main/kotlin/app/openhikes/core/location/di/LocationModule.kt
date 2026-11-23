@@ -5,18 +5,24 @@ import app.openhikes.core.common.ApplicationScope
 import app.openhikes.core.common.IoDispatcher
 import app.openhikes.core.common.OpenHikesClock
 import app.openhikes.core.location.AndroidDevicePowerMonitor
+import app.openhikes.core.location.AndroidJunctionVoice
 import app.openhikes.core.location.AndroidLocationFeed
 import app.openhikes.core.location.AndroidNotificationPoster
 import app.openhikes.core.location.AndroidRecordingServiceBridge
 import app.openhikes.core.location.DefaultMotionFeed
 import app.openhikes.core.location.DefaultRecordingController
+import app.openhikes.core.location.DefaultTrailJunctionProvider
+import app.openhikes.core.location.DefaultTrailWalkController
 import app.openhikes.core.location.DevicePowerMonitor
+import app.openhikes.core.location.JunctionVoice
 import app.openhikes.core.location.LocationFeed
 import app.openhikes.core.location.MotionFeed
 import app.openhikes.core.location.NotificationPoster
 import app.openhikes.core.location.RecordingController
 import app.openhikes.core.location.RecordingServiceBridge
 import app.openhikes.core.location.TrackJournal
+import app.openhikes.core.location.TrailJunctionProvider
+import app.openhikes.core.location.TrailWalkController
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -42,6 +48,14 @@ abstract class LocationBindingsModule {
     @Binds
     @Singleton
     internal abstract fun bindRecordingController(impl: DefaultRecordingController): RecordingController
+
+    @Binds
+    @Singleton
+    internal abstract fun bindTrailWalkController(impl: DefaultTrailWalkController): TrailWalkController
+
+    @Binds
+    @Singleton
+    internal abstract fun bindTrailJunctionProvider(impl: DefaultTrailJunctionProvider): TrailJunctionProvider
 
     companion object {
         @Provides
@@ -85,6 +99,10 @@ abstract class LocationHardwareModule {
     @Binds
     @Singleton
     internal abstract fun bindNotificationPoster(impl: AndroidNotificationPoster): NotificationPoster
+
+    @Binds
+    @Singleton
+    internal abstract fun bindJunctionVoice(impl: AndroidJunctionVoice): JunctionVoice
 
     companion object {
         private const val JOURNAL_DIR_NAME = "recording"
