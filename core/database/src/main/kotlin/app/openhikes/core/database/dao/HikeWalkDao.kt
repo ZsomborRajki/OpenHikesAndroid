@@ -12,11 +12,20 @@ interface HikeWalkDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(walk: HikeWalkEntity)
 
+    @Query("SELECT * FROM hike_walks WHERE id = :walkId LIMIT 1")
+    fun observeById(walkId: String): Flow<HikeWalkEntity?>
+
+    @Query("SELECT * FROM hike_walks WHERE id = :walkId LIMIT 1")
+    suspend fun getById(walkId: String): HikeWalkEntity?
+
     @Query("SELECT * FROM hike_walks WHERE hike_id = :hikeId ORDER BY started_at_epoch_millis DESC")
     fun observeByHikeId(hikeId: String): Flow<List<HikeWalkEntity>>
 
     @Query("SELECT * FROM hike_walks WHERE hike_id = :hikeId ORDER BY started_at_epoch_millis DESC")
     suspend fun getByHikeId(hikeId: String): List<HikeWalkEntity>
+
+    @Query("DELETE FROM hike_walks WHERE id = :walkId")
+    suspend fun deleteById(walkId: String): Int
 
     @Query("DELETE FROM hike_walks WHERE hike_id = :hikeId")
     suspend fun deleteByHikeId(hikeId: String): Int

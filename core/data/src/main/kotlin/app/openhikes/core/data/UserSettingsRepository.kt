@@ -29,4 +29,6 @@ interface UserSettingsRepository {
     suspend fun setMapStyleId(styleId: String)
 
     suspend fun setOfflineCountriesExtraDetail(enabled: Boolean)
+
+    suspend fun setJunctionWarningsEnabled(enabled: Boolean)
 }

@@ -457,5 +457,8 @@ class DefaultOfflineCountryRepositoryTest {
         override suspend fun setMapStyleId(styleId: String) = state.update { it.copy(mapStyleId = styleId) }
         override suspend fun setOfflineCountriesExtraDetail(enabled: Boolean) =
             state.update { it.copy(offlineCountriesExtraDetail = enabled) }
+
+        override suspend fun setJunctionWarningsEnabled(enabled: Boolean) =
+            state.update { it.copy(junctionWarningsEnabled = enabled) }
     }
 }

@@ -77,6 +77,9 @@ interface HikeDao {
     @Query("UPDATE hikes SET custom_name = :customName WHERE id = :hikeId")
     suspend fun updateCustomName(hikeId: String, customName: String?): Int
 
+    @Query("UPDATE hikes SET auto_follow_enabled = :enabled WHERE id = :hikeId")
+    suspend fun updateAutoFollowEnabled(hikeId: String, enabled: Boolean): Int
+
     @Query(
         """
         UPDATE hikes

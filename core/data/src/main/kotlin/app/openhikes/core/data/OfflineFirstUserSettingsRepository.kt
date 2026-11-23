@@ -57,4 +57,8 @@ internal class OfflineFirstUserSettingsRepository @Inject constructor(
     override suspend fun setOfflineCountriesExtraDetail(enabled: Boolean) = withContext(ioDispatcher) {
         preferencesDataSource.setOfflineCountriesExtraDetail(enabled)
     }
+
+    override suspend fun setJunctionWarningsEnabled(enabled: Boolean) = withContext(ioDispatcher) {
+        preferencesDataSource.setJunctionWarningsEnabled(enabled)
+    }
 }
