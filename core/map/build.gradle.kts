@@ -17,6 +17,7 @@ dependencies {
     implementation(projects.core.ui)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.maplibre.compose)
+    runtimeOnly(libs.maplibre.compose.runtime.vulkan.android)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
 

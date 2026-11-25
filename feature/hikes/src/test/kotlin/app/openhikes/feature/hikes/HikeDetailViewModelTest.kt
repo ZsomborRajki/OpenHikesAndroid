@@ -12,8 +12,11 @@ import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.map.RouteHighlightState
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.MapProviderKeys
+import app.openhikes.core.model.MapStyleId
 import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.TrailWalkPhase
+import app.openhikes.core.model.UserSettings
 import app.openhikes.core.testing.MainDispatcherRule
 import app.openhikes.core.testing.android.FakeHikeRepository
 import app.openhikes.core.testing.android.FakeOfflineCountryRepository
@@ -203,9 +206,41 @@ class HikeDetailViewModelTest {
         }
     }
 
+    @Test
+    fun missingApiKeyFallbackKeepsOfflineCoverageEnabledOnHikeDetail() = runTest {
+        val hike = sampleDetailHike()
+        val keylessViewModel = createViewModel(
+            hike = hike,
+            userSettingsRepository = FakeUserSettingsRepository(
+                initialSettings = UserSettings(mapStyleId = MapStyleId.STADIA_OUTDOORS)
+            ),
+            mapProviderKeys = MapProviderKeys.Empty
+        )
+        keylessViewModel.uiState.test {
+            advanceUntilIdle()
+            assertThat(expectMostRecentItem().offlineCoverage.isOpenHikesMap).isTrue()
+            cancelAndIgnoreRemainingEvents()
+        }
+
+        val keyedViewModel = createViewModel(
+            hike = hike,
+            userSettingsRepository = FakeUserSettingsRepository(
+                initialSettings = UserSettings(mapStyleId = MapStyleId.STADIA_OUTDOORS)
+            ),
+            mapProviderKeys = MapProviderKeys(stadiaApiKey = "demo-key")
+        )
+        keyedViewModel.uiState.test {
+            advanceUntilIdle()
+            assertThat(expectMostRecentItem().offlineCoverage.isOpenHikesMap).isFalse()
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
     private fun createViewModel(
         hike: Hike,
         repo: FakeHikeRepository = FakeHikeRepository(listOf(hike)),
+        userSettingsRepository: FakeUserSettingsRepository = FakeUserSettingsRepository(),
+        mapProviderKeys: MapProviderKeys = MapProviderKeys.Empty,
         walkController: FakeTrailWalkController = FakeTrailWalkController(),
         coordinator: MapClaimCoordinator = MapClaimCoordinator(),
         highlightState: RouteHighlightState = RouteHighlightState(),
@@ -213,12 +248,13 @@ class HikeDetailViewModelTest {
     ): HikeDetailViewModel = HikeDetailViewModel(
         rawHikeId = hike.id.value,
         hikeRepository = repo,
-        userSettingsRepository = FakeUserSettingsRepository(),
+        userSettingsRepository = userSettingsRepository,
         offlineCountryRepository = FakeOfflineCountryRepository(),
         trailWalkController = walkController,
         recordingController = FakeRecordingController(),
         mapClaimCoordinator = coordinator,
         routeHighlightState = highlightState,
+        mapProviderKeys = mapProviderKeys,
         launchConfigHolder = launchConfigHolder,
         defaultDispatcher = mainDispatcherRule.testDispatcher
     )

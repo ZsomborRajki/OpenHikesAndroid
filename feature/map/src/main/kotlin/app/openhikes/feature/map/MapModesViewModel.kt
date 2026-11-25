@@ -4,12 +4,9 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.openhikes.core.common.DefaultDispatcher
-import app.openhikes.core.common.LaunchConfigHolder
 import app.openhikes.core.data.OfflineCountryRepository
 import app.openhikes.core.data.UserSettingsRepository
-import app.openhikes.core.location.LocationFeed
 import app.openhikes.core.map.MapStylePreviewProvider
-import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.MapAttribution
 import app.openhikes.core.model.MapProviderKeys
 import app.openhikes.core.model.MapStyleCatalog
@@ -43,16 +40,15 @@ class MapModesViewModel @Inject constructor(
     offlineCountryRepository: OfflineCountryRepository,
     private val mapProviderKeys: MapProviderKeys,
     private val previewProvider: MapStylePreviewProvider,
-    locationFeed: LocationFeed,
-    launchConfigHolder: LaunchConfigHolder,
     @DefaultDispatcher defaultDispatcher: CoroutineDispatcher
 ) : ViewModel() {
     /**
-     * Snapped 2×2 tile block captured once when Map Modes opens so live GPS drift never causes
-     * style cards to re-fetch or recompose continuously.
+     * Fixed Alpine sample block (Königssee valley) used for automatic style card previews so
+     * opening Map Modes never discloses the hiker's device location to unselected third-party tile
+     * hosts and always reuses the persistent HTTP tile cache.
      */
     val previewFrame: TilePreviewFrame = TilePreviewFrame.around(
-        coordinate = resolvePreviewCoordinate(locationFeed, launchConfigHolder)
+        coordinate = TilePreviewFrame.FALLBACK_COORDINATE
     )
 
     private val saveErrorState = MutableStateFlow(false)
@@ -159,16 +155,4 @@ private fun buildMapModesUiState(
         ),
         saveError = saveError
     )
-}
-
-private fun resolvePreviewCoordinate(
-    locationFeed: LocationFeed,
-    launchConfigHolder: LaunchConfigHolder
-): GeoCoordinate? {
-    val config = launchConfigHolder.current.value
-    return if (config.enableSimulatedLocation && config.mapStart != null) {
-        config.mapStart
-    } else {
-        locationFeed.lastKnownCoordinate()
-    }
 }

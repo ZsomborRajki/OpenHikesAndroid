@@ -187,11 +187,43 @@ class MapModesJourneyTest {
         }
     }
 
-    private fun baseIntent(): Intent {
+    @Test
+    fun openingRecordFromMapModesAtPeekKeepsRecordingControlsVisible() {
+        val intent = baseIntent(expandedSheet = false)
+
+        ActivityScenario.launch<MainActivity>(intent).use { _ ->
+            val rootBounds = composeRule.onNodeWithTag(OpenHikesTestTags.APP_ROOT).getUnclippedBoundsInRoot()
+            val peekSheetTop = composeRule.onNodeWithTag(OpenHikesTestTags.MAP_SHEET).getUnclippedBoundsInRoot().top
+            assertThat(peekSheetTop).isGreaterThan(rootBounds.height * 0.75f)
+
+            composeRule.onNodeWithTag(OpenHikesTestTags.MAP_MODES_BUTTON).performClick()
+            composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.MAP_MODES_TITLE))
+
+            // Pushing Recording over Map Modes must keep the sheet at HALF rather than restoring PEEK.
+            composeRule.onNodeWithTag(OpenHikesTestTags.RECORD_BUTTON).performClick()
+            composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.RECORDING_SCREEN))
+            composeRule.waitForIdle()
+            val recordingSheetTop = composeRule.onNodeWithTag(OpenHikesTestTags.MAP_SHEET)
+                .getUnclippedBoundsInRoot().top
+            assertThat(recordingSheetTop).isLessThan(rootBounds.height * 0.65f)
+
+            // Popping Recording returns to Map Modes at HALF; closing Map Modes restores PEEK.
+            composeRule.onNodeWithTag(OpenHikesTestTags.RECORDING_BACK).performClick()
+            composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.MAP_MODES_TITLE))
+            composeRule.onNodeWithTag(OpenHikesTestTags.MAP_MODES_CLOSE).performClick()
+            composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.MAP_SEARCH))
+            composeRule.waitForIdle()
+            val restoredSheetTop = composeRule.onNodeWithTag(OpenHikesTestTags.MAP_SHEET)
+                .getUnclippedBoundsInRoot().top
+            assertThat(restoredSheetTop).isGreaterThan(rootBounds.height * 0.75f)
+        }
+    }
+
+    private fun baseIntent(expandedSheet: Boolean = true): Intent {
         val context = ApplicationProvider.getApplicationContext<Context>()
         return Intent(context, MainActivity::class.java).apply {
             putExtra(LaunchConfigReader.EXTRA_UI_TESTING, "true")
-            putExtra(LaunchConfigReader.EXTRA_EXPANDED_SHEET, "true")
+            putExtra(LaunchConfigReader.EXTRA_EXPANDED_SHEET, expandedSheet.toString())
             putExtra(LaunchConfigReader.EXTRA_IN_MEMORY_DB, "true")
             putExtra(LaunchConfigReader.EXTRA_ISOLATED_DATASTORE, "true")
             putExtra(LaunchConfigReader.EXTRA_OFFLINE, "true")

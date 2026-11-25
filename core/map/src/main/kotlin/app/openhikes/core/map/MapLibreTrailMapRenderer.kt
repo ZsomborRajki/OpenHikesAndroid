@@ -113,8 +113,13 @@ internal class MapLibreTrailMapRenderer @Inject constructor(
     private val extrasTileProvider: OpenHikesExtrasTileProvider,
     private val offlineTileArchives: OfflineTileArchiveSource,
     private val vectorTileArchivesManager: VectorTileArchivesManager,
-    private val mapProviderKeys: MapProviderKeys
+    private val mapProviderKeys: MapProviderKeys,
+    mapRuntimeConfigurator: MapRuntimeConfigurator
 ) : TrailMapRenderer {
+    init {
+        mapRuntimeConfigurator.ensureConfigured()
+    }
+
     @Composable
     override fun Render(
         cameraState: MapCameraState,
