@@ -8,6 +8,7 @@ import app.openhikes.core.common.offline.OfflineCountryManifestParser
 import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.model.GeoCoordinate
+import app.openhikes.core.model.MapProviderKeys
 import app.openhikes.core.model.MapStyleId
 import app.openhikes.core.model.OfflineCountriesState
 import app.openhikes.core.model.OfflineCountrySort
@@ -52,6 +53,7 @@ class OfflineMapsViewModelTest {
             offlineCountryRepository = repo,
             userSettingsRepository = settingsRepo,
             mapClaimCoordinator = coordinator,
+            mapProviderKeys = MapProviderKeys.Empty,
             locationFeed = locationFeed,
             launchConfigHolder = LaunchConfigHolder(LaunchConfig.Production),
             defaultDispatcher = mainDispatcherRule.testDispatcher

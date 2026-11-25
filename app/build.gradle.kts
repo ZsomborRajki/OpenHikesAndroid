@@ -1,9 +1,28 @@
+import java.util.Properties
+
 plugins {
     id("openhikes.android.application.compose")
     id("openhikes.android.screenshot")
     id("openhikes.hilt")
     id("openhikes.lint")
     alias(libs.plugins.kotlin.serialization)
+}
+
+fun readLocalSecret(key: String): String {
+    val candidates = listOf(rootProject.file("secrets.properties"), rootProject.file("local.properties"))
+    for (file in candidates) {
+        if (!file.isFile) continue
+        val props = Properties()
+        file.inputStream().use { props.load(it) }
+        val value = props.getProperty(key)?.trim()
+        if (!value.isNullOrEmpty()) return value
+    }
+    return ""
+}
+
+fun String.asBuildConfigString(): String {
+    val escaped = replace("\\", "\\\\").replace("\"", "\\\"")
+    return "\"$escaped\""
 }
 
 android {
@@ -23,8 +42,17 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
+            buildConfigField("String", "STADIA_API_KEY", readLocalSecret("STADIA_API_KEY").asBuildConfigString())
+            buildConfigField(
+                "String",
+                "THUNDERFOREST_API_KEY",
+                readLocalSecret("THUNDERFOREST_API_KEY").asBuildConfigString()
+            )
         }
         release {
+            // Distributed APKs never embed private local developer map keys.
+            buildConfigField("String", "STADIA_API_KEY", "\"\"")
+            buildConfigField("String", "THUNDERFOREST_API_KEY", "\"\"")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -46,6 +74,7 @@ dependencies {
     implementation(projects.core.map)
     implementation(projects.core.network)
     implementation(projects.feature.hikes)
+    implementation(projects.feature.map)
     implementation(projects.feature.offlinemaps)
     implementation(projects.feature.recording)
     implementation(projects.feature.settings)

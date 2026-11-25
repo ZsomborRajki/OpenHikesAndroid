@@ -1,6 +1,8 @@
 package app.openhikes.core.map.di
 
+import app.openhikes.core.map.HttpMapStylePreviewProvider
 import app.openhikes.core.map.MapLibreTrailMapRenderer
+import app.openhikes.core.map.MapStylePreviewProvider
 import app.openhikes.core.map.TrailMapRenderer
 import dagger.Binds
 import dagger.Module
@@ -9,7 +11,7 @@ import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
 /**
- * Production Hilt binding for [TrailMapRenderer].
+ * Production Hilt bindings for [TrailMapRenderer] and [MapStylePreviewProvider].
  */
 @Module
 @InstallIn(SingletonComponent::class)
@@ -17,4 +19,8 @@ abstract class MapModule {
     @Binds
     @Singleton
     internal abstract fun bindTrailMapRenderer(impl: MapLibreTrailMapRenderer): TrailMapRenderer
+
+    @Binds
+    @Singleton
+    internal abstract fun bindMapStylePreviewProvider(impl: HttpMapStylePreviewProvider): MapStylePreviewProvider
 }

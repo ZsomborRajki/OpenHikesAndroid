@@ -48,9 +48,9 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import app.openhikes.core.designsystem.icon.OpenHikesIcons
-import app.openhikes.core.model.MapStyleId
 import app.openhikes.core.model.OfflineCountrySort
 import app.openhikes.core.model.OfflineDirectoryItem
+import app.openhikes.core.ui.format.mapStyleDisplayName
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 
 private val CardCornerRadius = 22.dp
@@ -315,10 +315,7 @@ internal fun OfflineMapsHeadCard(
 
 @Composable
 private fun UseOpenHikesMapBanner(activeMapStyleId: String, onClick: () -> Unit) {
-    val styleName = when (activeMapStyleId) {
-        MapStyleId.OPENFREEMAP -> stringResource(R.string.offline_maps_style_openfreemap)
-        else -> stringResource(R.string.offline_maps_style_other)
-    }
+    val styleName = mapStyleDisplayName(activeMapStyleId)
     Surface(
         color = MaterialTheme.colorScheme.tertiaryContainer,
         shape = RoundedCornerShape(CardCornerRadius),

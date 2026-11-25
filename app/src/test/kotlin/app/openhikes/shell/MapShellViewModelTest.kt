@@ -5,6 +5,7 @@ import app.openhikes.core.common.LaunchConfigHolder
 import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.map.RouteHighlightState
 import app.openhikes.core.map.WalkOverlayState
+import app.openhikes.core.model.MapProviderKeys
 import app.openhikes.core.model.OfflineCountriesState
 import app.openhikes.core.testing.MainDispatcherRule
 import app.openhikes.core.testing.android.FakeHikeRepository
@@ -43,6 +44,7 @@ class MapShellViewModelTest {
             trailWalkController = walkController,
             routeHighlightState = RouteHighlightState(),
             walkOverlayState = WalkOverlayState(),
+            mapProviderKeys = MapProviderKeys.Empty,
             launchConfigHolder = LaunchConfigHolder(LaunchConfig.Production),
             defaultDispatcher = mainDispatcherRule.testDispatcher
         )

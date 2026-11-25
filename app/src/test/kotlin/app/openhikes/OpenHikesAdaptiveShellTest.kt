@@ -7,8 +7,8 @@ import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasTestTag
-import androidx.compose.ui.test.isOff
 import androidx.compose.ui.test.isOn
+import androidx.compose.ui.test.isSelected
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -117,14 +117,19 @@ class OpenHikesAdaptiveShellTest {
         composeRule.waitForIdle()
         assertThat(fakeRenderer.lastCameraState.value.bearing).isEqualTo(0.0)
 
-        composeRule.onNodeWithTag(OpenHikesTestTags.HIKING_ROUTES_TOGGLE).performClick()
+        composeRule.onNodeWithTag(OpenHikesTestTags.MAP_MODES_BUTTON).performClick()
+        composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.MAP_MODES_TITLE))
+        composeRule.onNodeWithTag(OpenHikesTestTags.MAP_MODES_SCREEN).performScrollToKey("hiking-routes")
+        composeRule.onNodeWithTag(OpenHikesTestTags.HIKING_ROUTES_OFF).performClick()
         composeRule.waitUntilExactlyOneExists(
-            hasTestTag(OpenHikesTestTags.HIKING_ROUTES_TOGGLE) and isOff(),
+            hasTestTag(OpenHikesTestTags.HIKING_ROUTES_OFF) and isSelected(),
             timeoutMillis = 5_000L
         )
         composeRule.waitForIdle()
         assertThat(fakeRenderer.lastOverlayState.value?.showsHikingRoutes).isFalse()
         composeRule.onNodeWithText("© OpenStreetMap, ESA WorldCover").assertIsDisplayed()
+        composeRule.onNodeWithTag(OpenHikesTestTags.MAP_MODES_CLOSE).performClick()
+        composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.MAP_SEARCH))
 
         composeRule.onNodeWithTag(OpenHikesTestTags.MAP_ATTRIBUTION).performClick()
         composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.MAP_ATTRIBUTION_DIALOG))

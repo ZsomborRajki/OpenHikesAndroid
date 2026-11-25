@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -20,7 +21,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openhikes.core.data.OfflineTileArchiveSource
 import app.openhikes.core.model.GeoCoordinate
-import app.openhikes.core.model.MapStyleId
+import app.openhikes.core.model.MapProviderKeys
+import app.openhikes.core.model.MapStyleCatalog
+import app.openhikes.core.model.MapStyleKind
 import app.openhikes.core.network.VectorTileArchivesManager
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 import javax.inject.Inject
@@ -50,38 +53,53 @@ import org.maplibre.spatialk.geojson.Position
 
 internal data class MapStylePlan(
     val baseStyle: BaseStyle,
-    val hikingRoutesTileUrl: String?,
+    val baseRasterTileUrl: String? = null,
+    val baseRasterMaxZoom: Int = DEFAULT_RASTER_MAX_ZOOM,
+    val hikingRoutesTileUrl: String? = null,
     val usesOpenHikesVector: Boolean = false
 )
 
 internal fun resolveMapStylePlan(
     overlayState: MapOverlayState,
     allowRemoteRequests: Boolean,
-    hasLoadedRemoteStyle: Boolean
+    hasLoadedRemoteStyle: Boolean,
+    mapProviderKeys: MapProviderKeys = MapProviderKeys.Empty
 ): MapStylePlan {
-    val hikingTileUrl = if (overlayState.showsHikingRoutes && (allowRemoteRequests || hasLoadedRemoteStyle)) {
+    val style = MapStyleCatalog.renderable(overlayState.mapStyleId, mapProviderKeys)
+    val remoteAllowed = allowRemoteRequests || hasLoadedRemoteStyle
+    val hikingTileUrl = if (overlayState.showsHikingRoutes && remoteAllowed) {
         WAYMARKED_HIKING_TILES_URL
     } else {
         null
     }
-    return when {
-        overlayState.mapStyleId != MapStyleId.OPENFREEMAP -> MapStylePlan(
+    return when (style.kind) {
+        MapStyleKind.OPENHIKES_VECTOR -> MapStylePlan(
             baseStyle = BaseStyle.Empty,
             hikingRoutesTileUrl = hikingTileUrl,
             usesOpenHikesVector = true
         )
 
-        !allowRemoteRequests && !hasLoadedRemoteStyle -> MapStylePlan(
-            baseStyle = BaseStyle.Empty,
-            hikingRoutesTileUrl = null,
-            usesOpenHikesVector = false
-        )
+        MapStyleKind.REMOTE_VECTOR_STYLE -> {
+            val remoteStyleUrl = style.resolvedUrl(mapProviderKeys)
+            if (!remoteAllowed || remoteStyleUrl == null) {
+                MapStylePlan(baseStyle = BaseStyle.Empty)
+            } else {
+                MapStylePlan(
+                    baseStyle = BaseStyle.Uri(remoteStyleUrl),
+                    hikingRoutesTileUrl = hikingTileUrl
+                )
+            }
+        }
 
-        else -> MapStylePlan(
-            baseStyle = BaseStyle.Uri(OPENFREEMAP_LIBERTY_STYLE_URL),
-            hikingRoutesTileUrl = hikingTileUrl,
-            usesOpenHikesVector = false
-        )
+        MapStyleKind.RASTER_TILES -> {
+            val rasterUrl = if (remoteAllowed) style.resolvedUrl(mapProviderKeys) else null
+            MapStylePlan(
+                baseStyle = BaseStyle.Empty,
+                baseRasterTileUrl = rasterUrl,
+                baseRasterMaxZoom = style.maximumZoom,
+                hikingRoutesTileUrl = hikingTileUrl
+            )
+        }
     }
 }
 
@@ -94,7 +112,8 @@ internal class MapLibreTrailMapRenderer @Inject constructor(
     private val basemapTileProvider: OpenHikesBasemapTileProvider,
     private val extrasTileProvider: OpenHikesExtrasTileProvider,
     private val offlineTileArchives: OfflineTileArchiveSource,
-    private val vectorTileArchivesManager: VectorTileArchivesManager
+    private val vectorTileArchivesManager: VectorTileArchivesManager,
+    private val mapProviderKeys: MapProviderKeys
 ) : TrailMapRenderer {
     @Composable
     override fun Render(
@@ -122,7 +141,8 @@ internal class MapLibreTrailMapRenderer @Inject constructor(
         val stylePlan = resolveMapStylePlan(
             overlayState = overlayState,
             allowRemoteRequests = allowRemoteRequests,
-            hasLoadedRemoteStyle = hasLoadedRemoteStyle
+            hasLoadedRemoteStyle = hasLoadedRemoteStyle,
+            mapProviderKeys = mapProviderKeys
         )
         val mapState = rememberTrailMapState(
             stylePlan = stylePlan,
@@ -227,6 +247,21 @@ private fun rememberTrailMapState(
             sourceSpec = sourceSpec
         )
     }
+    stylePlan.baseRasterTileUrl?.let { rasterTileUrl ->
+        key(rasterTileUrl, stylePlan.baseRasterMaxZoom) {
+            val baseRasterSource = rememberRasterTileSource(
+                tiles = listOf(rasterTileUrl),
+                tileSize = RASTER_TILE_SIZE
+            ) {
+                minZoom = RASTER_MIN_ZOOM
+                maxZoom = stylePlan.baseRasterMaxZoom
+            }
+            RasterLayer(
+                id = BASE_RASTER_LAYER_ID,
+                source = baseRasterSource
+            )
+        }
+    }
     stylePlan.hikingRoutesTileUrl?.let { tileUrl ->
         val hikingSource = rememberRasterTileSource(
             tiles = listOf(tileUrl),
@@ -325,8 +360,12 @@ private suspend fun executeCameraCommand(mapState: MapState, command: MapCameraC
     )
 }
 
-internal const val OPENFREEMAP_LIBERTY_STYLE_URL = "https://tiles.openfreemap.org/styles/liberty"
+internal const val OPENFREEMAP_LIBERTY_STYLE_URL = MapStyleCatalog.OPENFREEMAP_LIBERTY_STYLE_URL
 internal const val WAYMARKED_HIKING_TILES_URL = "https://tile.waymarkedtrails.org/hiking/{z}/{x}/{y}.png"
+private const val BASE_RASTER_LAYER_ID = "openhikes-base-raster-tiles"
+private const val RASTER_TILE_SIZE = 256
+private const val RASTER_MIN_ZOOM = 0
+private const val DEFAULT_RASTER_MAX_ZOOM = 19
 private const val HIKING_ROUTES_LAYER_ID = "openhikes-waymarked-hiking-routes"
 private const val WAYMARKED_TILE_SIZE = 256
 private const val WAYMARKED_MIN_ZOOM = 0

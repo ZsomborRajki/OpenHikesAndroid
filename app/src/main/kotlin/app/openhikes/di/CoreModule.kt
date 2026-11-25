@@ -8,6 +8,7 @@ import app.openhikes.core.common.IoDispatcher
 import app.openhikes.core.common.MainDispatcher
 import app.openhikes.core.common.OpenHikesDispatchers
 import app.openhikes.core.model.AppBuildInfo
+import app.openhikes.core.model.MapProviderKeys
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -64,5 +65,12 @@ object CoreModule {
     fun provideAppBuildInfo(): AppBuildInfo = AppBuildInfo(
         versionName = BuildConfig.VERSION_NAME,
         versionCode = BuildConfig.VERSION_CODE
+    )
+
+    @Provides
+    @Singleton
+    fun provideMapProviderKeys(): MapProviderKeys = MapProviderKeys(
+        stadiaApiKey = BuildConfig.STADIA_API_KEY.takeIf { it.isNotBlank() },
+        thunderforestApiKey = BuildConfig.THUNDERFOREST_API_KEY.takeIf { it.isNotBlank() }
     )
 }

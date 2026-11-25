@@ -1,8 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">OpenHikes</string>
-    <string name="map_hiking_routes_show_description">Show hiking routes overlay</string>
-    <string name="map_hiking_routes_hide_description">Hide hiking routes overlay</string>
+    <string name="action_map_modes">Map Modes</string>
     <string name="map_zoom_in_description">Zoom in</string>
     <string name="map_zoom_out_description">Zoom out</string>
     <string name="map_reset_north_description">Reset map north</string>
@@ -13,7 +12,6 @@
     <string name="map_sheet_collapse_action">Collapse sheet</string>
     <string name="action_record_hike">Record hike</string>
     <string name="action_open_active_recording">Open active recording</string>
-    <string name="action_offline_maps">Offline maps</string>
     <string name="walk_started_pill_label">Hike started on %1$s</string>
     <string name="walk_started_pill_dismiss_description">Dismiss hike started notice</string>
     <string name="map_junction_warnings_description">Junction Warnings</string>

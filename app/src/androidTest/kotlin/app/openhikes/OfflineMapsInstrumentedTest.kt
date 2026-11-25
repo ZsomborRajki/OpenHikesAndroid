@@ -55,8 +55,11 @@ class OfflineMapsInstrumentedTest {
         }
 
         ActivityScenario.launch<MainActivity>(intent).use { _ ->
-            composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.MAP_OFFLINE_MAPS_BUTTON))
-            composeRule.onNodeWithTag(OpenHikesTestTags.MAP_OFFLINE_MAPS_BUTTON).performClick()
+            composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.MAP_MODES_BUTTON))
+            composeRule.onNodeWithTag(OpenHikesTestTags.MAP_MODES_BUTTON).performClick()
+            composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.MAP_MODES_SCREEN))
+            composeRule.onNodeWithTag(OpenHikesTestTags.MAP_MODES_SCREEN).performScrollToKey("offline-maps")
+            composeRule.onNodeWithTag(OpenHikesTestTags.MAP_MODES_OFFLINE_MAPS).performClick()
             composeRule.waitUntilAtLeastOneExists(
                 hasTestTag(OpenHikesTestTags.offlineCountry("AT")),
                 timeoutMillis = 5_000

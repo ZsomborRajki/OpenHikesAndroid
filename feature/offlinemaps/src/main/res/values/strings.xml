@@ -41,8 +41,6 @@
     <string name="offline_maps_action_cancel">Cancel Download</string>
     <string name="offline_maps_action_retry">Try Again</string>
     <string name="offline_maps_action_delete">Delete %1$s</string>
-    <string name="offline_maps_style_openfreemap">OpenFreeMap</string>
-    <string name="offline_maps_style_other">another map</string>
     <string name="offline_maps_expand_group_description">Expand %1$s</string>
     <string name="offline_maps_collapse_group_description">Collapse %1$s</string>
     <string name="offline_maps_state_expanded">Expanded</string>

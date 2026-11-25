@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="map_modes_title">Map Modes</string>
+    <string name="map_modes_close_description">Close Map Modes</string>
+    <string name="map_modes_style_openhikes_summary">OpenStreetMap’s data, drawn by OpenHikes. Countries can be downloaded for offline use.</string>
+    <string name="map_modes_style_openfreemap_summary">Vector street and outdoor map powered by OpenFreeMap. Needs a connection and can’t be saved for offline use.</string>
+    <string name="map_modes_style_osm_raster_summary">The standard map as openstreetmap.org draws it. Needs a connection to load tiles.</string>
+    <string name="map_modes_style_stadia_outdoors_summary">Topographic hiking map with contour lines and trails.</string>
+    <string name="map_modes_style_stamen_terrain_summary">Hillshaded terrain in natural colors.</string>
+    <string name="map_modes_style_thunderforest_outdoors_summary">Topographic map with sharp close-up trail detail.</string>
+    <string name="map_modes_needs_api_key">Needs API key</string>
+    <string name="map_modes_clean_map">Clean Map</string>
+    <string name="map_modes_hiking_routes">Hiking Routes</string>
+    <string name="map_modes_hiking_routes_caption">Marked trails from OpenStreetMap, drawn over any map in the style of Waymarked Trails.</string>
+    <string name="map_modes_offline_maps_title">Offline Maps</string>
+    <string name="map_modes_offline_maps_empty_summary">Download a country to use the OpenHikes map with no signal.</string>
+    <string name="map_modes_offline_maps_installed_summary">%1$s · %2$s</string>
+    <string name="map_modes_missing_api_key_note">Maps marked “Needs API key” aren’t available in this build.</string>
+    <string name="map_modes_save_error_message">Couldn’t save your map preference.</string>
+    <string name="map_modes_save_error_dismiss">Dismiss</string>
+    <string name="map_modes_open_credit_action">Open %1$s</string>
+</resources>

@@ -125,7 +125,6 @@ private fun ShellPreviewHost(widthDp: Float, heightDp: Float, darkTheme: Boolean
                 onSyncBackStack = {},
                 onSearchQueryChange = {},
                 onClearSearch = {},
-                onToggleHikingRoutes = {},
                 onZoomIn = {},
                 onZoomOut = {},
                 onResetNorth = {},
