@@ -1,5 +1,6 @@
 package app.openhikes.core.data
 
+import app.openhikes.core.model.EditedLine
 import app.openhikes.core.model.ExportedGpx
 import app.openhikes.core.model.GpxImportResult
 import app.openhikes.core.model.Hike
@@ -9,6 +10,9 @@ import app.openhikes.core.model.HikeMapRoute
 import app.openhikes.core.model.HikeSummary
 import app.openhikes.core.model.HikeWalk
 import app.openhikes.core.model.PreparedRecording
+import app.openhikes.core.model.RouteCoordinate
+import app.openhikes.core.model.RouteEditOutcome
+import app.openhikes.core.model.RouteEditSources
 import app.openhikes.core.model.RouteStyleUpdate
 import app.openhikes.core.model.TrailWalkEndReason
 import app.openhikes.core.model.TrailWalkRecord
@@ -42,6 +46,16 @@ interface HikeRepository {
     suspend fun renameHike(hikeId: HikeId, draftTitle: String): Result<Unit>
 
     suspend fun updateRouteStyle(hikeId: HikeId, style: RouteStyleUpdate): Result<Unit>
+
+    suspend fun loadRouteEditSources(hikeId: HikeId): RouteEditSources?
+
+    suspend fun applyRouteEdit(
+        hikeId: HikeId,
+        expectedCurrentRoute: List<RouteCoordinate>,
+        edited: EditedLine
+    ): RouteEditOutcome
+
+    suspend fun revertRouteEdit(hikeId: HikeId, expectedCurrentRoute: List<RouteCoordinate>): RouteEditOutcome
 
     suspend fun setAutoFollowEnabled(hikeId: HikeId, enabled: Boolean): Result<Unit>
 

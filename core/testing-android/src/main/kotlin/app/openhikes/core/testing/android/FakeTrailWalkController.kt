@@ -10,6 +10,7 @@ import app.openhikes.core.location.TrailWalkStartNotice
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeWalk
+import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteProfile
 import app.openhikes.core.model.TrailWalkEndReason
 import app.openhikes.core.model.TrailWalkPhase
@@ -46,6 +47,7 @@ class FakeTrailWalkController(
         private set
     var lastAutoFollowChange: Pair<HikeId, Boolean>? = null
         private set
+    val routeChangedHikeIds: MutableList<HikeId> = mutableListOf()
 
     fun setSession(state: TrailWalkSessionState) {
         sessionFlow.value = state
@@ -145,6 +147,13 @@ class FakeTrailWalkController(
     }
 
     override fun onHikeDeleted(hikeId: HikeId) {
+        if (sessionFlow.value.walkedHikeId == hikeId) {
+            clearSession(null)
+        }
+    }
+
+    override fun onHikeRouteChanged(hikeId: HikeId, newRoute: List<RouteCoordinate>) {
+        routeChangedHikeIds.add(hikeId)
         if (sessionFlow.value.walkedHikeId == hikeId) {
             clearSession(null)
         }

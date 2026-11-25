@@ -92,4 +92,26 @@ object OpenHikesIcons {
     @DrawableRes val VolumeOff: Int = R.drawable.ic_volume_off_24
 
     @DrawableRes val Directions: Int = R.drawable.ic_directions_24
+
+    @DrawableRes val Route: Int = R.drawable.ic_route_24
+
+    @DrawableRes val ContentCut: Int = R.drawable.ic_content_cut_24
+
+    @DrawableRes val Undo: Int = R.drawable.ic_undo_24
+
+    @DrawableRes val SwapHoriz: Int = R.drawable.ic_swap_horiz_24
+
+    @DrawableRes val Loop: Int = R.drawable.ic_loop_24
+
+    @DrawableRes val Flag: Int = R.drawable.ic_flag_24
+
+    @DrawableRes val DirectionsCar: Int = R.drawable.ic_directions_car_24
+
+    @DrawableRes val Straighten: Int = R.drawable.ic_straighten_24
+
+    @DrawableRes val ChevronLeft: Int = R.drawable.ic_chevron_left_24
+
+    @DrawableRes val MoreHoriz: Int = R.drawable.ic_more_horiz_24
+
+    @DrawableRes val UTurnRight: Int = R.drawable.ic_u_turn_right_24
 }

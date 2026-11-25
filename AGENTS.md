@@ -17,15 +17,18 @@ Supporting reference docs:
   pyramid, porting `OpenHikesUITests` fixtures/tags, static analysis wiring, and
   Phase 0–4 bootstrap roadmap.
 
-> **Repository status:** Phase 6 complete (Map Modes & Style Switcher: pure-JVM
-> `MapStyleCatalog`, `MapProviderKeys`, `TilePreviewFrame`, and Map Modes
-> attribution merging in `:core:model`; multi-style vector/raster renderer and
-> cached 2×2 `HttpMapStylePreviewProvider` in `:core:map`; new `:feature:map`
-> module with Material 3 Expressive Map Modes screen, stylized & live tile
-> cards, Oberammergau Clean Map vs. Hiking Routes visual picker, Offline Maps
-> summary row, and linked attribution footer; `:app` floating toolbar Map Modes
-> integration, local-debug-only optional key wiring, and ported Tier 1/2/3 +
-> screenshot tests). Phases 0–6 are complete.
+> **Repository status:** Phase 7 complete (Route Editing: pure-JVM `RouteShape`,
+> `RouteCarriedEnds`, `RouteTrim`, `RouteStep`/`RouteSteps`, `RouteEdit`,
+> `RouteTrimLine`, `EditedLine`, and `RouteStretchRouter` in `:core:model`; Room
+> v3 `hike_original_route_chunks` & `route_edit_json` with atomic
+> `RouteEditStore` and active-walk `ROUTE_CHANGED` invalidation across
+> `:core:database`, `:core:data`, and `:core:location`; isolated
+> `RouteEditOverlayState`, cut/kept/stretch/pull MapLibre layers, and interactive
+> map handles & long-press line pull in `:core:map`; new `:feature:routeedit`
+> module with Material 3 Expressive trimmer chart, live figures, Not on Foot
+> one-tap offers, Stretch & Whole Route actions, Undo, and Revert to Original;
+> `:feature:hikes` Edit Route entry point, `:app` shell wiring, and ported Tier
+> 1/2/3 + screenshot tests). Phases 0–7 are complete.
 
 ---
 

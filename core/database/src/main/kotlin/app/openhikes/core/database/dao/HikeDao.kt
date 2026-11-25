@@ -5,7 +5,9 @@ import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import androidx.room.Update
 import app.openhikes.core.database.entity.HikeEntity
+import app.openhikes.core.database.entity.HikeOriginalRouteChunkEntity
 import app.openhikes.core.database.entity.HikeRouteChunkEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -48,6 +50,9 @@ interface HikeDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertHike(hike: HikeEntity)
 
+    @Update
+    suspend fun updateHike(hike: HikeEntity): Int
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertRouteChunks(chunks: List<HikeRouteChunkEntity>)
 
@@ -65,9 +70,17 @@ interface HikeDao {
     @Query("DELETE FROM hike_route_chunks WHERE hike_id = :hikeId")
     suspend fun deleteRouteChunks(hikeId: String): Int
 
+    /**
+     * Updates an existing hike row in place (falling back to insert when absent) and replaces
+     * only its active `hike_route_chunks`. Using [updateHike] instead of `INSERT OR REPLACE`
+     * avoids firing `ON DELETE CASCADE` on `hike_original_route_chunks`, `hike_walks`, and
+     * `trail_points`.
+     */
     @Transaction
     suspend fun replaceHikeWithRoute(hike: HikeEntity, routeChunks: List<HikeRouteChunkEntity>) {
-        insertHike(hike)
+        if (updateHike(hike) == 0) {
+            insertHike(hike)
+        }
         deleteRouteChunks(hike.id)
         if (routeChunks.isNotEmpty()) {
             insertRouteChunks(routeChunks)
@@ -97,6 +110,23 @@ interface HikeDao {
         routeWidthDp: Double,
         routeLinePatternId: String
     ): Int
+
+    @Query("SELECT * FROM hike_original_route_chunks WHERE hike_id = :hikeId ORDER BY chunk_index ASC")
+    suspend fun getOriginalRouteChunks(hikeId: String): List<HikeOriginalRouteChunkEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOriginalRouteChunks(chunks: List<HikeOriginalRouteChunkEntity>)
+
+    @Query("DELETE FROM hike_original_route_chunks WHERE hike_id = :hikeId")
+    suspend fun deleteOriginalRouteChunks(hikeId: String): Int
+
+    @Transaction
+    suspend fun replaceOriginalRouteChunks(hikeId: String, chunks: List<HikeOriginalRouteChunkEntity>) {
+        deleteOriginalRouteChunks(hikeId)
+        if (chunks.isNotEmpty()) {
+            insertOriginalRouteChunks(chunks)
+        }
+    }
 
     @Query("DELETE FROM hikes WHERE id = :hikeId")
     suspend fun deleteHikeById(hikeId: String): Int

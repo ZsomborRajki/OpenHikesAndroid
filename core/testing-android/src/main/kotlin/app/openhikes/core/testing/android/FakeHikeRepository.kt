@@ -6,6 +6,7 @@ import app.openhikes.core.common.gpx.GpxExporter
 import app.openhikes.core.common.gpx.GpxParseResult
 import app.openhikes.core.common.gpx.GpxParser
 import app.openhikes.core.data.HikeRepository
+import app.openhikes.core.model.EditedLine
 import app.openhikes.core.model.ExportedGpx
 import app.openhikes.core.model.GpxImportFailure
 import app.openhikes.core.model.GpxImportResult
@@ -18,6 +19,11 @@ import app.openhikes.core.model.HikeSummary
 import app.openhikes.core.model.HikeWalk
 import app.openhikes.core.model.PreparedRecording
 import app.openhikes.core.model.RouteBorder
+import app.openhikes.core.model.RouteCoordinate
+import app.openhikes.core.model.RouteEdit
+import app.openhikes.core.model.RouteEditOutcome
+import app.openhikes.core.model.RouteEditRefusal
+import app.openhikes.core.model.RouteEditSources
 import app.openhikes.core.model.RouteLinePattern
 import app.openhikes.core.model.RouteStyleUpdate
 import app.openhikes.core.model.RouteTint
@@ -26,6 +32,8 @@ import app.openhikes.core.model.TrailWalkEndReason
 import app.openhikes.core.model.TrailWalkRecord
 import java.io.IOException
 import java.util.UUID
+import kotlin.math.max
+import kotlin.math.min
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
@@ -41,10 +49,13 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
     private val walksState = MutableStateFlow<List<HikeWalk>>(emptyList())
     private val openWalksByHike = MutableStateFlow<Map<HikeId, TrailWalkRecord>>(emptyMap())
     private val uriPayloads = HashMap<String, Pair<String?, ByteArray>>()
+    private val originalRoutesByHike = HashMap<HikeId, List<RouteCoordinate>>()
+    private val routeEditsByHike = HashMap<HikeId, RouteEdit>()
 
     var nextImportFailure: GpxImportFailure? = null
     var nextRenameFailure: Throwable? = null
     var nextStyleFailure: Throwable? = null
+    var nextRouteEditRefusal: RouteEditRefusal? = null
     var nextDeleteFailure: Throwable? = null
     var nextExportFailure: Throwable? = null
     var nextFinalizeFailure: Throwable? = null
@@ -243,6 +254,206 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
             }
         }
         return if (found) Result.success(Unit) else Result.failure(NoSuchElementException("Hike not found"))
+    }
+
+    override suspend fun loadRouteEditSources(hikeId: HikeId): RouteEditSources? {
+        val hike = hikesState.value.firstOrNull { it.id == hikeId } ?: return null
+        val edit = routeEditsByHike[hikeId]
+        val current = hike.route
+        return when {
+            edit == null -> RouteEditSources(current = current, saved = current, edit = null)
+            !edit.describes(current) -> RouteEditSources(current = current, saved = current, edit = edit.rebased)
+            edit.original == null -> RouteEditSources(current = current, saved = current, edit = edit)
+            else -> {
+                val original = originalRoutesByHike[hikeId].orEmpty()
+                RouteEditSources(
+                    current = current,
+                    saved = if (original.size > 1) original else current,
+                    edit = edit,
+                    isMissingOriginal = original.size <= 1
+                )
+            }
+        }
+    }
+
+    override suspend fun applyRouteEdit(
+        hikeId: HikeId,
+        expectedCurrentRoute: List<RouteCoordinate>,
+        edited: EditedLine
+    ): RouteEditOutcome {
+        val forcedRefusal = nextRouteEditRefusal?.also { nextRouteEditRefusal = null }
+        val hike = hikesState.value.firstOrNull { it.id == hikeId }
+        return when {
+            forcedRefusal != null -> RouteEditOutcome.Refused(forcedRefusal)
+            hike == null || hike.route != expectedCurrentRoute -> RouteEditOutcome.Refused(
+                RouteEditRefusal.LINE_CHANGED
+            )
+            else -> commitFakeRouteEdit(hikeId, hike, edited)
+        }
+    }
+
+    private fun commitFakeRouteEdit(hikeId: HikeId, hike: Hike, edited: EditedLine): RouteEditOutcome {
+        val stored = routeEditsByHike[hikeId]
+        val baseEdit = when {
+            stored == null -> RouteEdit()
+            !stored.describes(hike.route) -> stored.rebased
+            else -> stored
+        }
+        val recordedWalk = walksState.value
+            .firstOrNull { it.hikeId == hikeId && it.endReason == TrailWalkEndReason.RECORDED }
+        val original = baseEdit.original ?: RouteEdit.Original(
+            distanceMeters = hike.distanceMeters,
+            dateEpochMillis = hike.dateEpochMillis,
+            durationSeconds = hike.durationSeconds,
+            recordedWalk = recordedWalk?.let { RouteEdit.RecordedWalk.from(it) },
+            notOnFoot = baseEdit.notOnFoot
+        ).also { originalRoutesByHike[hikeId] = hike.route }
+        routeEditsByHike[hikeId] = buildNextRouteEdit(baseEdit, original, edited)
+        applyEditedHikeState(hikeId, hike, original, edited)
+        if (recordedWalk != null) {
+            applyEditedRecordedWalk(recordedWalk, original, edited)
+        }
+        return RouteEditOutcome.Saved(edited.route)
+    }
+
+    private fun buildNextRouteEdit(baseEdit: RouteEdit, original: RouteEdit.Original, edited: EditedLine): RouteEdit =
+        baseEdit.copy(
+            original = original,
+            trimStartMeters = edited.cuts.range?.start,
+            trimEndMeters = edited.cuts.range?.endInclusive,
+            trimEndPauses = if (edited.cuts.range == null || edited.cuts.takingOff.isEmpty) {
+                null
+            } else {
+                edited.cuts.takingOff.rawValue
+            },
+            steps = edited.steps,
+            notOnFoot = edited.notOnFoot,
+            lineRevision = edited.revision
+        )
+
+    private fun applyEditedHikeState(hikeId: HikeId, hike: Hike, original: RouteEdit.Original, edited: EditedLine) {
+        val newDistance = max(0.0, min(edited.lengthMeters, hike.distanceMeters - edited.removedMeters))
+        val newStats = HikeRouteStatistics.from(newDistance, edited.route)
+        val newDate = when (val s = edited.start) {
+            EditedLine.ClockEnd.Unchanged -> hike.dateEpochMillis
+            is EditedLine.ClockEnd.Cut -> s.epochMillis
+            EditedLine.ClockEnd.Uncut -> original.dateEpochMillis
+        }
+        hikesState.update { list ->
+            list.map { item ->
+                if (item.id == hikeId) {
+                    item.copy(
+                        distanceMeters = newDistance,
+                        durationSeconds = newStats.durationSeconds,
+                        dateEpochMillis = newDate,
+                        route = edited.route
+                    )
+                } else {
+                    item
+                }
+            }
+        }
+    }
+
+    private fun applyEditedRecordedWalk(recordedWalk: HikeWalk, original: RouteEdit.Original, edited: EditedLine) {
+        val savedWalk = original.recordedWalk
+        val startMillis = when (val s = edited.start) {
+            EditedLine.ClockEnd.Unchanged -> recordedWalk.startedAtEpochMillis
+            is EditedLine.ClockEnd.Cut -> s.epochMillis
+            EditedLine.ClockEnd.Uncut -> savedWalk?.startedAtEpochMillis ?: recordedWalk.startedAtEpochMillis
+        }
+        val endMillis = when (val e = edited.end) {
+            EditedLine.ClockEnd.Unchanged -> recordedWalk.endedAtEpochMillis
+            is EditedLine.ClockEnd.Cut -> e.epochMillis
+            EditedLine.ClockEnd.Uncut -> savedWalk?.endedAtEpochMillis ?: recordedWalk.endedAtEpochMillis
+        }
+        walksState.update { list ->
+            list.map { walk ->
+                if (walk.id == recordedWalk.id) {
+                    walk.copy(
+                        startedAtEpochMillis = startMillis,
+                        endedAtEpochMillis = max(startMillis, endMillis),
+                        distanceMeters = edited.lengthMeters,
+                        durationSeconds = max(0.0, walk.durationSeconds - edited.removedSeconds),
+                        coveredIntervals = listOf(0.0, edited.lengthMeters),
+                        furthestDistanceMeters = edited.lengthMeters,
+                        routeDistanceMeters = edited.lengthMeters,
+                        routeRevision = edited.revision
+                    )
+                } else {
+                    walk
+                }
+            }
+        }
+    }
+
+    override suspend fun revertRouteEdit(
+        hikeId: HikeId,
+        expectedCurrentRoute: List<RouteCoordinate>
+    ): RouteEditOutcome {
+        val forcedRefusal = nextRouteEditRefusal?.also { nextRouteEditRefusal = null }
+        val hike = hikesState.value.firstOrNull { it.id == hikeId }
+        val original = routeEditsByHike[hikeId]?.original
+        val originalRoute = originalRoutesByHike[hikeId]
+        return when {
+            forcedRefusal != null -> RouteEditOutcome.Refused(forcedRefusal)
+            hike == null || hike.route != expectedCurrentRoute -> RouteEditOutcome.Refused(
+                RouteEditRefusal.LINE_CHANGED
+            )
+            original == null || originalRoute == null -> RouteEditOutcome.Refused(RouteEditRefusal.NO_ORIGINAL)
+            else -> {
+                originalRoutesByHike.remove(hikeId)
+                val restoredEdit = RouteEdit(
+                    notOnFoot = original.notOnFoot?.copy(isChecked = true),
+                    lineRevision = TrailWalkRecord.routeRevision(originalRoute)
+                )
+                if (restoredEdit.isEmpty) routeEditsByHike.remove(hikeId) else routeEditsByHike[hikeId] = restoredEdit
+                restoreRevertedHikeAndWalk(hikeId, original, originalRoute)
+                RouteEditOutcome.Saved(originalRoute)
+            }
+        }
+    }
+
+    private fun restoreRevertedHikeAndWalk(
+        hikeId: HikeId,
+        original: RouteEdit.Original,
+        originalRoute: List<RouteCoordinate>
+    ) {
+        val stats = HikeRouteStatistics.from(original.distanceMeters, originalRoute)
+        hikesState.update { list ->
+            list.map { item ->
+                if (item.id == hikeId) {
+                    item.copy(
+                        distanceMeters = original.distanceMeters,
+                        durationSeconds = original.durationSeconds ?: stats.durationSeconds,
+                        dateEpochMillis = original.dateEpochMillis,
+                        route = originalRoute
+                    )
+                } else {
+                    item
+                }
+            }
+        }
+        original.recordedWalk?.let { savedWalk ->
+            walksState.update { list ->
+                list.map { walk ->
+                    if (walk.hikeId == hikeId && walk.endReason == TrailWalkEndReason.RECORDED) {
+                        walk.copy(
+                            startedAtEpochMillis = savedWalk.startedAtEpochMillis,
+                            endedAtEpochMillis = savedWalk.endedAtEpochMillis,
+                            distanceMeters = savedWalk.routeDistanceMeters,
+                            durationSeconds = savedWalk.durationSeconds,
+                            coveredIntervals = savedWalk.coveredIntervals,
+                            furthestDistanceMeters = savedWalk.furthestDistanceMeters,
+                            routeDistanceMeters = savedWalk.routeDistanceMeters,
+                            routeRevision = savedWalk.routeRevision
+                        )
+                    } else {
+                        walk
+                    }
+                }
+            }
+        }
     }
 
     override suspend fun setAutoFollowEnabled(hikeId: HikeId, enabled: Boolean): Result<Unit> {

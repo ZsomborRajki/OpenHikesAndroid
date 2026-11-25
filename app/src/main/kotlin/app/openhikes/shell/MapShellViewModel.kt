@@ -16,9 +16,12 @@ import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapCameraState
 import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.map.MapOverlayState
+import app.openhikes.core.map.MapRouteEditOverlay
 import app.openhikes.core.map.MapRouteHighlight
 import app.openhikes.core.map.MapRouteOverlay
 import app.openhikes.core.map.MapWalkCoverageOverlay
+import app.openhikes.core.map.RouteEditMapInteractionHandler
+import app.openhikes.core.map.RouteEditOverlayState
 import app.openhikes.core.map.RouteHighlightState
 import app.openhikes.core.map.WalkOverlayState
 import app.openhikes.core.map.toMapRouteOverlay
@@ -74,6 +77,7 @@ class MapShellViewModel @Inject constructor(
     private val trailWalkController: TrailWalkController,
     routeHighlightState: RouteHighlightState,
     walkOverlayState: WalkOverlayState,
+    private val routeEditOverlayState: RouteEditOverlayState,
     private val mapProviderKeys: MapProviderKeys,
     launchConfigHolder: LaunchConfigHolder,
     @DefaultDispatcher defaultDispatcher: CoroutineDispatcher
@@ -91,6 +95,7 @@ class MapShellViewModel @Inject constructor(
     val pendingCameraCommand: StateFlow<MapCameraCommand?> = mapClaimCoordinator.pendingCameraCommand
     val routeHighlight: StateFlow<MapRouteHighlight?> = routeHighlightState.highlight
     val walkCoverageOverlay: StateFlow<MapWalkCoverageOverlay?> = walkOverlayState.coverageOverlay
+    val routeEditOverlay: StateFlow<MapRouteEditOverlay?> = routeEditOverlayState.overlay
     val walkSession: StateFlow<TrailWalkSessionState> = trailWalkController.sessionState
     val showEndWalkForRecordingDialog: StateFlow<Boolean> = showEndWalkForRecordingDialogState.asStateFlow()
     val walkTimeLeftMark: StateFlow<WalkTimeLeftMark?> = trailWalkController.progressState
@@ -136,9 +141,12 @@ class MapShellViewModel @Inject constructor(
         mapClaimCoordinator.activeClaim
     ) { routes, activeClaim ->
         val selectedHikeId = activeClaim?.selectedHikeId
-        routes.map { route ->
-            route.toMapRouteOverlay(isSelected = route.hikeId == selectedHikeId)
-        }
+        val hiddenHikeId = activeClaim?.hiddenRouteHikeId
+        routes
+            .filterNot { it.hikeId == hiddenHikeId }
+            .map { route ->
+                route.toMapRouteOverlay(isSelected = route.hikeId == selectedHikeId)
+            }
     }.flowOn(defaultDispatcher)
 
     val chromeUiState: StateFlow<MapChromeUiState> = combine(
@@ -170,6 +178,8 @@ class MapShellViewModel @Inject constructor(
         started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
         initialValue = MapChromeUiState()
     )
+
+    fun routeEditHandler(): RouteEditMapInteractionHandler? = routeEditOverlayState.interactionHandler
 
     fun syncBackStack(keysInOrder: List<Any>) {
         mapClaimCoordinator.syncBackStack(keysInOrder)

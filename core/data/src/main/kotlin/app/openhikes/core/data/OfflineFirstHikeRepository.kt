@@ -13,6 +13,7 @@ import app.openhikes.core.database.dao.HikeDao
 import app.openhikes.core.database.dao.HikeLocalStateDao
 import app.openhikes.core.database.dao.HikeWalkDao
 import app.openhikes.core.database.dao.TrailPointDao
+import app.openhikes.core.model.EditedLine
 import app.openhikes.core.model.ExportedGpx
 import app.openhikes.core.model.GpxImportFailure
 import app.openhikes.core.model.GpxImportResult
@@ -23,6 +24,9 @@ import app.openhikes.core.model.HikeMapRoute
 import app.openhikes.core.model.HikeSummary
 import app.openhikes.core.model.HikeWalk
 import app.openhikes.core.model.PreparedRecording
+import app.openhikes.core.model.RouteCoordinate
+import app.openhikes.core.model.RouteEditOutcome
+import app.openhikes.core.model.RouteEditSources
 import app.openhikes.core.model.RouteStyleUpdate
 import app.openhikes.core.model.TrailWalkEndReason
 import app.openhikes.core.model.TrailWalkRecord
@@ -93,6 +97,18 @@ internal class OfflineFirstHikeRepository @Inject constructor(
         hikeDao = hikeDao,
         hikeWalkDao = hikeWalkDao,
         hikeLocalStateDao = hikeLocalStateDao,
+        shouldFailFirstSave = {
+            launchConfigHolder.current.value.failsFirstSave && !hasConsumedFirstSaveFailure.getAndSet(true)
+        },
+        ioDispatcher = ioDispatcher,
+        defaultDispatcher = defaultDispatcher
+    )
+    private val routeEditStore = RouteEditStore(
+        database = database,
+        hikeDao = hikeDao,
+        hikeWalkDao = hikeWalkDao,
+        hikeLocalStateDao = hikeLocalStateDao,
+        localStateRepairer = localStateRepairer,
         shouldFailFirstSave = {
             launchConfigHolder.current.value.failsFirstSave && !hasConsumedFirstSaveFailure.getAndSet(true)
         },
@@ -199,6 +215,20 @@ internal class OfflineFirstHikeRepository @Inject constructor(
                 Result.failure(NoSuchElementException("Hike not found: ${hikeId.value}"))
             }
         }
+
+    override suspend fun loadRouteEditSources(hikeId: HikeId): RouteEditSources? =
+        routeEditStore.loadRouteEditSources(hikeId)
+
+    override suspend fun applyRouteEdit(
+        hikeId: HikeId,
+        expectedCurrentRoute: List<RouteCoordinate>,
+        edited: EditedLine
+    ): RouteEditOutcome = routeEditStore.applyRouteEdit(hikeId, expectedCurrentRoute, edited)
+
+    override suspend fun revertRouteEdit(
+        hikeId: HikeId,
+        expectedCurrentRoute: List<RouteCoordinate>
+    ): RouteEditOutcome = routeEditStore.revertRouteEdit(hikeId, expectedCurrentRoute)
 
     override suspend fun setAutoFollowEnabled(hikeId: HikeId, enabled: Boolean): Result<Unit> =
         withContext(ioDispatcher) {

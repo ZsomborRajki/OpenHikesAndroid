@@ -37,6 +37,12 @@ data class HikeDetailRoute(override val hikeId: HikeId) : HikeScopedRoute
 data class RouteStyleRoute(override val hikeId: HikeId) : HikeScopedRoute
 
 /**
+ * Interactive route trimmer and step editor pushed from [HikeDetailRoute].
+ */
+@Serializable
+data class RouteEditRoute(override val hikeId: HikeId) : HikeScopedRoute
+
+/**
  * Finished walk summary destination pushed from [HikeDetailRoute] or walk completion.
  */
 @Serializable

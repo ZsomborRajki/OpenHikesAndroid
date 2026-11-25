@@ -6,6 +6,7 @@ import app.openhikes.core.database.dao.HikeDao
 import app.openhikes.core.database.dao.HikeWalkDao
 import app.openhikes.core.database.dao.TrailPointDao
 import app.openhikes.core.database.entity.HikeEntity
+import app.openhikes.core.database.entity.HikeOriginalRouteChunkEntity
 import app.openhikes.core.database.entity.HikeRouteChunkEntity
 import app.openhikes.core.database.entity.HikeWalkEntity
 import app.openhikes.core.database.entity.TrailPointEntity
@@ -18,10 +19,11 @@ import app.openhikes.core.database.entity.TrailPointEntity
     entities = [
         HikeEntity::class,
         HikeRouteChunkEntity::class,
+        HikeOriginalRouteChunkEntity::class,
         TrailPointEntity::class,
         HikeWalkEntity::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 abstract class OpenHikesDatabase : RoomDatabase() {

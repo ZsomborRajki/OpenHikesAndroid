@@ -77,6 +77,7 @@ dependencies {
     implementation(projects.feature.map)
     implementation(projects.feature.offlinemaps)
     implementation(projects.feature.recording)
+    implementation(projects.feature.routeedit)
     implementation(projects.feature.settings)
     implementation(projects.feature.walks)
 

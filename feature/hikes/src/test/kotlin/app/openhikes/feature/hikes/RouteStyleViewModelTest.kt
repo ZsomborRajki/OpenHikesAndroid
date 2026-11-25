@@ -227,6 +227,14 @@ class RouteStyleViewModelTest {
 
         override suspend fun deleteRecordingDraft(hikeId: HikeId): Result<Unit> = error("Unused")
         override suspend fun deleteOwnedOrphanedRecordingDrafts(exceptHikeId: HikeId?): Result<Int> = error("Unused")
+        override suspend fun loadRouteEditSources(hikeId: HikeId) = error("Unused")
+        override suspend fun applyRouteEdit(
+            hikeId: HikeId,
+            expectedCurrentRoute: List<RouteCoordinate>,
+            edited: app.openhikes.core.model.EditedLine
+        ) = error("Unused")
+        override suspend fun revertRouteEdit(hikeId: HikeId, expectedCurrentRoute: List<RouteCoordinate>) =
+            error("Unused")
         override suspend fun seedFixtureIfConfigured(): HikeId? = null
 
         override suspend fun updateRouteStyle(hikeId: HikeId, style: RouteStyleUpdate): Result<Unit> {

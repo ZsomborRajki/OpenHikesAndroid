@@ -17,8 +17,10 @@ import app.openhikes.core.data.OfflineCountryRepository
 import app.openhikes.core.data.OfflineFirstHikeRepository
 import app.openhikes.core.data.OfflineFirstUserSettingsRepository
 import app.openhikes.core.data.OfflineTileArchiveSource
+import app.openhikes.core.data.StraightFallbackRouteStretchRouter
 import app.openhikes.core.data.UserSettingsRepository
 import app.openhikes.core.data.WorkManagerOfflineCountryDownloadScheduler
+import app.openhikes.core.model.RouteStretchRouter
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
@@ -68,6 +70,10 @@ abstract class DataModule {
     internal abstract fun bindOfflineCountryDownloadScheduler(
         impl: WorkManagerOfflineCountryDownloadScheduler
     ): OfflineCountryDownloadScheduler
+
+    @Binds
+    @Singleton
+    internal abstract fun bindRouteStretchRouter(impl: StraightFallbackRouteStretchRouter): RouteStretchRouter
 }
 
 @Module

@@ -65,6 +65,7 @@ fun HikeDetailRoute(
     onHikeDeleted: (HikeId) -> Unit,
     onCollapseSheet: () -> Unit,
     modifier: Modifier = Modifier,
+    onOpenRouteEdit: (HikeId) -> Unit = {},
     viewModel: HikeDetailViewModel = hiltViewModel<HikeDetailViewModel, HikeDetailViewModel.Factory>(
         key = hikeId.value
     ) { factory ->
@@ -98,6 +99,7 @@ fun HikeDetailRoute(
         },
         onExportGpx = viewModel::onRequestExportGpx,
         onOpenRouteStyle = { onOpenRouteStyle(hikeId) },
+        onOpenRouteEdit = { onOpenRouteEdit(hikeId) },
         onStartRename = viewModel::onStartRename,
         onTitleDraftChange = viewModel::onTitleDraftChange,
         onCommitRename = viewModel::onCommitRename,
@@ -165,6 +167,7 @@ fun HikeDetailScreen(
     onConfirmDelete: () -> Unit,
     onCancelDelete: () -> Unit,
     modifier: Modifier = Modifier,
+    onOpenRouteEdit: () -> Unit = {},
     walkProgressFlow: StateFlow<TrailWalkProgressState> = EmptyWalkProgressFlow,
     activeSecondsProvider: () -> Double = { 0.0 },
     onDismissMessages: () -> Unit = {},
@@ -205,6 +208,7 @@ fun HikeDetailScreen(
                     onExportGpx = onExportGpx,
                     onOpenOfflineDialog = { onOfflineAction(HikeOfflineAction.OpenDialog) },
                     onOpenRouteStyle = onOpenRouteStyle,
+                    onOpenRouteEdit = onOpenRouteEdit,
                     onStartRename = {
                         onStartRename()
                         coroutineScope.launch { listState.animateScrollToItem(0) }
@@ -276,6 +280,7 @@ private data class DetailListCallbacks(
     val onExportGpx: () -> Unit,
     val onOpenOfflineDialog: () -> Unit,
     val onOpenRouteStyle: () -> Unit,
+    val onOpenRouteEdit: () -> Unit,
     val onStartRename: () -> Unit,
     val onTitleDraftChange: (String) -> Unit,
     val onCommitRename: () -> Unit,
@@ -392,6 +397,7 @@ private fun LazyListScope.addDetailTabItems(uiState: HikeDetailUiState, callback
     addDetailSecondaryItems(
         uiState = uiState,
         onOpenRouteStyle = callbacks.onOpenRouteStyle,
+        onOpenRouteEdit = callbacks.onOpenRouteEdit,
         onStartRename = callbacks.onStartRename,
         onRequestDelete = callbacks.onRequestDelete
     )
@@ -417,6 +423,7 @@ private fun LazyListScope.addHistoryTabItems(uiState: HikeDetailUiState, onOpenW
 private fun LazyListScope.addDetailSecondaryItems(
     uiState: HikeDetailUiState,
     onOpenRouteStyle: () -> Unit,
+    onOpenRouteEdit: () -> Unit,
     onStartRename: () -> Unit,
     onRequestDelete: () -> Unit
 ) {
@@ -442,7 +449,9 @@ private fun LazyListScope.addDetailSecondaryItems(
     item(key = "closing_actions") {
         HikeClosingActionsCard(
             onStartRename = onStartRename,
-            onRequestDelete = onRequestDelete
+            onRequestDelete = onRequestDelete,
+            showEditRoute = hike.route.size > 1,
+            onOpenRouteEdit = onOpenRouteEdit
         )
     }
 }
