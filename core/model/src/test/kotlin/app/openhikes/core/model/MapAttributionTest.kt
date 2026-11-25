@@ -49,4 +49,51 @@ class MapAttributionTest {
         assertThat(attribution.compactText)
             .isEqualTo("© OpenStreetMap, ESA WorldCover, Waymarked Trails")
     }
+
+    @Test
+    fun rasterAndCommercialStylesCarryRequiredCreditsAndOptionalHikingRoutes() {
+        assertThat(MapAttribution.forStyle(MapStyleId.OSM_RASTER, showsHikingRoutes = false).compactText)
+            .isEqualTo("© OpenStreetMap")
+        assertThat(MapAttribution.forStyle(MapStyleId.OSM_RASTER, showsHikingRoutes = true).compactText)
+            .isEqualTo("© OpenStreetMap, Waymarked Trails")
+
+        assertThat(
+            MapAttribution.forStyle(MapStyleId.STADIA_OUTDOORS, showsHikingRoutes = false).credits.map {
+                it.compactTitle
+            }
+        )
+            .containsExactly("Stadia Maps", "OpenMapTiles", "OpenStreetMap")
+            .inOrder()
+        assertThat(
+            MapAttribution.forStyle(MapStyleId.STAMEN_TERRAIN, showsHikingRoutes = false).credits.map {
+                it.compactTitle
+            }
+        )
+            .containsExactly("Stadia Maps", "Stamen Design", "OpenMapTiles", "OpenStreetMap")
+            .inOrder()
+        assertThat(
+            MapAttribution.forStyle(MapStyleId.THUNDERFOREST_OUTDOORS, showsHikingRoutes = false).credits.map {
+                it.compactTitle
+            }
+        ).containsExactly("Thunderforest", "OpenStreetMap").inOrder()
+    }
+
+    @Test
+    fun mapModesAttributionMergesSelectedUsableCardsAndSampleRouteCreditsWithoutDuplicates() {
+        val usable = MapStyleCatalog.usableStyles(MapProviderKeys.Empty)
+        val attribution = MapAttribution.forMapModes(
+            selected = MapStyleCatalog.openHikes,
+            showsHikingRoutes = false,
+            picturedStyles = usable
+        )
+
+        assertThat(attribution.credits.map { it.compactTitle }).containsExactly(
+            "OpenStreetMap",
+            "ESA WorldCover",
+            "OpenFreeMap",
+            "OpenMapTiles",
+            "Waymarked Trails"
+        ).inOrder()
+        assertThat(attribution.credits.map { it.url }).containsNoDuplicates()
+    }
 }

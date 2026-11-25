@@ -17,14 +17,15 @@ Supporting reference docs:
   pyramid, porting `OpenHikesUITests` fixtures/tags, static analysis wiring, and
   Phase 0–4 bootstrap roadmap.
 
-> **Repository status:** Phase 5 complete (Trail Following & Walks: pure-JVM coverage,
-> DIN 33466 / pace-calibrated `WalkTimeLeft`, `OffTrailWatch`, and `JunctionAnnouncer`
-> in `:core:model`; Room v2 walk persistence & device-local open-walk state in
-> `:core:database` / `:core:data`; `TrailWalkController`, spoken junction warnings,
-> `ForegroundService`, and Android 16.0-safe Live Updates following mode in
-> `:core:location`; `WalkOverlayState` covered-stretch map layers in `:core:map`;
-> `:feature:walks` summary UI, `:feature:hikes` trail-following & History tabs,
-> `:app` map chrome, and ported Tier 1/2/3 + screenshot tests). Phases 0–5 are complete.
+> **Repository status:** Phase 6 complete (Map Modes & Style Switcher: pure-JVM
+> `MapStyleCatalog`, `MapProviderKeys`, `TilePreviewFrame`, and Map Modes
+> attribution merging in `:core:model`; multi-style vector/raster renderer and
+> cached 2×2 `HttpMapStylePreviewProvider` in `:core:map`; new `:feature:map`
+> module with Material 3 Expressive Map Modes screen, stylized & live tile
+> cards, Oberammergau Clean Map vs. Hiking Routes visual picker, Offline Maps
+> summary row, and linked attribution footer; `:app` floating toolbar Map Modes
+> integration, local-debug-only optional key wiring, and ported Tier 1/2/3 +
+> screenshot tests). Phases 0–6 are complete.
 
 ---
 

@@ -14,7 +14,18 @@ object OpenHikesTestTags {
     const val MAP_ATTRIBUTION = "map-attribution"
     const val MAP_ATTRIBUTION_DIALOG = "map-attribution-dialog"
     const val SHEET_DRAG_HANDLE = "sheet-drag-handle"
-    const val HIKING_ROUTES_TOGGLE = "hiking-routes-toggle"
+    const val MAP_MODES_BUTTON = "map-modes-button"
+    const val MAP_MODES_SCREEN = "map-modes-screen"
+    const val MAP_MODES_TITLE = "map-modes-title"
+    const val MAP_MODES_CLOSE = "map-modes-close"
+    const val MAP_STYLE_ROW = "map-style-row"
+    const val MAP_STYLE_SUMMARY = "map-style-summary"
+    const val HIKING_ROUTES_OFF = "hiking-routes-off"
+    const val HIKING_ROUTES_ON = "hiking-routes-on"
+    const val MAP_MODES_OFFLINE_MAPS = "map-modes-offline-maps"
+    const val TILE_ATTRIBUTION = "tile-attribution"
+    const val MAP_MODES_API_KEY_NOTE = "map-modes-api-key-note"
+    const val MAP_MODES_SAVE_ERROR = "map-modes-save-error"
     const val MAP_ZOOM_IN_BUTTON = "map-zoom-in-button"
     const val MAP_ZOOM_OUT_BUTTON = "map-zoom-out-button"
     const val MAP_RESET_NORTH_BUTTON = "map-reset-north-button"
@@ -90,7 +101,6 @@ object OpenHikesTestTags {
     const val RECORDING_CURRENT_SPEED_ROW = "recording-current-speed-row"
     const val RECORDING_ACCURACY_ROW = "recording-accuracy-row"
     const val HIKE_SEGMENT = "hike-segment"
-    const val MAP_OFFLINE_MAPS_BUTTON = "map-offline-maps-button"
     const val SETTINGS_OFFLINE_MAPS = "settings-offline-maps"
     const val OFFLINE_MAPS_SCREEN = "offline-maps-screen"
     const val OFFLINE_MAPS_BACK = "offline-maps-back"
@@ -132,6 +142,8 @@ object OpenHikesTestTags {
     const val WALK_RECORDING_CONFIRM_DIALOG = "walk-recording-confirm-dialog"
 
     fun walkRow(walkId: String): String = "$WALK_ROW-$walkId"
+
+    fun mapStyleCard(styleId: String): String = "provider-row-$styleId"
 
     fun hikeSegment(number: Int): String = "$HIKE_SEGMENT-$number"
 

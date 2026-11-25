@@ -152,3 +152,18 @@ GitHub issues once created.)*
      `:app` Walk Started pill / Time-Left bubble / Junction Warnings toolbar
      button / off-trail & recording-conflict dialogs, and ported Tier 1/2/3 +
      screenshot tests.
+7. **Phase 6 — Map Modes & Style Switcher (Slice 6):**
+   - Pure-JVM `MapStyleCatalog`, `MapProviderKeys`, `TilePreviewFrame`, and
+     `MapAttribution.forMapModes` in `:core:model` (preserving OSMF &
+     Thunderforest no-bulk-download invariants and key-gated fallback).
+   - Multi-style MapLibre Compose rendering (OpenHikes vector, OpenFreeMap
+     Liberty vector, OpenStreetMap raster, plus local-debug-only Stadia &
+     Thunderforest raster styles) and `HttpMapStylePreviewProvider` 2×2 tile
+     compositing in `:core:map`.
+   - `:feature:map` Map Modes screen (`MapModesRoute`) with horizontal style
+     cards, stylized cartographic swatches + live tile previews, Clean Map vs.
+     Hiking Routes visual cards, Offline Maps summary row, and accessible linked
+     attribution footer.
+   - `:app` floating toolbar Map Modes button keeping the live map visible in
+     both portrait half-sheet and landscape/tablet side-panel layouts, plus
+     ported Tier 1/2/3 & screenshot tests.

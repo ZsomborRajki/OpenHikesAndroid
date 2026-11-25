@@ -19,12 +19,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FloatingToolbarDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -79,7 +79,7 @@ fun MapFloatingControls(
     sidePanelEdge: Dp,
     overlayState: MapOverlayState,
     showAttributionDialog: Boolean,
-    onToggleHikingRoutes: () -> Unit,
+    onOpenMapModes: () -> Unit,
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
     onResetNorth: () -> Unit,
@@ -87,9 +87,9 @@ fun MapFloatingControls(
     onDismissAttributionDialog: () -> Unit,
     onOpenUrl: (String) -> Unit,
     modifier: Modifier = Modifier,
+    isMapModesOpen: Boolean = false,
     isRecordingActive: Boolean = false,
     onOpenRecording: () -> Unit = {},
-    onOpenOfflineMaps: () -> Unit = {},
     walkChrome: MapWalkChromeState = MapWalkChromeState()
 ) {
     val safePadding = WindowInsets.safeDrawing.asPaddingValues()
@@ -109,12 +109,11 @@ fun MapFloatingControls(
         )
 
         MapActionToolbar(
-            showsHikingRoutes = overlayState.showsHikingRoutes,
+            isMapModesOpen = isMapModesOpen,
             isRecordingActive = isRecordingActive,
             walkChrome = walkChrome,
             onOpenRecording = onOpenRecording,
-            onOpenOfflineMaps = onOpenOfflineMaps,
-            onToggleHikingRoutes = onToggleHikingRoutes,
+            onOpenMapModes = onOpenMapModes,
             onZoomIn = onZoomIn,
             onZoomOut = onZoomOut,
             onResetNorth = onResetNorth,
@@ -177,23 +176,16 @@ private fun WalkChromeStack(
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun MapActionToolbar(
-    showsHikingRoutes: Boolean,
+    isMapModesOpen: Boolean,
     isRecordingActive: Boolean,
     walkChrome: MapWalkChromeState,
     onOpenRecording: () -> Unit,
-    onOpenOfflineMaps: () -> Unit,
-    onToggleHikingRoutes: () -> Unit,
+    onOpenMapModes: () -> Unit,
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
     onResetNorth: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val routesDescription = if (showsHikingRoutes) {
-        stringResource(R.string.map_hiking_routes_hide_description)
-    } else {
-        stringResource(R.string.map_hiking_routes_show_description)
-    }
-
     VerticalFloatingToolbar(
         expanded = true,
         colors = FloatingToolbarDefaults.standardFloatingToolbarColors(),
@@ -206,24 +198,7 @@ private fun MapActionToolbar(
                 onToggle = walkChrome.onToggleJunctionWarnings
             )
         }
-        MapToolbarIconButton(
-            iconRes = OpenHikesIcons.Map,
-            contentDescription = stringResource(R.string.action_offline_maps),
-            testTag = OpenHikesTestTags.MAP_OFFLINE_MAPS_BUTTON,
-            onClick = onOpenOfflineMaps
-        )
-        IconToggleButton(
-            checked = showsHikingRoutes,
-            onCheckedChange = { onToggleHikingRoutes() },
-            modifier = Modifier
-                .defaultMinSize(minWidth = TouchTargetMinSize, minHeight = TouchTargetMinSize)
-                .testTag(OpenHikesTestTags.HIKING_ROUTES_TOGGLE)
-        ) {
-            Icon(
-                painter = painterResource(OpenHikesIcons.Layers),
-                contentDescription = routesDescription
-            )
-        }
+        MapModesToolbarButton(isOpen = isMapModesOpen, onClick = onOpenMapModes)
         MapToolbarIconButton(
             iconRes = OpenHikesIcons.Add,
             contentDescription = stringResource(R.string.map_zoom_in_description),
@@ -242,6 +217,36 @@ private fun MapActionToolbar(
             testTag = OpenHikesTestTags.MAP_RESET_NORTH_BUTTON,
             onClick = onResetNorth
         )
+    }
+}
+
+@Composable
+private fun MapModesToolbarButton(isOpen: Boolean, onClick: () -> Unit) {
+    val label = stringResource(R.string.action_map_modes)
+    if (isOpen) {
+        FilledTonalIconButton(
+            onClick = onClick,
+            modifier = Modifier
+                .defaultMinSize(minWidth = TouchTargetMinSize, minHeight = TouchTargetMinSize)
+                .testTag(OpenHikesTestTags.MAP_MODES_BUTTON)
+        ) {
+            Icon(
+                painter = painterResource(OpenHikesIcons.Layers),
+                contentDescription = label
+            )
+        }
+    } else {
+        IconButton(
+            onClick = onClick,
+            modifier = Modifier
+                .defaultMinSize(minWidth = TouchTargetMinSize, minHeight = TouchTargetMinSize)
+                .testTag(OpenHikesTestTags.MAP_MODES_BUTTON)
+        ) {
+            Icon(
+                painter = painterResource(OpenHikesIcons.Layers),
+                contentDescription = label
+            )
+        }
     }
 }
 

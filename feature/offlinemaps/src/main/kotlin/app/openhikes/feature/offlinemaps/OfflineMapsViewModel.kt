@@ -12,6 +12,8 @@ import app.openhikes.core.map.MapClaim
 import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.map.toMapCountryOutline
 import app.openhikes.core.model.GeoCoordinate
+import app.openhikes.core.model.MapProviderKeys
+import app.openhikes.core.model.MapStyleCatalog
 import app.openhikes.core.model.MapStyleId
 import app.openhikes.core.model.OfflineCountriesState
 import app.openhikes.core.model.OfflineCountryDirectoryBuilder
@@ -46,6 +48,7 @@ class OfflineMapsViewModel @AssistedInject constructor(
     private val offlineCountryRepository: OfflineCountryRepository,
     private val userSettingsRepository: UserSettingsRepository,
     private val mapClaimCoordinator: MapClaimCoordinator,
+    mapProviderKeys: MapProviderKeys,
     locationFeed: LocationFeed,
     launchConfigHolder: LaunchConfigHolder,
     @DefaultDispatcher defaultDispatcher: CoroutineDispatcher
@@ -101,6 +104,7 @@ class OfflineMapsViewModel @AssistedInject constructor(
         buildOfflineMapsUiState(
             repoState = repoState,
             settings = settings,
+            mapProviderKeys = mapProviderKeys,
             controls = controls,
             initialUserLocation = initialUserLocation,
             availableSorts = availableSorts
@@ -274,6 +278,7 @@ private data class OfflineControlsSnapshot(
 private fun buildOfflineMapsUiState(
     repoState: OfflineCountriesState,
     settings: UserSettings,
+    mapProviderKeys: MapProviderKeys,
     controls: OfflineControlsSnapshot,
     initialUserLocation: GeoCoordinate?,
     availableSorts: List<OfflineCountrySort>
@@ -288,7 +293,7 @@ private fun buildOfflineMapsUiState(
     } else {
         emptyList()
     }
-    val activeStyleId = settings.mapStyleId.ifBlank { MapStyleId.OPENHIKES }
+    val activeStyleId = MapStyleCatalog.renderable(settings.mapStyleId, mapProviderKeys).id
     return OfflineMapsUiState(
         isAvailable = repoState.isAvailable,
         isPrepared = repoState.isPrepared,

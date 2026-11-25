@@ -55,6 +55,13 @@ data object SettingsRoute : OpenHikesRoute
 data object RecordingRoute : OpenHikesRoute
 
 /**
+ * Map Modes destination pushed from the floating map controls to pick base map style, toggle
+ * the hiking routes overlay, and jump to Offline Maps while keeping the live map visible.
+ */
+@Serializable
+data object MapModesRoute : OpenHikesRoute
+
+/**
  * Offline countries catalog & download manager destination.
  *
  * When [overMap] is `true`, draws country polygon outlines on the live map and supports tapping

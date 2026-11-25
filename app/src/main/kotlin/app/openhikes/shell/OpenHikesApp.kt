@@ -58,6 +58,7 @@ import app.openhikes.core.model.WalkTimeLeftMark
 import app.openhikes.core.ui.navigation.EntryProviderInstaller
 import app.openhikes.core.ui.navigation.HikeDetailRoute
 import app.openhikes.core.ui.navigation.MapHomeRoute
+import app.openhikes.core.ui.navigation.MapModesRoute
 import app.openhikes.core.ui.navigation.OfflineMapsRoute
 import app.openhikes.core.ui.navigation.OpenHikesNavigator
 import app.openhikes.core.ui.navigation.OpenHikesRoute
@@ -78,11 +79,12 @@ private data class ViewportChromeMetrics(val sidePanelEdge: Dp, val viewportPadd
 @Immutable
 private data class ShellNavigationHostState(
     val sheetDetent: SheetDetent,
+    val isMapModesOpen: Boolean,
     val onDetentChange: (SheetDetent) -> Unit,
     val onOpenHike: (HikeId) -> Unit,
     val onOpenRecording: () -> Unit,
     val onProceedToRecording: () -> Unit,
-    val onOpenOfflineMaps: () -> Unit,
+    val onOpenMapModes: () -> Unit,
     val navigationContent: @Composable () -> Unit
 )
 
@@ -177,7 +179,6 @@ fun OpenHikesApp(
         onSyncBackStack = shellViewModel::syncBackStack,
         onSearchQueryChange = shellViewModel::onSearchQueryChange,
         onClearSearch = shellViewModel::onClearSearch,
-        onToggleHikingRoutes = shellViewModel::onToggleHikingRoutes,
         onZoomIn = shellViewModel::onZoomIn,
         onZoomOut = shellViewModel::onZoomOut,
         onResetNorth = shellViewModel::onResetNorth,
@@ -206,7 +207,6 @@ internal fun OpenHikesShellContent(
     onSyncBackStack: (List<Any>) -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onClearSearch: () -> Unit,
-    onToggleHikingRoutes: () -> Unit,
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
     onResetNorth: () -> Unit,
@@ -253,6 +253,7 @@ internal fun OpenHikesShellContent(
         trailMapRenderer = trailMapRenderer,
         shellLayout = shellLayout,
         sheetDetent = navHostState.sheetDetent,
+        isMapModesOpen = navHostState.isMapModesOpen,
         chromeUiState = chromeUiState,
         initialCameraState = initialCameraState,
         pendingCameraCommand = pendingCameraCommand,
@@ -268,9 +269,8 @@ internal fun OpenHikesShellContent(
             onDismissStartNotice = onDismissWalkStartNotice
         ),
         onOpenRecording = navHostState.onOpenRecording,
-        onOpenOfflineMaps = navHostState.onOpenOfflineMaps,
+        onOpenMapModes = navHostState.onOpenMapModes,
         onDetentChange = navHostState.onDetentChange,
-        onToggleHikingRoutes = onToggleHikingRoutes,
         onZoomIn = onZoomIn,
         onZoomOut = onZoomOut,
         onResetNorth = onResetNorth,
@@ -320,7 +320,7 @@ private data class ShellNavActions(
     val onOpenHike: (HikeId) -> Unit,
     val onOpenRecording: () -> Unit,
     val onProceedToRecording: () -> Unit,
-    val onOpenOfflineMaps: () -> Unit,
+    val onOpenMapModes: () -> Unit,
     val onHikeDeleted: (HikeId) -> Unit
 )
 
@@ -328,6 +328,7 @@ private data class ShellNavActions(
 private class ShellNavControllers(
     val sheetDetentState: MutableState<SheetDetent>,
     val detentBeforeSettingsState: MutableState<SheetDetent?>,
+    val detentBeforeMapModesState: MutableState<SheetDetent?>,
     val isSearchActiveState: MutableState<Boolean>,
     val backStack: NavBackStack<NavKey>,
     val navigator: OpenHikesNavigator
@@ -344,6 +345,12 @@ private class ShellNavControllers(
             detentBeforeSettingsState.value = value
         }
 
+    var detentBeforeMapModes: SheetDetent?
+        get() = detentBeforeMapModesState.value
+        set(value) {
+            detentBeforeMapModesState.value = value
+        }
+
     var isSearchActive: Boolean
         get() = isSearchActiveState.value
         set(value) {
@@ -357,15 +364,24 @@ private fun rememberShellNavControllers(startsWithExpandedSheet: Boolean): Shell
         mutableStateOf(if (startsWithExpandedSheet) SheetDetent.HALF else SheetDetent.PEEK)
     }
     val detentBeforeSettingsState = rememberSaveable { mutableStateOf<SheetDetent?>(null) }
+    val detentBeforeMapModesState = rememberSaveable { mutableStateOf<SheetDetent?>(null) }
     val isSearchActiveState = rememberSaveable { mutableStateOf(false) }
     val backStack = rememberNavBackStack(MapHomeRoute)
     val navigator = remember(backStack) {
         OpenHikesNavigator(backStack, onCollapseSheet = { sheetDetentState.value = SheetDetent.PEEK })
     }
-    return remember(sheetDetentState, detentBeforeSettingsState, isSearchActiveState, backStack, navigator) {
+    return remember(
+        sheetDetentState,
+        detentBeforeSettingsState,
+        detentBeforeMapModesState,
+        isSearchActiveState,
+        backStack,
+        navigator
+    ) {
         ShellNavControllers(
             sheetDetentState = sheetDetentState,
             detentBeforeSettingsState = detentBeforeSettingsState,
+            detentBeforeMapModesState = detentBeforeMapModesState,
             isSearchActiveState = isSearchActiveState,
             backStack = backStack,
             navigator = navigator
@@ -425,6 +441,7 @@ private fun rememberShellNavigationHost(
     )
     return ShellNavigationHostState(
         sheetDetent = controllers.sheetDetent,
+        isMapModesOpen = controllers.backStack.lastOrNull() == MapModesRoute,
         onDetentChange = { next ->
             controllers.sheetDetent = next
             if (next == SheetDetent.PEEK && controllers.isSearchActive) actions.exitSearch()
@@ -432,7 +449,7 @@ private fun rememberShellNavigationHost(
         onOpenHike = actions.onOpenHike,
         onOpenRecording = actions.onOpenRecording,
         onProceedToRecording = actions.onProceedToRecording,
-        onOpenOfflineMaps = actions.onOpenOfflineMaps,
+        onOpenMapModes = actions.onOpenMapModes,
         navigationContent = navigationContent
     )
 }
@@ -492,14 +509,28 @@ private fun rememberShellNavActions(
             }
         },
         onProceedToRecording = proceedToRecording,
-        onOpenOfflineMaps = {
-            if (controllers.isSearchActive) exitSearch()
-            focusManager.clearFocus(force = true)
-            controllers.sheetDetent = SheetDetent.HALF
-            controllers.navigator.navigate(OfflineMapsRoute(overMap = true))
+        onOpenMapModes = {
+            controllers.toggleMapModesRoute(
+                exitSearch = exitSearch,
+                clearFocus = { focusManager.clearFocus(force = true) }
+            )
         },
         onHikeDeleted = { hikeId -> controllers.navigator.removeRoutesForHike(hikeId) }
     )
+}
+
+private fun ShellNavControllers.toggleMapModesRoute(exitSearch: () -> Unit, clearFocus: () -> Unit) {
+    if (backStack.lastOrNull() == MapModesRoute) {
+        navigator.pop()
+    } else {
+        if (isSearchActive) exitSearch()
+        clearFocus()
+        if (detentBeforeMapModes == null) {
+            detentBeforeMapModes = sheetDetent
+        }
+        sheetDetent = SheetDetent.HALF
+        navigator.navigate(MapModesRoute)
+    }
 }
 
 private fun ShellNavControllers.proceedToRecordingRoute(
@@ -550,8 +581,19 @@ private fun CoordinateShellNavigation(
         }
     }
     LaunchedEffect(controllers.backStack.toList()) {
-        onSyncBackStack(controllers.backStack.toList())
-        if (controllers.backStack.lastOrNull() == MapHomeRoute) {
+        val currentStack = controllers.backStack.toList()
+        onSyncBackStack(currentStack)
+        val top = currentStack.lastOrNull()
+        if (top != MapModesRoute) {
+            val previousDetent = controllers.detentBeforeMapModes
+            if (previousDetent != null) {
+                if (top !is OfflineMapsRoute) {
+                    controllers.sheetDetent = previousDetent
+                }
+                controllers.detentBeforeMapModes = null
+            }
+        }
+        if (top == MapHomeRoute) {
             controllers.detentBeforeSettings?.let { previous ->
                 controllers.sheetDetent = previous
                 controllers.detentBeforeSettings = null
@@ -576,6 +618,7 @@ private fun OpenHikesShellStage(
     trailMapRenderer: TrailMapRenderer,
     shellLayout: ShellLayout,
     sheetDetent: SheetDetent,
+    isMapModesOpen: Boolean,
     chromeUiState: MapChromeUiState,
     initialCameraState: MapCameraState,
     pendingCameraCommand: MapCameraCommand?,
@@ -585,9 +628,8 @@ private fun OpenHikesShellStage(
     walkCoverageOverlayState: StateFlow<MapWalkCoverageOverlay?>,
     walkChrome: MapWalkChromeState,
     onOpenRecording: () -> Unit,
-    onOpenOfflineMaps: () -> Unit,
+    onOpenMapModes: () -> Unit,
     onDetentChange: (SheetDetent) -> Unit,
-    onToggleHikingRoutes: () -> Unit,
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
     onResetNorth: () -> Unit,
@@ -634,11 +676,11 @@ private fun OpenHikesShellStage(
             sidePanelEdge = metrics.sidePanelEdge,
             overlayState = chromeUiState.overlayState,
             showAttributionDialog = chromeUiState.showAttributionDialog,
+            isMapModesOpen = isMapModesOpen,
             isRecordingActive = isRecordingActive,
             walkChrome = walkChrome,
             onOpenRecording = onOpenRecording,
-            onOpenOfflineMaps = onOpenOfflineMaps,
-            onToggleHikingRoutes = onToggleHikingRoutes,
+            onOpenMapModes = onOpenMapModes,
             onZoomIn = onZoomIn,
             onZoomOut = onZoomOut,
             onResetNorth = onResetNorth,

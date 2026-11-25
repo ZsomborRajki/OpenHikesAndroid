@@ -25,7 +25,8 @@ import app.openhikes.core.map.toMapRouteOverlay
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeSummary
 import app.openhikes.core.model.MapAttribution
-import app.openhikes.core.model.MapStyleId
+import app.openhikes.core.model.MapProviderKeys
+import app.openhikes.core.model.MapStyleCatalog
 import app.openhikes.core.model.RecordingTraceSnapshot
 import app.openhikes.core.model.RouteBorder
 import app.openhikes.core.model.RouteLinePattern
@@ -65,7 +66,7 @@ data class MapChromeUiState(
 @Suppress("LongParameterList", "TooManyFunctions")
 @HiltViewModel
 class MapShellViewModel @Inject constructor(
-    private val userSettingsRepository: UserSettingsRepository,
+    userSettingsRepository: UserSettingsRepository,
     private val hikeRepository: HikeRepository,
     private val offlineCountryRepository: OfflineCountryRepository,
     private val mapClaimCoordinator: MapClaimCoordinator,
@@ -73,6 +74,7 @@ class MapShellViewModel @Inject constructor(
     private val trailWalkController: TrailWalkController,
     routeHighlightState: RouteHighlightState,
     walkOverlayState: WalkOverlayState,
+    private val mapProviderKeys: MapProviderKeys,
     launchConfigHolder: LaunchConfigHolder,
     @DefaultDispatcher defaultDispatcher: CoroutineDispatcher
 ) : ViewModel() {
@@ -151,7 +153,7 @@ class MapShellViewModel @Inject constructor(
         routeOverlaysFlow,
         showAttributionDialog
     ) { settings, activeClaim, routeOverlays, attributionDialogOpen ->
-        val resolvedStyleId = settings.mapStyleId.ifBlank { MapStyleId.OPENHIKES }
+        val resolvedStyleId = MapStyleCatalog.renderable(settings.mapStyleId, mapProviderKeys).id
         val defaultOverlay = MapOverlayState(
             mapStyleId = resolvedStyleId,
             showsHikingRoutes = settings.showsHikingRoutes,
@@ -171,17 +173,6 @@ class MapShellViewModel @Inject constructor(
 
     fun syncBackStack(keysInOrder: List<Any>) {
         mapClaimCoordinator.syncBackStack(keysInOrder)
-    }
-
-    fun onToggleHikingRoutes() {
-        val nextValue = !chromeUiState.value.overlayState.showsHikingRoutes
-        viewModelScope.launch {
-            try {
-                userSettingsRepository.setShowsHikingRoutes(nextValue)
-            } catch (_: IOException) {
-                // Keep existing state intact cleanly when storage writes fail.
-            }
-        }
     }
 
     fun onToggleJunctionWarnings() {

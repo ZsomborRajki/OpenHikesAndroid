@@ -11,4 +11,11 @@
     <string name="hike_segment_climb_description">Elevation gain %1$s</string>
     <string name="hike_row_walk_active">Active</string>
     <string name="hike_row_walk_paused">Paused</string>
+    <string name="map_style_openhikes_name">OpenHikes</string>
+    <string name="map_style_openfreemap_name">OpenFreeMap</string>
+    <string name="map_style_osm_raster_name">OpenStreetMap</string>
+    <string name="map_style_stadia_outdoors_name">Stadia Outdoors</string>
+    <string name="map_style_stamen_terrain_name">Stamen Terrain</string>
+    <string name="map_style_thunderforest_outdoors_name">Thunderforest Outdoors</string>
+    <string name="map_style_other_name">another map</string>
 </resources>
