@@ -23,6 +23,8 @@ import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeRouteStatistics
 import app.openhikes.core.model.HikeWalk
+import app.openhikes.core.model.MapProviderKeys
+import app.openhikes.core.model.MapStyleCatalog
 import app.openhikes.core.model.MapStyleId
 import app.openhikes.core.model.OfflineCountriesState
 import app.openhikes.core.model.OfflineListPhase
@@ -74,6 +76,7 @@ class HikeDetailViewModel @AssistedInject constructor(
     recordingController: RecordingController,
     private val mapClaimCoordinator: MapClaimCoordinator,
     private val routeHighlightState: RouteHighlightState,
+    mapProviderKeys: MapProviderKeys,
     private val launchConfigHolder: LaunchConfigHolder,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
 ) : ViewModel() {
@@ -224,10 +227,11 @@ class HikeDetailViewModel @AssistedInject constructor(
             routeSegments = prepared?.segments.orEmpty(),
             distanceUnit = settings.distanceUnit,
             offlineCoverage = buildOfflineCoverageState(
-                bundle.coverage,
-                bundle.repoState,
-                settings,
-                bundle.showOfflineDialog
+                coverage = bundle.coverage,
+                repoState = bundle.repoState,
+                settings = settings,
+                mapProviderKeys = mapProviderKeys,
+                showDialog = bundle.showOfflineDialog
             ),
             selectedTab = bundle.walkState.selectedTab,
             walks = bundle.walkState.walks,
@@ -557,9 +561,10 @@ private fun buildOfflineCoverageState(
     coverage: OfflineRouteCoverage,
     repoState: OfflineCountriesState,
     settings: UserSettings,
+    mapProviderKeys: MapProviderKeys,
     showDialog: Boolean
 ): HikeOfflineCoverageState {
-    val isOpenHikes = settings.mapStyleId.ifBlank { MapStyleId.OPENHIKES } == MapStyleId.OPENHIKES
+    val isOpenHikes = MapStyleCatalog.renderable(settings.mapStyleId, mapProviderKeys).id == MapStyleId.OPENHIKES
     val drawnIds = repoState.installed.keys.filter { repoState.isDrawn(it) }.toSet()
     val saving = OfflineRouteCoverageCalculator.evaluateSaving(coverage, drawnIds)
     val crossedIds = coverage.crossed.map { it.id }

@@ -8,6 +8,10 @@ annotation class TileOkHttpClient
 
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
+annotation class PreviewTileOkHttpClient
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
 annotation class ManifestOkHttpClient
 
 @Qualifier

@@ -14,8 +14,8 @@ import app.openhikes.core.model.TileNetworkPurpose
 import app.openhikes.core.model.TilePreviewFrame
 import app.openhikes.core.model.TilePreviewSource
 import app.openhikes.core.model.TilePreviewTile
+import app.openhikes.core.network.PreviewTileOkHttpClient
 import app.openhikes.core.network.TileNetworkPolicy
-import app.openhikes.core.network.TileOkHttpClient
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -38,7 +38,7 @@ import okhttp3.Request
  */
 @Singleton
 internal class HttpMapStylePreviewProvider @Inject constructor(
-    @TileOkHttpClient private val okHttpClient: OkHttpClient,
+    @PreviewTileOkHttpClient private val okHttpClient: OkHttpClient,
     private val tileNetworkPolicy: TileNetworkPolicy,
     private val mapProviderKeys: MapProviderKeys,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher

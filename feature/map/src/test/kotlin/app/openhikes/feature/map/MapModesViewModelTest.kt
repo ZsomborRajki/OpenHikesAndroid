@@ -1,10 +1,7 @@
 package app.openhikes.feature.map
 
 import app.cash.turbine.test
-import app.openhikes.core.common.LaunchConfig
-import app.openhikes.core.common.LaunchConfigHolder
 import app.openhikes.core.common.offline.OfflineCountryManifestParser
-import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.InstalledCountryRecord
 import app.openhikes.core.model.MapProviderKeys
 import app.openhikes.core.model.MapStyleCatalog
@@ -14,7 +11,6 @@ import app.openhikes.core.model.TilePreviewFrame
 import app.openhikes.core.model.UserSettings
 import app.openhikes.core.testing.MainDispatcherRule
 import app.openhikes.core.testing.TestFixtures
-import app.openhikes.core.testing.android.FakeLocationFeed
 import app.openhikes.core.testing.android.FakeMapStylePreviewProvider
 import app.openhikes.core.testing.android.FakeOfflineCountryRepository
 import app.openhikes.core.testing.android.FakeUserSettingsRepository
@@ -44,8 +40,6 @@ class MapModesViewModelTest {
             offlineCountryRepository = FakeOfflineCountryRepository(),
             mapProviderKeys = MapProviderKeys.Empty,
             previewProvider = previewProvider,
-            locationFeed = FakeLocationFeed(),
-            launchConfigHolder = LaunchConfigHolder(LaunchConfig.Production),
             defaultDispatcher = mainDispatcherRule.testDispatcher
         )
 
@@ -91,9 +85,6 @@ class MapModesViewModelTest {
         val settingsRepo = FakeUserSettingsRepository(
             initialSettings = UserSettings(mapStyleId = MapStyleId.STADIA_OUTDOORS)
         )
-        val locationFeed = FakeLocationFeed().apply {
-            lastKnownCoordinateOverride = GeoCoordinate(latitude = 47.71842, longitude = 12.83177)
-        }
         val viewModel = MapModesViewModel(
             userSettingsRepository = settingsRepo,
             offlineCountryRepository = FakeOfflineCountryRepository(
@@ -101,8 +92,6 @@ class MapModesViewModelTest {
             ),
             mapProviderKeys = MapProviderKeys.Empty,
             previewProvider = FakeMapStylePreviewProvider(),
-            locationFeed = locationFeed,
-            launchConfigHolder = LaunchConfigHolder(LaunchConfig.Production),
             defaultDispatcher = mainDispatcherRule.testDispatcher
         )
 
@@ -117,7 +106,7 @@ class MapModesViewModelTest {
                 installedMap.values.sumOf { it.byteCount }
             )
             assertThat(viewModel.previewFrame).isEqualTo(
-                TilePreviewFrame.around(GeoCoordinate(latitude = 47.71842, longitude = 12.83177))
+                TilePreviewFrame.around(TilePreviewFrame.FALLBACK_COORDINATE)
             )
 
             cancelAndIgnoreRemainingEvents()
@@ -134,8 +123,6 @@ class MapModesViewModelTest {
             offlineCountryRepository = FakeOfflineCountryRepository(),
             mapProviderKeys = keys,
             previewProvider = previewProvider,
-            locationFeed = FakeLocationFeed(),
-            launchConfigHolder = LaunchConfigHolder(LaunchConfig.Production),
             defaultDispatcher = mainDispatcherRule.testDispatcher
         )
 

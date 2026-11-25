@@ -10,6 +10,7 @@ import app.openhikes.core.network.LaunchAwareOfflineCountryServer
 import app.openhikes.core.network.ManifestOkHttpClient
 import app.openhikes.core.network.OfflineCountryServer
 import app.openhikes.core.network.OpenHikesUserAgent
+import app.openhikes.core.network.PreviewTileOkHttpClient
 import app.openhikes.core.network.TileNetworkPolicy
 import app.openhikes.core.network.TileOkHttpClient
 import app.openhikes.core.network.TileServerBaseUrl
@@ -57,7 +58,9 @@ object NetworkProvidesModule {
     private const val MANIFEST_TIMEOUT_SECONDS = 20L
     private const val DOWNLOAD_READ_TIMEOUT_SECONDS = 60L
     private const val MANIFEST_CACHE_BYTES = 16L * 1024L * 1024L
+    private const val PREVIEW_TILE_CACHE_BYTES = 32L * 1024L * 1024L
     private const val HTTP_CACHE_DIR_NAME = "openhikes_manifest_http_cache"
+    private const val PREVIEW_TILE_HTTP_CACHE_DIR_NAME = "openhikes_tile_preview_http_cache"
 
     @Provides
     @Singleton
@@ -78,6 +81,17 @@ object NetworkProvidesModule {
         .connectTimeout(TILE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .readTimeout(TILE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
         .build()
+
+    @Provides
+    @Singleton
+    @PreviewTileOkHttpClient
+    fun providePreviewTileOkHttpClient(@ApplicationContext context: Context, buildInfo: AppBuildInfo): OkHttpClient =
+        OkHttpClient.Builder()
+            .cache(Cache(File(context.cacheDir, PREVIEW_TILE_HTTP_CACHE_DIR_NAME), PREVIEW_TILE_CACHE_BYTES))
+            .addInterceptor(userAgentInterceptor(buildInfo))
+            .connectTimeout(TILE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .readTimeout(TILE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            .build()
 
     @Provides
     @Singleton

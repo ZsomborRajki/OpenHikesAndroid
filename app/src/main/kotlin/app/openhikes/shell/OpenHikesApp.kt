@@ -529,6 +529,7 @@ private fun ShellNavControllers.toggleMapModesRoute(exitSearch: () -> Unit, clea
             detentBeforeMapModes = sheetDetent
         }
         sheetDetent = SheetDetent.HALF
+        navigator.removeRoutesMatching { it == MapModesRoute }
         navigator.navigate(MapModesRoute)
     }
 }
@@ -584,7 +585,7 @@ private fun CoordinateShellNavigation(
         val currentStack = controllers.backStack.toList()
         onSyncBackStack(currentStack)
         val top = currentStack.lastOrNull()
-        if (top != MapModesRoute) {
+        if (MapModesRoute !in currentStack) {
             val previousDetent = controllers.detentBeforeMapModes
             if (previousDetent != null) {
                 if (top !is OfflineMapsRoute) {
