@@ -14,4 +14,15 @@
     <string name="action_record_hike">Record hike</string>
     <string name="action_open_active_recording">Open active recording</string>
     <string name="action_offline_maps">Offline maps</string>
+    <string name="walk_started_pill_label">Hike started on %1$s</string>
+    <string name="walk_started_pill_dismiss_description">Dismiss hike started notice</string>
+    <string name="map_junction_warnings_description">Junction Warnings</string>
+    <string name="walk_recording_confirm_title">End active hike to record?</string>
+    <string name="walk_recording_confirm_body">You’re currently hiking %1$s. Ending it saves your progress before starting a recording.</string>
+    <string name="walk_recording_confirm_action">End Hike and Record</string>
+    <string name="walk_recording_confirm_cancel">Cancel</string>
+    <string name="walk_off_trail_title">Off trail?</string>
+    <string name="walk_off_trail_body">You’ve moved away from %1$s. Keep following this trail or switch to recording your own track?</string>
+    <string name="walk_off_trail_keep">Keep Following</string>
+    <string name="walk_off_trail_record">Record Instead</string>
 </resources>

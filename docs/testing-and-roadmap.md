@@ -138,3 +138,17 @@ GitHub issues once created.)*
      `:core:network` / `:core:map`, `:feature:offlinemaps` with `WorkManager`
      downloads, SHA-256 verification, atomic country index in `noBackupFilesDir`,
      and seeded offline-map UI tests.
+6. **Phase 5 — Trail Following & Walks (Slice 5):**
+   - Pure-JVM directed walk coverage (`TrailWalkCoverage`), DIN 33466 &
+     pace-calibrated ETA (`WalkTimeLeft`), `OffTrailWatch`, and spoken
+     `JunctionAnnouncer` in `:core:model`.
+   - Room v2 walk history + device-local `walk_in_progress_json` (`noBackupFilesDir`)
+     and `junction_warnings_enabled` Proto DataStore preference.
+   - `TrailWalkController`, `AndroidJunctionVoice`, dual-mode
+     `RecordingForegroundService`, and Android 16.0-safe Live Updates following
+     mode (with recording outranking following).
+   - `:feature:walks` Hike Summary + `WalkOverlayState` map highlight,
+     `:feature:hikes` Details/History M3 Expressive tabs & walk controls,
+     `:app` Walk Started pill / Time-Left bubble / Junction Warnings toolbar
+     button / off-trail & recording-conflict dialogs, and ported Tier 1/2/3 +
+     screenshot tests.

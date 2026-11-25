@@ -9,13 +9,18 @@ import app.openhikes.core.data.HikeRepository
 import app.openhikes.core.data.OfflineCountryRepository
 import app.openhikes.core.data.UserSettingsRepository
 import app.openhikes.core.location.RecordingController
+import app.openhikes.core.location.TrailWalkController
+import app.openhikes.core.location.TrailWalkEnd
+import app.openhikes.core.location.TrailWalkSessionState
 import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapCameraState
 import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.map.MapOverlayState
 import app.openhikes.core.map.MapRouteHighlight
 import app.openhikes.core.map.MapRouteOverlay
+import app.openhikes.core.map.MapWalkCoverageOverlay
 import app.openhikes.core.map.RouteHighlightState
+import app.openhikes.core.map.WalkOverlayState
 import app.openhikes.core.map.toMapRouteOverlay
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeSummary
@@ -25,6 +30,7 @@ import app.openhikes.core.model.RecordingTraceSnapshot
 import app.openhikes.core.model.RouteBorder
 import app.openhikes.core.model.RouteLinePattern
 import app.openhikes.core.model.UserSettings
+import app.openhikes.core.model.WalkTimeLeftMark
 import app.openhikes.core.model.toTrailRuns
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.IOException
@@ -53,8 +59,10 @@ data class MapChromeUiState(
 )
 
 /**
- * Root ViewModel coordinating map chrome, route overlays, search query, and route-owned map claims.
+ * Root ViewModel coordinating map chrome, route overlays, search query, trail-following chrome,
+ * and route-owned map claims.
  */
+@Suppress("LongParameterList", "TooManyFunctions")
 @HiltViewModel
 class MapShellViewModel @Inject constructor(
     private val userSettingsRepository: UserSettingsRepository,
@@ -62,11 +70,14 @@ class MapShellViewModel @Inject constructor(
     private val offlineCountryRepository: OfflineCountryRepository,
     private val mapClaimCoordinator: MapClaimCoordinator,
     private val recordingController: RecordingController,
+    private val trailWalkController: TrailWalkController,
     routeHighlightState: RouteHighlightState,
+    walkOverlayState: WalkOverlayState,
     launchConfigHolder: LaunchConfigHolder,
     @DefaultDispatcher defaultDispatcher: CoroutineDispatcher
 ) : ViewModel() {
     private val showAttributionDialog = MutableStateFlow(false)
+    private val showEndWalkForRecordingDialogState = MutableStateFlow(false)
     private val searchQueryState = MutableStateFlow("")
     private val cameraStateFlow = MutableStateFlow(
         MapCameraState(center = launchConfigHolder.current.value.mapStart ?: MapCameraState.DEFAULT_CENTER)
@@ -77,6 +88,17 @@ class MapShellViewModel @Inject constructor(
     val searchQuery: StateFlow<String> = searchQueryState.asStateFlow()
     val pendingCameraCommand: StateFlow<MapCameraCommand?> = mapClaimCoordinator.pendingCameraCommand
     val routeHighlight: StateFlow<MapRouteHighlight?> = routeHighlightState.highlight
+    val walkCoverageOverlay: StateFlow<MapWalkCoverageOverlay?> = walkOverlayState.coverageOverlay
+    val walkSession: StateFlow<TrailWalkSessionState> = trailWalkController.sessionState
+    val showEndWalkForRecordingDialog: StateFlow<Boolean> = showEndWalkForRecordingDialogState.asStateFlow()
+    val walkTimeLeftMark: StateFlow<WalkTimeLeftMark?> = trailWalkController.progressState
+        .map { it.timeLeftMark }
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+            initialValue = null
+        )
     val isRecordingActive: StateFlow<Boolean> = recordingController.state
         .map { it.isActive }
         .distinctUntilChanged()
@@ -100,6 +122,7 @@ class MapShellViewModel @Inject constructor(
             if (!launchConfigHolder.current.value.disableAutomaticRecovery) {
                 recordingController.recoverOpenSession()
             }
+            trailWalkController.restoreAtLaunch()
         }
         viewModelScope.launch {
             offlineCountryRepository.start()
@@ -157,6 +180,47 @@ class MapShellViewModel @Inject constructor(
                 userSettingsRepository.setShowsHikingRoutes(nextValue)
             } catch (_: IOException) {
                 // Keep existing state intact cleanly when storage writes fail.
+            }
+        }
+    }
+
+    fun onToggleJunctionWarnings() {
+        viewModelScope.launch {
+            trailWalkController.toggleJunctionWarnings()
+        }
+    }
+
+    fun onDismissWalkStartNotice() {
+        trailWalkController.dismissStartNotice()
+    }
+
+    fun onKeepFollowingOffTrail() {
+        trailWalkController.keepFollowingAfterOffTrail()
+    }
+
+    fun onRequestEndWalkForRecording() {
+        showEndWalkForRecordingDialogState.value = true
+    }
+
+    fun onCancelEndWalkForRecording() {
+        showEndWalkForRecordingDialogState.value = false
+    }
+
+    fun onConfirmEndWalkForRecording(onProceedToRecording: () -> Unit) {
+        showEndWalkForRecordingDialogState.value = false
+        endWalkAndProceedToRecording(onProceedToRecording)
+    }
+
+    fun onRecordInsteadFromOffTrail(onProceedToRecording: () -> Unit) {
+        endWalkAndProceedToRecording(onProceedToRecording)
+    }
+
+    private fun endWalkAndProceedToRecording(onProceedToRecording: () -> Unit) {
+        viewModelScope.launch {
+            val result = trailWalkController.endWalk()
+            if (result !is TrailWalkEnd.Refused) {
+                trailWalkController.consumeLastEndedWalk()
+                onProceedToRecording()
             }
         }
     }

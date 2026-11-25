@@ -7,6 +7,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
@@ -15,7 +16,9 @@ import app.openhikes.core.designsystem.theme.OpenHikesTheme
 import app.openhikes.core.location.RecordingController
 import app.openhikes.core.location.RecordingEntryCoordinator
 import app.openhikes.core.location.RecordingForegroundService
+import app.openhikes.core.location.TrailWalkController
 import app.openhikes.core.map.TrailMapRenderer
+import app.openhikes.core.model.HikeId
 import app.openhikes.core.network.VectorTileArchivesManager
 import app.openhikes.core.ui.navigation.EntryProviderInstaller
 import app.openhikes.launch.LaunchConfigReader
@@ -49,9 +52,13 @@ class MainActivity : ComponentActivity() {
     lateinit var recordingEntryCoordinator: RecordingEntryCoordinator
 
     @Inject
+    lateinit var trailWalkController: TrailWalkController
+
+    @Inject
     lateinit var vectorTileArchivesManager: VectorTileArchivesManager
 
     private var openRecordingRequestCount by mutableIntStateOf(0)
+    private var openWalkRequest by mutableStateOf<Pair<Int, HikeId>?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Apply debug launch Intent overrides before super.onCreate constructs Hilt ViewModels
@@ -62,8 +69,8 @@ class MainActivity : ComponentActivity() {
             .mergeWith { base -> LaunchConfigReader.merge(base, intent) }
 
         super.onCreate(savedInstanceState)
-        if (savedInstanceState == null && wantsOpenRecording(intent)) {
-            openRecordingRequestCount += 1
+        if (savedInstanceState == null) {
+            handleLaunchNavigationIntent(intent)
         }
         enableEdgeToEdge()
         setContent {
@@ -74,6 +81,7 @@ class MainActivity : ComponentActivity() {
                     entryProviderInstallers = entryProviderInstallers,
                     launchConfig = effectiveLaunchConfig,
                     openRecordingRequestCount = openRecordingRequestCount,
+                    openWalkHikeRequest = openWalkRequest,
                     onRequestAutoStartRecording = recordingEntryCoordinator::requestAutoStart
                 )
             }
@@ -83,13 +91,12 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (wantsOpenRecording(intent)) {
-            openRecordingRequestCount += 1
-        }
+        handleLaunchNavigationIntent(intent)
     }
 
     override fun onStart() {
         super.onStart()
+        trailWalkController.onAppForegrounded()
         lifecycleScope.launch {
             vectorTileArchivesManager.refresh()
         }
@@ -102,8 +109,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun wantsOpenRecording(targetIntent: Intent?): Boolean =
-        targetIntent?.getBooleanExtra(RecordingForegroundService.EXTRA_OPEN_RECORDING, false) == true
+    private fun handleLaunchNavigationIntent(targetIntent: Intent?) {
+        if (targetIntent?.getBooleanExtra(RecordingForegroundService.EXTRA_OPEN_RECORDING, false) == true) {
+            openRecordingRequestCount += 1
+        }
+        val walkHikeId = targetIntent?.getStringExtra(RecordingForegroundService.EXTRA_OPEN_WALK_HIKE_ID)
+            ?.takeIf { it.isNotBlank() }
+        if (walkHikeId != null) {
+            val nextSeq = (openWalkRequest?.first ?: 0) + 1
+            openWalkRequest = nextSeq to HikeId(walkHikeId)
+        }
+    }
 
     @EntryPoint
     @InstallIn(SingletonComponent::class)

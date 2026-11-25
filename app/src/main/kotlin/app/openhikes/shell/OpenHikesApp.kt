@@ -43,20 +43,24 @@ import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import androidx.window.core.layout.WindowSizeClass
 import app.openhikes.core.common.LaunchConfig
+import app.openhikes.core.location.TrailWalkSessionState
 import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapCameraState
 import app.openhikes.core.map.MapInteractionEvents
 import app.openhikes.core.map.MapRouteHighlight
 import app.openhikes.core.map.MapRouteOverlay
+import app.openhikes.core.map.MapWalkCoverageOverlay
 import app.openhikes.core.map.TrailMapHost
 import app.openhikes.core.map.TrailMapRenderer
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.WalkTimeLeftMark
 import app.openhikes.core.ui.navigation.EntryProviderInstaller
 import app.openhikes.core.ui.navigation.HikeDetailRoute
 import app.openhikes.core.ui.navigation.MapHomeRoute
 import app.openhikes.core.ui.navigation.OfflineMapsRoute
 import app.openhikes.core.ui.navigation.OpenHikesNavigator
+import app.openhikes.core.ui.navigation.OpenHikesRoute
 import app.openhikes.core.ui.navigation.RecordingRoute
 import app.openhikes.core.ui.navigation.SettingsRoute
 import app.openhikes.core.ui.testing.OpenHikesTestTags
@@ -65,6 +69,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 private val SheetPeekViewportInset = 112.dp
+private val EmptyLiveOverlayFlow: StateFlow<MapRouteOverlay?> = MutableStateFlow(null)
+private val EmptyWalkCoverageFlow: StateFlow<MapWalkCoverageOverlay?> = MutableStateFlow(null)
 
 @Immutable
 private data class ViewportChromeMetrics(val sidePanelEdge: Dp, val viewportPadding: PaddingValues)
@@ -73,9 +79,21 @@ private data class ViewportChromeMetrics(val sidePanelEdge: Dp, val viewportPadd
 private data class ShellNavigationHostState(
     val sheetDetent: SheetDetent,
     val onDetentChange: (SheetDetent) -> Unit,
+    val onOpenHike: (HikeId) -> Unit,
     val onOpenRecording: () -> Unit,
+    val onProceedToRecording: () -> Unit,
     val onOpenOfflineMaps: () -> Unit,
     val navigationContent: @Composable () -> Unit
+)
+
+@Immutable
+internal data class ShellWalkDialogCallbacks(
+    val showEndWalkForRecordingDialog: Boolean = false,
+    val onRequestEndWalkForRecording: () -> Unit = {},
+    val onConfirmEndWalkForRecording: (() -> Unit) -> Unit = {},
+    val onCancelEndWalkForRecording: () -> Unit = {},
+    val onKeepFollowingOffTrail: () -> Unit = {},
+    val onRecordInsteadFromOffTrail: (() -> Unit) -> Unit = {}
 )
 
 /**
@@ -104,6 +122,7 @@ fun OpenHikesApp(
     launchConfig: LaunchConfig,
     modifier: Modifier = Modifier,
     openRecordingRequestCount: Int = 0,
+    openWalkHikeRequest: Pair<Int, HikeId>? = null,
     onRequestAutoStartRecording: () -> Unit = {},
     windowSizeClass: WindowSizeClass = currentWindowAdaptiveInfoV2().windowSizeClass,
     shellViewModel: MapShellViewModel = hiltViewModel(),
@@ -123,6 +142,8 @@ fun OpenHikesApp(
     val searchQueryState = shellViewModel.searchQuery.collectAsStateWithLifecycle()
     val pendingCameraCommand by shellViewModel.pendingCameraCommand.collectAsStateWithLifecycle()
     val isRecordingActive by shellViewModel.isRecordingActive.collectAsStateWithLifecycle()
+    val walkSession by shellViewModel.walkSession.collectAsStateWithLifecycle()
+    val showEndWalkForRecording by shellViewModel.showEndWalkForRecordingDialog.collectAsStateWithLifecycle()
     val uriHandler = LocalUriHandler.current
 
     OpenHikesShellContent(
@@ -137,7 +158,21 @@ fun OpenHikesApp(
         routeHighlightState = shellViewModel.routeHighlight,
         isRecordingActive = isRecordingActive,
         liveRecordingOverlayState = shellViewModel.liveRecordingOverlay,
+        walkCoverageOverlayState = shellViewModel.walkCoverageOverlay,
+        walkSession = walkSession,
+        walkTimeLeftMarkFlow = shellViewModel.walkTimeLeftMark,
+        walkDialogs = ShellWalkDialogCallbacks(
+            showEndWalkForRecordingDialog = showEndWalkForRecording,
+            onRequestEndWalkForRecording = shellViewModel::onRequestEndWalkForRecording,
+            onConfirmEndWalkForRecording = shellViewModel::onConfirmEndWalkForRecording,
+            onCancelEndWalkForRecording = shellViewModel::onCancelEndWalkForRecording,
+            onKeepFollowingOffTrail = shellViewModel::onKeepFollowingOffTrail,
+            onRecordInsteadFromOffTrail = shellViewModel::onRecordInsteadFromOffTrail
+        ),
+        onToggleJunctionWarnings = shellViewModel::onToggleJunctionWarnings,
+        onDismissWalkStartNotice = shellViewModel::onDismissWalkStartNotice,
         openRecordingRequestCount = openRecordingRequestCount,
+        openWalkHikeRequest = openWalkHikeRequest,
         onRequestAutoStartRecording = onRequestAutoStartRecording,
         onSyncBackStack = shellViewModel::syncBackStack,
         onSearchQueryChange = shellViewModel::onSearchQueryChange,
@@ -183,8 +218,15 @@ internal fun OpenHikesShellContent(
     modifier: Modifier = Modifier,
     onMapTap: (GeoCoordinate) -> Unit = {},
     isRecordingActive: Boolean = false,
-    liveRecordingOverlayState: StateFlow<MapRouteOverlay?> = remember { MutableStateFlow(null) },
+    liveRecordingOverlayState: StateFlow<MapRouteOverlay?> = EmptyLiveOverlayFlow,
+    walkCoverageOverlayState: StateFlow<MapWalkCoverageOverlay?> = EmptyWalkCoverageFlow,
+    walkSession: TrailWalkSessionState = TrailWalkSessionState(),
+    walkTimeLeftMarkFlow: StateFlow<WalkTimeLeftMark?> = EmptyWalkTimeLeftFlow,
+    walkDialogs: ShellWalkDialogCallbacks = ShellWalkDialogCallbacks(),
+    onToggleJunctionWarnings: () -> Unit = {},
+    onDismissWalkStartNotice: () -> Unit = {},
     openRecordingRequestCount: Int = 0,
+    openWalkHikeRequest: Pair<Int, HikeId>? = null,
     onRequestAutoStartRecording: () -> Unit = {},
     homeContent: @Composable (ShellHomeScope) -> Unit
 ) {
@@ -196,8 +238,11 @@ internal fun OpenHikesShellContent(
         showAttributionDialog = chromeUiState.showAttributionDialog,
         searchQueryState = searchQueryState,
         isRecordingActive = isRecordingActive,
+        isWalkActive = walkSession.isWalkActive,
         openRecordingRequestCount = openRecordingRequestCount,
+        openWalkHikeRequest = openWalkHikeRequest,
         onRequestAutoStartRecording = onRequestAutoStartRecording,
+        onRequestEndWalkForRecording = walkDialogs.onRequestEndWalkForRecording,
         onSyncBackStack = onSyncBackStack,
         onSearchQueryChange = onSearchQueryChange,
         onClearSearch = onClearSearch,
@@ -214,6 +259,14 @@ internal fun OpenHikesShellContent(
         routeHighlightState = routeHighlightState,
         isRecordingActive = isRecordingActive,
         liveRecordingOverlayState = liveRecordingOverlayState,
+        walkCoverageOverlayState = walkCoverageOverlayState,
+        walkChrome = MapWalkChromeState(
+            session = walkSession,
+            timeLeftMarkFlow = walkTimeLeftMarkFlow,
+            onToggleJunctionWarnings = onToggleJunctionWarnings,
+            onOpenWalkedHike = navHostState.onOpenHike,
+            onDismissStartNotice = onDismissWalkStartNotice
+        ),
         onOpenRecording = navHostState.onOpenRecording,
         onOpenOfflineMaps = navHostState.onOpenOfflineMaps,
         onDetentChange = navHostState.onDetentChange,
@@ -230,6 +283,33 @@ internal fun OpenHikesShellContent(
         navigationContent = navHostState.navigationContent,
         modifier = modifier
     )
+    ShellWalkDialogs(
+        walkSession = walkSession,
+        walkDialogs = walkDialogs,
+        onProceedToRecording = navHostState.onProceedToRecording
+    )
+}
+
+@Composable
+private fun ShellWalkDialogs(
+    walkSession: TrailWalkSessionState,
+    walkDialogs: ShellWalkDialogCallbacks,
+    onProceedToRecording: () -> Unit
+) {
+    if (walkDialogs.showEndWalkForRecordingDialog && walkSession.isWalkActive) {
+        EndWalkForRecordingDialog(
+            trailTitle = walkSession.walkedHikeTitle,
+            onConfirm = { walkDialogs.onConfirmEndWalkForRecording(onProceedToRecording) },
+            onDismiss = walkDialogs.onCancelEndWalkForRecording
+        )
+    }
+    walkSession.offTrailQuestion?.let { question ->
+        OffTrailQuestionDialog(
+            question = question,
+            onKeepFollowing = walkDialogs.onKeepFollowingOffTrail,
+            onRecordInstead = { walkDialogs.onRecordInsteadFromOffTrail(onProceedToRecording) }
+        )
+    }
 }
 
 @Immutable
@@ -239,6 +319,7 @@ private data class ShellNavActions(
     val onOpenSettings: () -> Unit,
     val onOpenHike: (HikeId) -> Unit,
     val onOpenRecording: () -> Unit,
+    val onProceedToRecording: () -> Unit,
     val onOpenOfflineMaps: () -> Unit,
     val onHikeDeleted: (HikeId) -> Unit
 )
@@ -300,8 +381,11 @@ private fun rememberShellNavigationHost(
     showAttributionDialog: Boolean,
     searchQueryState: State<String>,
     isRecordingActive: Boolean,
+    isWalkActive: Boolean,
     openRecordingRequestCount: Int,
+    openWalkHikeRequest: Pair<Int, HikeId>?,
     onRequestAutoStartRecording: () -> Unit,
+    onRequestEndWalkForRecording: () -> Unit,
     onSyncBackStack: (List<Any>) -> Unit,
     onSearchQueryChange: (String) -> Unit,
     onClearSearch: () -> Unit,
@@ -313,7 +397,9 @@ private fun rememberShellNavigationHost(
         controllers = controllers,
         searchQuery = searchQueryState.value,
         isRecordingActive = isRecordingActive,
+        isWalkActive = isWalkActive,
         onRequestAutoStartRecording = onRequestAutoStartRecording,
+        onRequestEndWalkForRecording = onRequestEndWalkForRecording,
         onClearSearch = onClearSearch
     )
     CoordinateShellNavigation(
@@ -322,6 +408,7 @@ private fun rememberShellNavigationHost(
         searchQuery = searchQueryState.value,
         shellLayout = shellLayout,
         openRecordingRequestCount = openRecordingRequestCount,
+        openWalkHikeRequest = openWalkHikeRequest,
         onSyncBackStack = onSyncBackStack,
         onDismissAttributionDialog = onDismissAttributionDialog,
         onExitSearch = actions.exitSearch
@@ -342,7 +429,9 @@ private fun rememberShellNavigationHost(
             controllers.sheetDetent = next
             if (next == SheetDetent.PEEK && controllers.isSearchActive) actions.exitSearch()
         },
+        onOpenHike = actions.onOpenHike,
         onOpenRecording = actions.onOpenRecording,
+        onProceedToRecording = actions.onProceedToRecording,
         onOpenOfflineMaps = actions.onOpenOfflineMaps,
         navigationContent = navigationContent
     )
@@ -353,16 +442,27 @@ private fun rememberShellNavActions(
     controllers: ShellNavControllers,
     searchQuery: String,
     isRecordingActive: Boolean,
+    isWalkActive: Boolean,
     onRequestAutoStartRecording: () -> Unit,
+    onRequestEndWalkForRecording: () -> Unit,
     onClearSearch: () -> Unit
 ): ShellNavActions {
     val focusManager = LocalFocusManager.current
     val currentSearchQuery by rememberUpdatedState(searchQuery)
     val currentIsRecordingActive by rememberUpdatedState(isRecordingActive)
+    val currentIsWalkActive by rememberUpdatedState(isWalkActive)
     val exitSearch = {
         onClearSearch()
         controllers.isSearchActive = false
         focusManager.clearFocus(force = true)
+    }
+    val proceedToRecording = {
+        controllers.proceedToRecordingRoute(
+            isRecordingActive = currentIsRecordingActive,
+            exitSearch = exitSearch,
+            clearFocus = { focusManager.clearFocus(force = true) },
+            onRequestAutoStartRecording = onRequestAutoStartRecording
+        )
     }
     return ShellNavActions(
         exitSearch = exitSearch,
@@ -376,26 +476,22 @@ private fun rememberShellNavActions(
         },
         onOpenSettings = {
             if (controllers.isSearchActive) exitSearch()
-            if (controllers.detentBeforeSettings == null) {
-                controllers.detentBeforeSettings = controllers.sheetDetent
-            }
+            if (controllers.detentBeforeSettings == null) controllers.detentBeforeSettings = controllers.sheetDetent
             controllers.sheetDetent = SheetDetent.EXPANDED
             controllers.navigator.navigate(SettingsRoute)
         },
         onOpenHike = { hikeId ->
             focusManager.clearFocus(force = true)
-            if (controllers.sheetDetent == SheetDetent.PEEK) controllers.sheetDetent = SheetDetent.HALF
-            controllers.navigator.navigate(HikeDetailRoute(hikeId))
+            controllers.navigateHalfSheetIfPeek(HikeDetailRoute(hikeId))
         },
         onOpenRecording = {
-            if (controllers.isSearchActive) exitSearch()
-            focusManager.clearFocus(force = true)
-            if (controllers.sheetDetent == SheetDetent.PEEK) controllers.sheetDetent = SheetDetent.HALF
-            if (!currentIsRecordingActive) onRequestAutoStartRecording()
-            if (controllers.backStack.lastOrNull() != RecordingRoute) {
-                controllers.navigator.navigate(RecordingRoute)
+            if (!currentIsRecordingActive && currentIsWalkActive) {
+                onRequestEndWalkForRecording()
+            } else {
+                proceedToRecording()
             }
         },
+        onProceedToRecording = proceedToRecording,
         onOpenOfflineMaps = {
             if (controllers.isSearchActive) exitSearch()
             focusManager.clearFocus(force = true)
@@ -406,6 +502,23 @@ private fun rememberShellNavActions(
     )
 }
 
+private fun ShellNavControllers.proceedToRecordingRoute(
+    isRecordingActive: Boolean,
+    exitSearch: () -> Unit,
+    clearFocus: () -> Unit,
+    onRequestAutoStartRecording: () -> Unit
+) {
+    if (isSearchActive) exitSearch()
+    clearFocus()
+    if (!isRecordingActive) onRequestAutoStartRecording()
+    navigateHalfSheetIfPeek(RecordingRoute)
+}
+
+private fun ShellNavControllers.navigateHalfSheetIfPeek(route: OpenHikesRoute) {
+    if (sheetDetent == SheetDetent.PEEK) sheetDetent = SheetDetent.HALF
+    if (backStack.lastOrNull() != route) navigator.navigate(route)
+}
+
 @Composable
 private fun CoordinateShellNavigation(
     controllers: ShellNavControllers,
@@ -413,6 +526,7 @@ private fun CoordinateShellNavigation(
     searchQuery: String,
     shellLayout: ShellLayout,
     openRecordingRequestCount: Int,
+    openWalkHikeRequest: Pair<Int, HikeId>?,
     onSyncBackStack: (List<Any>) -> Unit,
     onDismissAttributionDialog: () -> Unit,
     onExitSearch: () -> Unit
@@ -424,6 +538,15 @@ private fun CoordinateShellNavigation(
             if (controllers.backStack.lastOrNull() != RecordingRoute) {
                 controllers.navigator.navigate(RecordingRoute)
             }
+        }
+    }
+    LaunchedEffect(openWalkHikeRequest) {
+        val targetHikeId = openWalkHikeRequest?.second ?: return@LaunchedEffect
+        if (controllers.isSearchActive) onExitSearch()
+        if (controllers.sheetDetent == SheetDetent.PEEK) controllers.sheetDetent = SheetDetent.HALF
+        val targetRoute = HikeDetailRoute(targetHikeId)
+        if (controllers.backStack.lastOrNull() != targetRoute) {
+            controllers.navigator.navigate(targetRoute)
         }
     }
     LaunchedEffect(controllers.backStack.toList()) {
@@ -459,6 +582,8 @@ private fun OpenHikesShellStage(
     routeHighlightState: StateFlow<MapRouteHighlight?>,
     isRecordingActive: Boolean,
     liveRecordingOverlayState: StateFlow<MapRouteOverlay?>,
+    walkCoverageOverlayState: StateFlow<MapWalkCoverageOverlay?>,
+    walkChrome: MapWalkChromeState,
     onOpenRecording: () -> Unit,
     onOpenOfflineMaps: () -> Unit,
     onDetentChange: (SheetDetent) -> Unit,
@@ -499,7 +624,8 @@ private fun OpenHikesShellStage(
             interactions = MapInteractionEvents(onCameraChanged = onCameraChanged, onMapTap = onMapTap),
             onCameraCommandHandled = onCameraCommandHandled,
             highlightState = routeHighlightState,
-            liveRecordingOverlayState = liveRecordingOverlayState
+            liveRecordingOverlayState = liveRecordingOverlayState,
+            walkCoverageOverlayState = walkCoverageOverlayState
         )
         MapFloatingControls(
             shellLayout = shellLayout,
@@ -509,6 +635,7 @@ private fun OpenHikesShellStage(
             overlayState = chromeUiState.overlayState,
             showAttributionDialog = chromeUiState.showAttributionDialog,
             isRecordingActive = isRecordingActive,
+            walkChrome = walkChrome,
             onOpenRecording = onOpenRecording,
             onOpenOfflineMaps = onOpenOfflineMaps,
             onToggleHikingRoutes = onToggleHikingRoutes,
