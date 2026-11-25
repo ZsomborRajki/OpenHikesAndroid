@@ -22,7 +22,9 @@ fun TrailMapHost(
     modifier: Modifier = Modifier,
     highlightState: StateFlow<MapRouteHighlight?> = remember { MutableStateFlow(null) },
     liveRecordingOverlayState: StateFlow<MapRouteOverlay?> = remember { MutableStateFlow(null) },
-    walkCoverageOverlayState: StateFlow<MapWalkCoverageOverlay?> = remember { MutableStateFlow(null) }
+    walkCoverageOverlayState: StateFlow<MapWalkCoverageOverlay?> = remember { MutableStateFlow(null) },
+    routeEditOverlayState: StateFlow<MapRouteEditOverlay?> = remember { MutableStateFlow(null) },
+    routeEditHandlerProvider: () -> RouteEditMapInteractionHandler? = { null }
 ) {
     renderer.Render(
         cameraState = cameraState,
@@ -34,6 +36,8 @@ fun TrailMapHost(
         highlightState = highlightState,
         liveRecordingOverlayState = liveRecordingOverlayState,
         modifier = modifier,
-        walkCoverageOverlayState = walkCoverageOverlayState
+        walkCoverageOverlayState = walkCoverageOverlayState,
+        routeEditOverlayState = routeEditOverlayState,
+        routeEditHandlerProvider = routeEditHandlerProvider
     )
 }

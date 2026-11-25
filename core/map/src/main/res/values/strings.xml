@@ -1,3 +1,9 @@
 <resources>
     <string name="trail_map_content_description">Trail map</string>
+    <string name="route_edit_start_handle_description">Start of route</string>
+    <string name="route_edit_end_handle_description">End of route</string>
+    <string name="route_edit_stretch_start_handle_description">Start of stretch</string>
+    <string name="route_edit_stretch_end_handle_description">End of stretch</string>
+    <string name="route_edit_handle_move_forward">Move forward along route</string>
+    <string name="route_edit_handle_move_backward">Move backward along route</string>
 </resources>

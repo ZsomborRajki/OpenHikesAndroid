@@ -3,6 +3,7 @@ package app.openhikes.shell
 import app.openhikes.core.common.LaunchConfig
 import app.openhikes.core.common.LaunchConfigHolder
 import app.openhikes.core.map.MapClaimCoordinator
+import app.openhikes.core.map.RouteEditOverlayState
 import app.openhikes.core.map.RouteHighlightState
 import app.openhikes.core.map.WalkOverlayState
 import app.openhikes.core.model.MapProviderKeys
@@ -44,6 +45,7 @@ class MapShellViewModelTest {
             trailWalkController = walkController,
             routeHighlightState = RouteHighlightState(),
             walkOverlayState = WalkOverlayState(),
+            routeEditOverlayState = RouteEditOverlayState(),
             mapProviderKeys = MapProviderKeys.Empty,
             launchConfigHolder = LaunchConfigHolder(LaunchConfig.Production),
             defaultDispatcher = mainDispatcherRule.testDispatcher

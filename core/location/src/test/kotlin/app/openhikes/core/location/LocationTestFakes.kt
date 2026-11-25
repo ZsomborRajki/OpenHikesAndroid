@@ -190,6 +190,16 @@ internal class LocalFakeHikeRepository : HikeRepository {
         reason: app.openhikes.core.model.TrailWalkEndReason
     ): Result<app.openhikes.core.model.HikeWalk?> = Result.success(null)
     override suspend fun deleteHike(hikeId: HikeId): Result<Unit> = error("Unused")
+    override suspend fun loadRouteEditSources(hikeId: HikeId) = error("Unused")
+    override suspend fun applyRouteEdit(
+        hikeId: HikeId,
+        expectedCurrentRoute: List<app.openhikes.core.model.RouteCoordinate>,
+        edited: app.openhikes.core.model.EditedLine
+    ) = error("Unused")
+    override suspend fun revertRouteEdit(
+        hikeId: HikeId,
+        expectedCurrentRoute: List<app.openhikes.core.model.RouteCoordinate>
+    ) = error("Unused")
     override suspend fun seedFixtureIfConfigured(): HikeId? = null
 
     fun getHike(hikeId: HikeId): Hike? = hikesState.value.firstOrNull { it.id == hikeId }

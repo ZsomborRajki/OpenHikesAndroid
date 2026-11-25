@@ -4,6 +4,7 @@ import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeWalk
 import app.openhikes.core.model.JunctionCue
+import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteProfile
 import app.openhikes.core.model.TrailWalkPhase
 import app.openhikes.core.model.WalkTimeLeftMark
@@ -107,6 +108,8 @@ interface TrailWalkController {
     fun onAutoFollowChanged(hikeId: HikeId, enabled: Boolean)
 
     fun onHikeDeleted(hikeId: HikeId)
+
+    fun onHikeRouteChanged(hikeId: HikeId, newRoute: List<RouteCoordinate>)
 
     fun dismissStartNotice()
 

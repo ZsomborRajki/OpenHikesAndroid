@@ -395,6 +395,24 @@ class DefaultTrailWalkControllerTest {
         assertThat(controller.sessionState.value.isWalkActive).isFalse()
     }
 
+    @Test
+    fun onHikeRouteChangedEndsActiveWalkWithRouteChangedReason() = runTest {
+        val controller = createController()
+        controller.attachForegroundHike(hike, profile)
+        assertThat(controller.startByHand(hike.id)).isTrue()
+        assertThat(controller.sessionState.value.isWalkActive).isTrue()
+
+        // Advance along the trail so the walk has recorded progress before the route changes.
+        for (coord in TestFixtures.TRAIL_POINTS) {
+            emitCoordinate(coord, stepMillis = 15_000L)
+        }
+
+        controller.onHikeRouteChanged(hike.id, newRoute = hike.route.dropLast(1))
+
+        assertThat(controller.sessionState.value.isWalkActive).isFalse()
+        assertThat(hikeRepository.savedWalks().last().endReason).isEqualTo(TrailWalkEndReason.ROUTE_CHANGED)
+    }
+
     private fun TestScope.createController(): DefaultTrailWalkController = DefaultTrailWalkController(
         clock = clock,
         hikeRepository = hikeRepository,
@@ -464,6 +482,8 @@ class DefaultTrailWalkControllerTest {
         fun seedOpenWalk(record: TrailWalkRecord) {
             openWalks[HikeId(record.hikeId)] = record
         }
+
+        fun savedWalks(): List<app.openhikes.core.model.HikeWalk> = walksFlow.value
 
         override val hikes: kotlinx.coroutines.flow.Flow<List<app.openhikes.core.model.HikeSummary>> =
             kotlinx.coroutines.flow.MutableStateFlow(emptyList())
@@ -549,6 +569,16 @@ class DefaultTrailWalkControllerTest {
         ) = error("Unused")
         override suspend fun deleteRecordingDraft(hikeId: HikeId) = error("Unused")
         override suspend fun deleteOwnedOrphanedRecordingDrafts(exceptHikeId: HikeId?) = error("Unused")
+        override suspend fun loadRouteEditSources(hikeId: HikeId) = error("Unused")
+        override suspend fun applyRouteEdit(
+            hikeId: HikeId,
+            expectedCurrentRoute: List<app.openhikes.core.model.RouteCoordinate>,
+            edited: app.openhikes.core.model.EditedLine
+        ) = error("Unused")
+        override suspend fun revertRouteEdit(
+            hikeId: HikeId,
+            expectedCurrentRoute: List<app.openhikes.core.model.RouteCoordinate>
+        ) = error("Unused")
         override suspend fun seedFixtureIfConfigured(): HikeId? = null
     }
 

@@ -9,6 +9,7 @@ import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.JunctionAnnouncer
 import app.openhikes.core.model.LocationFix
 import app.openhikes.core.model.LocationFixPolicy
+import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteProfile
 import app.openhikes.core.model.TrailWalkEndReason
 import app.openhikes.core.model.TrailWalkPhase
@@ -191,14 +192,21 @@ internal class DefaultTrailWalkController @Inject constructor(
         applicationScope.launch {
             mutex.withLock {
                 locationFeed.refreshPermissionStatus()
+                val now = clock.now().toEpochMilli()
                 runtime.foregroundHike = hike
                 runtime.foregroundProfile = profile
-                if (runtime.activeRecord?.hikeId == hike.id.value) {
-                    runtime.walkedHike = hike
-                    runtime.walkedProfile = profile
+                val active = runtime.activeRecord
+                if (active != null && active.hikeId == hike.id.value) {
+                    if (!active.isAlong(hike.route)) {
+                        runtime.finishWalk(TrailWalkEndReason.ROUTE_CHANGED, now)
+                        cancelJunctionGuideLocked()
+                    } else {
+                        runtime.walkedHike = hike
+                        runtime.walkedProfile = profile
+                    }
                 }
                 runtime.syncLocationFeed()
-                publishFlowsLocked(clock.now().toEpochMilli())
+                publishFlowsLocked(now)
             }
         }
     }
@@ -350,6 +358,21 @@ internal class DefaultTrailWalkController @Inject constructor(
                     runtime.syncLocationFeed()
                 }
                 publishFlowsLocked(clock.now().toEpochMilli())
+            }
+        }
+    }
+
+    override fun onHikeRouteChanged(hikeId: HikeId, newRoute: List<RouteCoordinate>) {
+        applicationScope.launch {
+            mutex.withLock {
+                val now = clock.now().toEpochMilli()
+                if (runtime.pendingStart?.hikeId == hikeId.value) runtime.pendingStart = null
+                val active = runtime.activeRecord
+                if (active != null && active.hikeId == hikeId.value && !active.isAlong(newRoute)) {
+                    runtime.finishWalk(TrailWalkEndReason.ROUTE_CHANGED, now)
+                    cancelJunctionGuideLocked()
+                }
+                publishFlowsLocked(now)
             }
         }
     }

@@ -131,11 +131,14 @@ internal class MapLibreTrailMapRenderer @Inject constructor(
         highlightState: StateFlow<MapRouteHighlight?>,
         liveRecordingOverlayState: StateFlow<MapRouteOverlay?>,
         modifier: Modifier,
-        walkCoverageOverlayState: StateFlow<MapWalkCoverageOverlay?>
+        walkCoverageOverlayState: StateFlow<MapWalkCoverageOverlay?>,
+        routeEditOverlayState: StateFlow<MapRouteEditOverlay?>,
+        routeEditHandlerProvider: () -> RouteEditMapInteractionHandler?
     ) {
         val currentInteractions by rememberUpdatedState(interactions)
         val allowRemoteRequests by mapNetworkPolicy.allowsInteractiveMapRequests.collectAsStateWithLifecycle()
         var hasLoadedRemoteStyle by remember { mutableStateOf(false) }
+        var isPanLocked by remember { mutableStateOf(false) }
 
         val sourceSpec = rememberOpenHikesVectorSourceSpec(
             allowRemoteRequests = allowRemoteRequests,
@@ -159,6 +162,7 @@ internal class MapLibreTrailMapRenderer @Inject constructor(
             highlightState = highlightState,
             liveRecordingOverlayState = liveRecordingOverlayState,
             walkCoverageOverlayState = walkCoverageOverlayState,
+            routeEditOverlayState = routeEditOverlayState,
             initialCameraState = cameraState
         )
 
@@ -180,10 +184,17 @@ internal class MapLibreTrailMapRenderer @Inject constructor(
                 .testTag(OpenHikesTestTags.TRAIL_MAP),
             state = mapState,
             viewportInsets = viewportPadding,
-            interactions = createMapInteractions { coordinate ->
+            interactions = createMapInteractions(isPanEnabled = !isPanLocked) { coordinate ->
                 currentInteractions.onMapTap(coordinate)
             },
-            overlay = {}
+            overlay = {
+                RouteEditInteractiveOverlay(
+                    mapState = mapState,
+                    routeEditOverlayState = routeEditOverlayState,
+                    interactionHandlerProvider = routeEditHandlerProvider,
+                    onPanLockChanged = { locked -> isPanLocked = locked }
+                )
+            }
         )
     }
 }
@@ -240,6 +251,7 @@ private fun rememberTrailMapState(
     highlightState: StateFlow<MapRouteHighlight?>,
     liveRecordingOverlayState: StateFlow<MapRouteOverlay?>,
     walkCoverageOverlayState: StateFlow<MapWalkCoverageOverlay?>,
+    routeEditOverlayState: StateFlow<MapRouteEditOverlay?>,
     initialCameraState: MapCameraState
 ) = rememberMapState(
     baseStyle = stylePlan.baseStyle,
@@ -283,6 +295,7 @@ private fun rememberTrailMapState(
     }
     CountryOutlineLayers(outlines = countryOutlines)
     RouteOverlayLayers(routes = routes)
+    RouteEditOverlayLayers(routeEditOverlayState = routeEditOverlayState)
     WalkCoverageOverlayLayers(walkCoverageState = walkCoverageOverlayState)
     LiveRecordingRouteLayers(liveOverlayState = liveRecordingOverlayState)
     HighlightMarkerLayers(highlightState = highlightState)
@@ -385,16 +398,22 @@ private const val MAX_LATITUDE = 90.0
 private const val MIN_LONGITUDE = -180.0
 private const val MAX_LONGITUDE = 180.0
 
-private fun createMapInteractions(onMapTap: (GeoCoordinate) -> Unit): MapInteractions = MapInteractions {
-    callbacks {
-        click {
-            onEvent { event ->
-                event.position?.toGeoCoordinateOrNull()?.let(onMapTap)
-                ClickResult.Pass
+private fun createMapInteractions(isPanEnabled: Boolean, onMapTap: (GeoCoordinate) -> Unit): MapInteractions =
+    MapInteractions {
+        camera {
+            pan {
+                enabled = isPanEnabled
+            }
+        }
+        callbacks {
+            click {
+                onEvent { event ->
+                    event.position?.toGeoCoordinateOrNull()?.let(onMapTap)
+                    ClickResult.Pass
+                }
             }
         }
     }
-}
 
 private fun MapCameraState.toMapLibreCameraPosition(): CameraPosition = CameraPosition(
     center = Position(longitude = center.longitude, latitude = center.latitude),

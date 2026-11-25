@@ -23,6 +23,7 @@ data class MapClaim(
     val overlayOverride: MapOverlayState? = null,
     val cameraCommand: MapCameraCommand? = null,
     val selectedHikeId: HikeId? = null,
+    val hiddenRouteHikeId: HikeId? = null,
     val countryOutlines: List<MapCountryOutline>? = null
 )
 

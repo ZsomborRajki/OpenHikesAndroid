@@ -462,8 +462,24 @@ internal fun HikeOnMapCard(hike: Hike, onOpenRouteStyle: () -> Unit) {
 }
 
 @Composable
-internal fun HikeClosingActionsCard(onStartRename: () -> Unit, onRequestDelete: () -> Unit) {
+internal fun HikeClosingActionsCard(
+    onStartRename: () -> Unit,
+    onRequestDelete: () -> Unit,
+    showEditRoute: Boolean = false,
+    onOpenRouteEdit: () -> Unit = {}
+) {
     HikeSectionCard(title = null) {
+        if (showEditRoute) {
+            ActionMenuRow(
+                label = stringResource(R.string.hike_detail_edit_route),
+                iconRes = OpenHikesIcons.Route,
+                tint = MaterialTheme.colorScheme.onSurface,
+                onClick = onOpenRouteEdit,
+                testTag = OpenHikesTestTags.HIKE_EDIT_ROUTE,
+                showChevron = true
+            )
+            CardDivider()
+        }
         ActionMenuRow(
             label = stringResource(R.string.hike_detail_rename_hike),
             iconRes = OpenHikesIcons.Edit,
@@ -483,7 +499,14 @@ internal fun HikeClosingActionsCard(onStartRename: () -> Unit, onRequestDelete: 
 }
 
 @Composable
-private fun ActionMenuRow(label: String, iconRes: Int, tint: Color, onClick: () -> Unit, testTag: String) {
+private fun ActionMenuRow(
+    label: String,
+    iconRes: Int,
+    tint: Color,
+    onClick: () -> Unit,
+    testTag: String,
+    showChevron: Boolean = false
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -496,7 +519,14 @@ private fun ActionMenuRow(label: String, iconRes: Int, tint: Color, onClick: () 
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Icon(painter = painterResource(iconRes), contentDescription = null, tint = tint)
-        Text(text = label, style = MaterialTheme.typography.titleMedium, color = tint)
+        Text(text = label, style = MaterialTheme.typography.titleMedium, color = tint, modifier = Modifier.weight(1f))
+        if (showChevron) {
+            Icon(
+                painter = painterResource(OpenHikesIcons.ChevronRight),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
     }
 }
 

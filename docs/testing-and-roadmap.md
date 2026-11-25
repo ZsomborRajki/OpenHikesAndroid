@@ -167,3 +167,21 @@ GitHub issues once created.)*
    - `:app` floating toolbar Map Modes button keeping the live map visible in
      both portrait half-sheet and landscape/tablet side-panel layouts, plus
      ported Tier 1/2/3 & screenshot tests.
+8. **Phase 7 — Route Editing (Slice 7):**
+   - Pure-JVM route-editing domain (`RouteShape`, `RouteCarriedEnds`,
+     `RouteTrim`, `RouteStep`/`RouteSteps`, `RouteEdit`, `RouteTrimLine`,
+     `EditedLine`, and `RouteStretchRouter`) in `:core:model`.
+   - Room v3 `hike_original_route_chunks` & `route_edit_json`, cascade-safe
+     in-place hike updates, atomic `RouteEditStore` (preserving original route
+     geometry, updating only recorded walks, and invalidating local elevation
+     caches), and active-walk `ROUTE_CHANGED` invalidation across
+     `:core:database`, `:core:data`, and `:core:location`.
+   - Isolated `RouteEditOverlayState`, cut/kept/stretch/pull MapLibre layers,
+     draggable map handles, and non-blocking long-press route pull in
+     `:core:map`.
+   - `:feature:routeedit` Material 3 Expressive trimmer chart, live figures,
+     one-tap *Not on Foot* drive removal, *Change a Stretch* (*Follow Trails*,
+     *Straighten*, *Remove*), *Whole Route* actions (*Reverse*, *Out and Back*,
+     *Close Loop*, *Start Loop Here*), *Undo*, and *Revert to Original*, wired
+     from `:feature:hikes` and `:app` with ported Tier 1/2/3 & screenshot
+     tests.

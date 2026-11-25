@@ -76,6 +76,7 @@
     </plurals>
     <string name="hike_detail_section_on_map">On the Map</string>
     <string name="hike_detail_route_style">Route Style</string>
+    <string name="hike_detail_edit_route">Edit Route</string>
     <string name="hike_detail_rename_hike">Rename Hike</string>
     <string name="hike_detail_rename_label">Hike Title</string>
     <string name="hike_detail_rename_save">Save</string>

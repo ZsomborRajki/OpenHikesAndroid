@@ -47,9 +47,11 @@ import app.openhikes.core.location.TrailWalkSessionState
 import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapCameraState
 import app.openhikes.core.map.MapInteractionEvents
+import app.openhikes.core.map.MapRouteEditOverlay
 import app.openhikes.core.map.MapRouteHighlight
 import app.openhikes.core.map.MapRouteOverlay
 import app.openhikes.core.map.MapWalkCoverageOverlay
+import app.openhikes.core.map.RouteEditMapInteractionHandler
 import app.openhikes.core.map.TrailMapHost
 import app.openhikes.core.map.TrailMapRenderer
 import app.openhikes.core.model.GeoCoordinate
@@ -72,6 +74,7 @@ import kotlinx.coroutines.flow.StateFlow
 private val SheetPeekViewportInset = 112.dp
 private val EmptyLiveOverlayFlow: StateFlow<MapRouteOverlay?> = MutableStateFlow(null)
 private val EmptyWalkCoverageFlow: StateFlow<MapWalkCoverageOverlay?> = MutableStateFlow(null)
+private val EmptyRouteEditOverlayFlow: StateFlow<MapRouteEditOverlay?> = MutableStateFlow(null)
 
 @Immutable
 private data class ViewportChromeMetrics(val sidePanelEdge: Dp, val viewportPadding: PaddingValues)
@@ -161,6 +164,8 @@ fun OpenHikesApp(
         isRecordingActive = isRecordingActive,
         liveRecordingOverlayState = shellViewModel.liveRecordingOverlay,
         walkCoverageOverlayState = shellViewModel.walkCoverageOverlay,
+        routeEditOverlayState = shellViewModel.routeEditOverlay,
+        routeEditHandlerProvider = shellViewModel::routeEditHandler,
         walkSession = walkSession,
         walkTimeLeftMarkFlow = shellViewModel.walkTimeLeftMark,
         walkDialogs = ShellWalkDialogCallbacks(
@@ -220,6 +225,8 @@ internal fun OpenHikesShellContent(
     isRecordingActive: Boolean = false,
     liveRecordingOverlayState: StateFlow<MapRouteOverlay?> = EmptyLiveOverlayFlow,
     walkCoverageOverlayState: StateFlow<MapWalkCoverageOverlay?> = EmptyWalkCoverageFlow,
+    routeEditOverlayState: StateFlow<MapRouteEditOverlay?> = EmptyRouteEditOverlayFlow,
+    routeEditHandlerProvider: () -> RouteEditMapInteractionHandler? = { null },
     walkSession: TrailWalkSessionState = TrailWalkSessionState(),
     walkTimeLeftMarkFlow: StateFlow<WalkTimeLeftMark?> = EmptyWalkTimeLeftFlow,
     walkDialogs: ShellWalkDialogCallbacks = ShellWalkDialogCallbacks(),
@@ -261,6 +268,8 @@ internal fun OpenHikesShellContent(
         isRecordingActive = isRecordingActive,
         liveRecordingOverlayState = liveRecordingOverlayState,
         walkCoverageOverlayState = walkCoverageOverlayState,
+        routeEditOverlayState = routeEditOverlayState,
+        routeEditHandlerProvider = routeEditHandlerProvider,
         walkChrome = MapWalkChromeState(
             session = walkSession,
             timeLeftMarkFlow = walkTimeLeftMarkFlow,
@@ -283,11 +292,7 @@ internal fun OpenHikesShellContent(
         navigationContent = navHostState.navigationContent,
         modifier = modifier
     )
-    ShellWalkDialogs(
-        walkSession = walkSession,
-        walkDialogs = walkDialogs,
-        onProceedToRecording = navHostState.onProceedToRecording
-    )
+    ShellWalkDialogs(walkSession, walkDialogs, navHostState.onProceedToRecording)
 }
 
 @Composable
@@ -627,6 +632,8 @@ private fun OpenHikesShellStage(
     isRecordingActive: Boolean,
     liveRecordingOverlayState: StateFlow<MapRouteOverlay?>,
     walkCoverageOverlayState: StateFlow<MapWalkCoverageOverlay?>,
+    routeEditOverlayState: StateFlow<MapRouteEditOverlay?>,
+    routeEditHandlerProvider: () -> RouteEditMapInteractionHandler?,
     walkChrome: MapWalkChromeState,
     onOpenRecording: () -> Unit,
     onOpenMapModes: () -> Unit,
@@ -668,7 +675,9 @@ private fun OpenHikesShellStage(
             onCameraCommandHandled = onCameraCommandHandled,
             highlightState = routeHighlightState,
             liveRecordingOverlayState = liveRecordingOverlayState,
-            walkCoverageOverlayState = walkCoverageOverlayState
+            walkCoverageOverlayState = walkCoverageOverlayState,
+            routeEditOverlayState = routeEditOverlayState,
+            routeEditHandlerProvider = routeEditHandlerProvider
         )
         MapFloatingControls(
             shellLayout = shellLayout,

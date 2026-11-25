@@ -370,7 +370,7 @@ internal fun HighlightMarkerLayers(highlightState: StateFlow<MapRouteHighlight?>
     )
 }
 
-private fun buildMultiLineFeatureCollection(segments: List<List<GeoCoordinate>>): GeoJsonData {
+internal fun buildMultiLineFeatureCollection(segments: List<List<GeoCoordinate>>): GeoJsonData {
     val lines = segments.mapNotNull { segment ->
         if (segment.size < 2) {
             null

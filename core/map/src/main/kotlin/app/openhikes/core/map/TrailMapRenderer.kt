@@ -23,6 +23,8 @@ interface TrailMapRenderer {
         highlightState: StateFlow<MapRouteHighlight?>,
         liveRecordingOverlayState: StateFlow<MapRouteOverlay?>,
         modifier: Modifier,
-        walkCoverageOverlayState: StateFlow<MapWalkCoverageOverlay?> = remember { MutableStateFlow(null) }
+        walkCoverageOverlayState: StateFlow<MapWalkCoverageOverlay?> = remember { MutableStateFlow(null) },
+        routeEditOverlayState: StateFlow<MapRouteEditOverlay?> = remember { MutableStateFlow(null) },
+        routeEditHandlerProvider: () -> RouteEditMapInteractionHandler? = { null }
     )
 }
