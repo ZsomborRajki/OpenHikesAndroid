@@ -104,9 +104,11 @@ internal class LocalFakeServiceBridge @Inject constructor() : RecordingServiceBr
     var stopServiceCount: Int = 0
         private set
     var nextEnsureStartedError: Throwable? = null
+    var onEnsureStarted: (() -> Unit)? = null
 
     override fun ensureStarted() {
         ensureStartedCount += 1
+        onEnsureStarted?.invoke()
         nextEnsureStartedError?.let { error ->
             nextEnsureStartedError = null
             throw error

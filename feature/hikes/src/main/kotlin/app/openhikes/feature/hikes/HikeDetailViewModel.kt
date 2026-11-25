@@ -3,6 +3,7 @@ package app.openhikes.feature.hikes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.openhikes.core.common.DefaultDispatcher
+import app.openhikes.core.common.LaunchConfigHolder
 import app.openhikes.core.data.HikeRepository
 import app.openhikes.core.data.OfflineCountryRepository
 import app.openhikes.core.data.UserSettingsRepository
@@ -73,6 +74,7 @@ class HikeDetailViewModel @AssistedInject constructor(
     recordingController: RecordingController,
     private val mapClaimCoordinator: MapClaimCoordinator,
     private val routeHighlightState: RouteHighlightState,
+    private val launchConfigHolder: LaunchConfigHolder,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
 ) : ViewModel() {
     @AssistedFactory
@@ -95,7 +97,9 @@ class HikeDetailViewModel @AssistedInject constructor(
     private val selectedTabState = MutableStateFlow(HikeDetailTab.DETAILS)
     private val showEndWalkDialogState = MutableStateFlow(false)
     private val showEndWalkRefusedDialogState = MutableStateFlow(false)
+    private val requestLocationPermissionState = MutableStateFlow(false)
     private val scrubDistanceState = MutableStateFlow(0.0)
+    private var pendingPermissionAction: PendingWalkPermissionAction? = null
 
     @Volatile
     private var latestProfile: RouteProfile? = null
@@ -157,7 +161,11 @@ class HikeDetailViewModel @AssistedInject constructor(
         hikeRepository.observeWalks(hikeId),
         trailWalkController.sessionState,
         recordingController.state.map { it.isActive }.distinctUntilChanged(),
-        combine(showEndWalkDialogState, showEndWalkRefusedDialogState) { confirm, refused -> confirm to refused }
+        combine(
+            showEndWalkDialogState,
+            showEndWalkRefusedDialogState,
+            requestLocationPermissionState
+        ) { confirm, refused, requestPermission -> Triple(confirm, refused, requestPermission) }
     ) { tab, walks, session, isRecording, dialogs ->
         WalkSectionState(
             selectedTab = tab,
@@ -165,7 +173,8 @@ class HikeDetailViewModel @AssistedInject constructor(
             session = session,
             isRecordingActive = isRecording,
             showEndWalkDialog = dialogs.first,
-            showEndWalkRefusedDialog = dialogs.second
+            showEndWalkRefusedDialog = dialogs.second,
+            requestLocationPermission = dialogs.third
         )
     }
 
@@ -226,6 +235,7 @@ class HikeDetailViewModel @AssistedInject constructor(
             isRecordingActive = bundle.walkState.isRecordingActive,
             showEndWalkDialog = bundle.walkState.showEndWalkDialog,
             showEndWalkRefusedDialog = bundle.walkState.showEndWalkRefusedDialog,
+            requestLocationPermission = bundle.walkState.requestLocationPermission,
             isLoaded = true,
             isRenaming = transient.isRenaming,
             titleDraft = transient.titleDraft,
@@ -296,6 +306,7 @@ class HikeDetailViewModel @AssistedInject constructor(
     fun onWalkAction(action: HikeWalkAction, onOpenWalkSummary: (HikeId, String) -> Unit) {
         when (action) {
             HikeWalkAction.ToggleWalk -> handleToggleWalk()
+            is HikeWalkAction.PermissionResult -> handlePermissionResult(action.grantedFine, action.grantedCoarse)
             HikeWalkAction.RequestEndWalk -> showEndWalkDialogState.value = true
             HikeWalkAction.CancelEndWalk -> showEndWalkDialogState.value = false
             HikeWalkAction.ConfirmEndWalk -> handleConfirmEndWalk(onOpenWalkSummary)
@@ -309,11 +320,38 @@ class HikeDetailViewModel @AssistedInject constructor(
     private fun handleToggleWalk() {
         val state = uiState.value
         if (state.isRecordingActive || state.isWalkingOtherHike) return
+        when {
+            !state.isWalkingThisHike -> dispatchWalkWithPermission(PendingWalkPermissionAction.START)
+            state.walkSession.phase == TrailWalkPhase.FOLLOWING -> viewModelScope.launch { trailWalkController.pause() }
+            else -> dispatchWalkWithPermission(PendingWalkPermissionAction.RESUME)
+        }
+    }
+
+    private fun dispatchWalkWithPermission(action: PendingWalkPermissionAction) {
+        if (launchConfigHolder.current.value.enableSimulatedLocation) {
+            executeWalkPermissionAction(action)
+        } else {
+            pendingPermissionAction = action
+            requestLocationPermissionState.value = true
+        }
+    }
+
+    private fun handlePermissionResult(grantedFine: Boolean, grantedCoarse: Boolean) {
+        requestLocationPermissionState.value = false
+        val action = pendingPermissionAction ?: return
+        pendingPermissionAction = null
+        if (grantedFine) {
+            executeWalkPermissionAction(action)
+        } else {
+            trailWalkController.onLocationPermissionDenied(hasCoarse = grantedCoarse)
+        }
+    }
+
+    private fun executeWalkPermissionAction(action: PendingWalkPermissionAction) {
         viewModelScope.launch {
-            when {
-                !state.isWalkingThisHike -> trailWalkController.startByHand(hikeId)
-                state.walkSession.phase == TrailWalkPhase.FOLLOWING -> trailWalkController.pause()
-                else -> trailWalkController.resume()
+            when (action) {
+                PendingWalkPermissionAction.START -> trailWalkController.startByHand(hikeId)
+                PendingWalkPermissionAction.RESUME -> trailWalkController.resume()
             }
         }
     }
@@ -441,6 +479,7 @@ class HikeDetailViewModel @AssistedInject constructor(
     fun onDismissMessages() {
         actionErrorState.value = null
         exportSuccessState.value = false
+        trailWalkController.dismissPermissionIssue()
     }
 
     fun onOfflineAction(action: HikeOfflineAction) {
@@ -486,13 +525,19 @@ class HikeDetailViewModel @AssistedInject constructor(
         val exportSuccess: Boolean
     )
 
+    private enum class PendingWalkPermissionAction {
+        START,
+        RESUME
+    }
+
     private data class WalkSectionState(
         val selectedTab: HikeDetailTab,
         val walks: List<HikeWalk>,
         val session: TrailWalkSessionState,
         val isRecordingActive: Boolean,
         val showEndWalkDialog: Boolean,
-        val showEndWalkRefusedDialog: Boolean
+        val showEndWalkRefusedDialog: Boolean,
+        val requestLocationPermission: Boolean
     )
 
     private data class OfflineAndWalkBundle(

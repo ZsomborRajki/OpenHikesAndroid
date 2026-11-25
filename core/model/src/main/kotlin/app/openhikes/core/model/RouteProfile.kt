@@ -218,7 +218,12 @@ class RouteProfile private constructor(
         anchorMeters: Double,
         headingDegrees: Double?
     ): NearestCandidate {
-        val threshold = best.offRouteMeters + TIE_BREAK_TOLERANCE_METERS
+        val rawThreshold = best.offRouteMeters + TIE_BREAK_TOLERANCE_METERS
+        val threshold = if (best.offRouteMeters <= FOLLOW_MATCH_THRESHOLD_METERS) {
+            minOf(rawThreshold, FOLLOW_MATCH_THRESHOLD_METERS)
+        } else {
+            rawThreshold
+        }
         val tied = candidates.filter { it.offRouteMeters <= threshold }
         val pool = if (headingDegrees != null) {
             tied.filter { candidate -> runsWithHeading(candidate, headingDegrees) }.ifEmpty { tied }

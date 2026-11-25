@@ -111,6 +111,42 @@ class WalkPersistenceStoreTest {
         assertThat(walks.first().coveredFraction).isWithin(0.01).of(0.5)
     }
 
+    @Test
+    fun retryingFinishAfterCommittedPortableInsertReusesSameRow() = runTest {
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        val repo = createRepository(LaunchConfig(), dispatcher)
+        val importResult = repo.importGpxBytes(
+            TestFixtures.thumseeLoopFastGpxBytes(),
+            "${TestFixtures.THUMSEE_LOOP_FAST_NAME}.gpx"
+        ) as GpxImportResult.Success
+        val hikeId = importResult.importedHikes.first().id
+        val hike = repo.observeHike(hikeId).first()!!
+        val revision = TrailWalkRecord.routeRevision(hike.route)
+
+        val record = TrailWalkRecord(
+            hikeId = hikeId.value,
+            startedAtEpochMillis = 20_000L,
+            coverage = TrailWalkCoverage().withRecordedMatch(0.0).withRecordedMatch(410.0),
+            routeDistanceMeters = hike.distanceMeters,
+            routeRevision = revision,
+            walkId = "durable-walk-1"
+        )
+        assertThat(repo.saveWalkInProgress(hikeId, record).isSuccess).isTrue()
+
+        // Simulate interruption after portable insert committed but before local open walk was cleared.
+        val firstFinish = repo.finishWalk(record, endedAtEpochMillis = 80_000L, reason = TrailWalkEndReason.ENDED)
+            .getOrThrow()!!
+        assertThat(firstFinish.id).isEqualTo("durable-walk-1")
+        assertThat(repo.saveWalkInProgress(hikeId, record).isSuccess).isTrue()
+
+        // Retrying finish on the recovered record replaces the same row instead of duplicating History.
+        val retryFinish = repo.finishWalk(record, endedAtEpochMillis = 80_000L, reason = TrailWalkEndReason.ENDED)
+            .getOrThrow()!!
+        assertThat(retryFinish.id).isEqualTo("durable-walk-1")
+        assertThat(repo.observeWalks(hikeId).first()).hasSize(1)
+        assertThat(repo.getOpenWalksInProgress().getOrThrow()).isEmpty()
+    }
+
     private fun createRepository(
         config: LaunchConfig,
         dispatcher: kotlinx.coroutines.CoroutineDispatcher

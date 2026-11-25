@@ -2,7 +2,10 @@ package app.openhikes.feature.hikes
 
 import androidx.lifecycle.ViewModelStore
 import app.cash.turbine.test
+import app.openhikes.core.common.LaunchConfig
+import app.openhikes.core.common.LaunchConfigHolder
 import app.openhikes.core.location.TrailWalkEnd
+import app.openhikes.core.location.TrailWalkPermissionIssue
 import app.openhikes.core.location.TrailWalkProgressState
 import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapClaimCoordinator
@@ -139,12 +142,74 @@ class HikeDetailViewModelTest {
         }
     }
 
+    @Test
+    fun requestsPreciseLocationBeforeStartingOrResumingWalkWhenNotSimulated() = runTest {
+        val hike = sampleDetailHike()
+        val walkController = FakeTrailWalkController()
+        val viewModel = createViewModel(
+            hike = hike,
+            walkController = walkController,
+            launchConfigHolder = LaunchConfigHolder(LaunchConfig.Production)
+        )
+
+        viewModel.uiState.test {
+            awaitItem()
+            advanceUntilIdle()
+
+            // Start Hike requests permission first instead of starting immediately.
+            viewModel.onWalkAction(HikeWalkAction.ToggleWalk) { _, _ -> }
+            advanceUntilIdle()
+            assertThat(expectMostRecentItem().requestLocationPermission).isTrue()
+            assertThat(walkController.startByHandCalls).isEqualTo(0)
+
+            // Coarse-only grant reports precise-location error and never starts the walk.
+            viewModel.onWalkAction(
+                HikeWalkAction.PermissionResult(grantedFine = false, grantedCoarse = true)
+            ) { _, _ -> }
+            advanceUntilIdle()
+            val coarseState = expectMostRecentItem()
+            assertThat(coarseState.requestLocationPermission).isFalse()
+            assertThat(walkController.startByHandCalls).isEqualTo(0)
+            assertThat(coarseState.walkSession.permissionIssue)
+                .isEqualTo(TrailWalkPermissionIssue.PRECISE_LOCATION_REQUIRED)
+
+            // Fine grant starts the walk.
+            viewModel.onWalkAction(HikeWalkAction.ToggleWalk) { _, _ -> }
+            viewModel.onWalkAction(
+                HikeWalkAction.PermissionResult(grantedFine = true, grantedCoarse = true)
+            ) { _, _ -> }
+            advanceUntilIdle()
+            assertThat(walkController.startByHandCalls).isEqualTo(1)
+            assertThat(expectMostRecentItem().walkSession.phase).isEqualTo(TrailWalkPhase.FOLLOWING)
+
+            // Pause then Resume also checks permission before calling resume().
+            viewModel.onWalkAction(HikeWalkAction.ToggleWalk) { _, _ -> }
+            advanceUntilIdle()
+            assertThat(expectMostRecentItem().walkSession.phase).isEqualTo(TrailWalkPhase.PAUSED)
+
+            viewModel.onWalkAction(HikeWalkAction.ToggleWalk) { _, _ -> }
+            advanceUntilIdle()
+            assertThat(expectMostRecentItem().requestLocationPermission).isTrue()
+            assertThat(walkController.resumeCalls).isEqualTo(0)
+
+            viewModel.onWalkAction(
+                HikeWalkAction.PermissionResult(grantedFine = true, grantedCoarse = true)
+            ) { _, _ -> }
+            advanceUntilIdle()
+            assertThat(walkController.resumeCalls).isEqualTo(1)
+            assertThat(expectMostRecentItem().walkSession.phase).isEqualTo(TrailWalkPhase.FOLLOWING)
+
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
     private fun createViewModel(
         hike: Hike,
         repo: FakeHikeRepository = FakeHikeRepository(listOf(hike)),
         walkController: FakeTrailWalkController = FakeTrailWalkController(),
         coordinator: MapClaimCoordinator = MapClaimCoordinator(),
-        highlightState: RouteHighlightState = RouteHighlightState()
+        highlightState: RouteHighlightState = RouteHighlightState(),
+        launchConfigHolder: LaunchConfigHolder = LaunchConfigHolder(LaunchConfig(enableSimulatedLocation = true))
     ): HikeDetailViewModel = HikeDetailViewModel(
         rawHikeId = hike.id.value,
         hikeRepository = repo,
@@ -154,6 +219,7 @@ class HikeDetailViewModelTest {
         recordingController = FakeRecordingController(),
         mapClaimCoordinator = coordinator,
         routeHighlightState = highlightState,
+        launchConfigHolder = launchConfigHolder,
         defaultDispatcher = mainDispatcherRule.testDispatcher
     )
 

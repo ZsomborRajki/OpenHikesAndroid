@@ -1,5 +1,7 @@
 package app.openhikes.feature.hikes
 
+import android.Manifest
+import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -28,11 +30,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.openhikes.core.location.TrailWalkPermissionIssue
 import app.openhikes.core.location.TrailWalkProgressState
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.ui.components.ElevationProfileChart
@@ -68,24 +73,19 @@ fun HikeDetailRoute(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val scrubDistanceState = viewModel.scrubDistanceMeters.collectAsStateWithLifecycle()
-    val exportLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/gpx+xml")
-    ) { uri ->
-        viewModel.onExportDestinationPicked(uri?.toString())
-    }
-
-    LaunchedEffect(uiState.pendingExport) {
-        val pending = uiState.pendingExport ?: return@LaunchedEffect
-        exportLauncher.launch(pending.fileName)
-    }
-
-    LaunchedEffect(uiState.walkSession.lastEndedWalk) {
-        val ended = uiState.walkSession.lastEndedWalk ?: return@LaunchedEffect
-        if (ended.hikeId == hikeId) {
-            viewModel.onConsumeEndedWalk()
-            onOpenWalkSummary(hikeId, ended.id)
-        }
-    }
+    HikeDetailRouteEffects(
+        hikeId = hikeId,
+        uiState = uiState,
+        onExportDestinationPicked = viewModel::onExportDestinationPicked,
+        onPermissionResult = { grantedFine, grantedCoarse ->
+            viewModel.onWalkAction(
+                HikeWalkAction.PermissionResult(grantedFine = grantedFine, grantedCoarse = grantedCoarse),
+                onOpenWalkSummary
+            )
+        },
+        onConsumeEndedWalk = viewModel::onConsumeEndedWalk,
+        onOpenWalkSummary = onOpenWalkSummary
+    )
 
     HikeDetailScreen(
         uiState = uiState,
@@ -112,6 +112,37 @@ fun HikeDetailRoute(
         onOfflineAction = viewModel::onOfflineAction,
         onWalkAction = { action -> viewModel.onWalkAction(action, onOpenWalkSummary) }
     )
+}
+
+@Composable
+private fun HikeDetailRouteEffects(
+    hikeId: HikeId,
+    uiState: HikeDetailUiState,
+    onExportDestinationPicked: (String?) -> Unit,
+    onPermissionResult: (Boolean, Boolean) -> Unit,
+    onConsumeEndedWalk: () -> Unit,
+    onOpenWalkSummary: (HikeId, String) -> Unit
+) {
+    val exportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/gpx+xml")
+    ) { uri ->
+        onExportDestinationPicked(uri?.toString())
+    }
+    WalkLocationPermissionEffect(
+        requestLocationPermission = uiState.requestLocationPermission,
+        onPermissionResult = onPermissionResult
+    )
+    LaunchedEffect(uiState.pendingExport) {
+        val pending = uiState.pendingExport ?: return@LaunchedEffect
+        exportLauncher.launch(pending.fileName)
+    }
+    LaunchedEffect(uiState.walkSession.lastEndedWalk) {
+        val ended = uiState.walkSession.lastEndedWalk ?: return@LaunchedEffect
+        if (ended.hikeId == hikeId) {
+            onConsumeEndedWalk()
+            onOpenWalkSummary(hikeId, ended.id)
+        }
+    }
 }
 
 /**
@@ -417,16 +448,65 @@ private fun LazyListScope.addDetailSecondaryItems(
 }
 
 @Composable
+private fun WalkLocationPermissionEffect(
+    requestLocationPermission: Boolean,
+    onPermissionResult: (grantedFine: Boolean, grantedCoarse: Boolean) -> Unit
+) {
+    val context = LocalContext.current
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        val grantedFine = results[Manifest.permission.ACCESS_FINE_LOCATION] == true
+        val grantedCoarse = results[Manifest.permission.ACCESS_COARSE_LOCATION] == true ||
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+        onPermissionResult(grantedFine, grantedCoarse)
+    }
+
+    LaunchedEffect(requestLocationPermission) {
+        if (!requestLocationPermission) return@LaunchedEffect
+        val hasFine = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        if (hasFine) {
+            onPermissionResult(true, true)
+        } else {
+            val permissions = mutableListOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            )
+            if (ContextCompat.checkSelfPermission(
+                    context,
+                    Manifest.permission.POST_NOTIFICATIONS
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            permissionLauncher.launch(permissions.toTypedArray())
+        }
+    }
+}
+
+@Composable
 private fun DetailStatusBanners(uiState: HikeDetailUiState, onDismiss: () -> Unit) {
     val error = uiState.actionError
-    if (error != null) {
-        val message = when (error) {
-            HikeDetailError.RENAME_FAILED -> stringResource(R.string.hikes_save_failed_error)
-            HikeDetailError.DELETE_FAILED -> stringResource(R.string.hikes_delete_failed_error)
-            HikeDetailError.EXPORT_FAILED -> stringResource(R.string.hikes_export_failed_error)
-        }
+    val permissionIssue = uiState.walkSession.permissionIssue
+    val errorMessage = when {
+        error == HikeDetailError.RENAME_FAILED -> stringResource(R.string.hikes_save_failed_error)
+        error == HikeDetailError.DELETE_FAILED -> stringResource(R.string.hikes_delete_failed_error)
+        error == HikeDetailError.EXPORT_FAILED -> stringResource(R.string.hikes_export_failed_error)
+        permissionIssue == TrailWalkPermissionIssue.LOCATION_DENIED ->
+            stringResource(R.string.walk_error_location_denied)
+        permissionIssue == TrailWalkPermissionIssue.PRECISE_LOCATION_REQUIRED ->
+            stringResource(R.string.walk_error_precise_location_required)
+        else -> null
+    }
+    if (errorMessage != null) {
         StatusBannerSurface(
-            message = message,
+            message = errorMessage,
             containerColor = MaterialTheme.colorScheme.errorContainer,
             contentColor = MaterialTheme.colorScheme.onErrorContainer,
             onDismiss = onDismiss,

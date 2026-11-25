@@ -1,5 +1,6 @@
 package app.openhikes.core.model
 
+import java.util.UUID
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -297,8 +298,16 @@ data class TrailWalkRecord(
     val lastMatchedAtEpochMillis: Long? = startedAtEpochMillis,
     val lastFollowedDistanceMeters: Double? = null,
     val routeDistanceMeters: Double,
-    val routeRevision: String? = null
+    val routeRevision: String? = null,
+    val walkId: String? = null
 ) {
+    /**
+     * Durable identifier carried from the in-progress record into portable history so crash
+     * recovery and finish retries recognize or replace the same walk row without duplicating it.
+     */
+    val durableWalkId: String
+        get() = walkId?.takeIf { it.isNotBlank() } ?: "walk-$hikeId-$startedAtEpochMillis"
+
     val phase: TrailWalkPhase
         get() = TrailWalkPhase.fromStoredId(phaseId)
 
@@ -359,6 +368,8 @@ data class TrailWalkRecord(
         private const val FNV_OFFSET_BASIS = -3750763034362895579L // 0xcbf29ce484222325
         private const val FNV_PRIME = 1099511628211L // 0x100000001b3
         private const val REVISION_RADIX = 16
+
+        fun newWalkId(): String = UUID.randomUUID().toString()
 
         /**
          * Stable 64-bit hash over route coordinates and pause boundaries (excluding elevation/time)
@@ -472,7 +483,8 @@ data class PendingWalkStart(
                 startedAtEpochMillis = atEpochMillis,
                 routeRevision = routeRevision,
                 coverage = TrailWalkCoverage().withRecordedMatch(distanceMeters),
-                lastFollowedDistanceMeters = distanceMeters
+                lastFollowedDistanceMeters = distanceMeters,
+                walkId = TrailWalkRecord.newWalkId()
             )
             val fromNearerEnd = min(distanceMeters, routeDistanceMeters - distanceMeters)
             val gap = if (fromNearerEnd <= STILL_RADIUS_METERS) endsApartMeters else null

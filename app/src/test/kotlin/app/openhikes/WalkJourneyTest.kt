@@ -269,9 +269,7 @@ class WalkJourneyTest {
             composeRule.onNodeWithTag(OpenHikesTestTags.FOLLOW_TRAIL_SWITCH).performScrollTo().assertIsOn()
             composeRule.onNodeWithTag(OpenHikesTestTags.FOLLOW_TRAIL_SWITCH).performClick()
             composeRule.waitUntilExactlyOneExists(
-                hasTestTag(OpenHikesTestTags.FOLLOW_TRAIL_SWITCH) and SemanticsMatcher("isOff") { node ->
-                    node.config.getOrNull(SemanticsProperties.ToggleableState)?.name == "Off"
-                },
+                hasTestTag(OpenHikesTestTags.FOLLOW_TRAIL_SWITCH) and hasToggleState("Off"),
                 WAIT_TIMEOUT_MILLIS
             )
 
@@ -332,11 +330,19 @@ class WalkJourneyTest {
             detailList.performScrollToKey("follow_trail")
             val stopsBeforeToggle = locationFeed.stopCount
             composeRule.onNodeWithTag(OpenHikesTestTags.FOLLOW_TRAIL_SWITCH).performScrollTo().performClick()
+            composeRule.waitUntilExactlyOneExists(
+                hasTestTag(OpenHikesTestTags.FOLLOW_TRAIL_SWITCH) and hasToggleState("Off"),
+                WAIT_TIMEOUT_MILLIS
+            )
             waitUntilCondition { locationFeed.stopCount > stopsBeforeToggle }
             composeRule.onNodeWithTag(OpenHikesTestTags.FOLLOW_TRAIL_SWITCH).assertIsOff()
 
             val startsBeforeRearm = locationFeed.startCount
             composeRule.onNodeWithTag(OpenHikesTestTags.FOLLOW_TRAIL_SWITCH).performClick()
+            composeRule.waitUntilExactlyOneExists(
+                hasTestTag(OpenHikesTestTags.FOLLOW_TRAIL_SWITCH) and hasToggleState("On"),
+                WAIT_TIMEOUT_MILLIS
+            )
             waitUntilCondition { locationFeed.startCount > startsBeforeRearm }
             composeRule.onNodeWithTag(OpenHikesTestTags.FOLLOW_TRAIL_SWITCH).assertIsOn()
 
@@ -442,6 +448,11 @@ class WalkJourneyTest {
             condition()
         }
     }
+
+    private fun hasToggleState(stateName: String): SemanticsMatcher =
+        SemanticsMatcher("ToggleableState is $stateName") { node ->
+            node.config.getOrNull(SemanticsProperties.ToggleableState)?.name == stateName
+        }
 
     private fun walkRowPrefixMatcher(): SemanticsMatcher = SemanticsMatcher("testTag starts with walk-row-") { node ->
         node.config.getOrNull(SemanticsProperties.TestTag)?.startsWith("${OpenHikesTestTags.WALK_ROW}-") == true

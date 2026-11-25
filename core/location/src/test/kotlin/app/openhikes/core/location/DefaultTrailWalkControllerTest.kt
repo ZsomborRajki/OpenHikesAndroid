@@ -249,6 +249,152 @@ class DefaultTrailWalkControllerTest {
         assertThat(controller.sessionState.value.isWalkActive).isFalse()
     }
 
+    @Test
+    fun deniesStartResumeAndPausesRestoredWalkWhenFineLocationMissing() = runTest {
+        val controller = createController()
+        controller.attachForegroundHike(hike, profile)
+
+        locationFeed.setPermission(LocationPermissionStatus.DENIED)
+        assertThat(controller.startByHand(hike.id)).isFalse()
+        assertThat(serviceBridge.ensureStartedCount).isEqualTo(0)
+        assertThat(controller.sessionState.value.permissionIssue).isEqualTo(TrailWalkPermissionIssue.LOCATION_DENIED)
+
+        locationFeed.setPermission(LocationPermissionStatus.GRANTED_COARSE)
+        assertThat(controller.startByHand(hike.id)).isFalse()
+        assertThat(serviceBridge.ensureStartedCount).isEqualTo(0)
+        assertThat(controller.sessionState.value.permissionIssue)
+            .isEqualTo(TrailWalkPermissionIssue.PRECISE_LOCATION_REQUIRED)
+
+        // Start cleanly with fine permission, pause, then revoke before resume.
+        locationFeed.setPermission(LocationPermissionStatus.GRANTED_FINE)
+        assertThat(controller.startByHand(hike.id)).isTrue()
+        assertThat(controller.pause()).isTrue()
+        val startsBeforeDeniedResume = serviceBridge.ensureStartedCount
+        locationFeed.setPermission(LocationPermissionStatus.DENIED)
+        assertThat(controller.resume()).isFalse()
+        assertThat(controller.sessionState.value.phase).isEqualTo(TrailWalkPhase.PAUSED)
+        assertThat(serviceBridge.ensureStartedCount).isEqualTo(startsBeforeDeniedResume)
+        assertThat(controller.sessionState.value.permissionIssue).isEqualTo(TrailWalkPermissionIssue.LOCATION_DENIED)
+
+        // Restoring an open FOLLOWING walk with coarse-only permission pauses safely without starting FGS.
+        val openRecord = TrailWalkRecord(
+            hikeId = hike.id.value,
+            startedAtEpochMillis = START_TIME_MILLIS - 60_000L,
+            lastMatchedAtEpochMillis = START_TIME_MILLIS - 10_000L,
+            routeDistanceMeters = hike.distanceMeters,
+            routeRevision = TrailWalkRecord.routeRevision(hike.route),
+            walkId = "restored-coarse-walk"
+        )
+        hikeRepository.seedOpenWalk(openRecord)
+        val restoredController = createController()
+        val startsBeforeRestore = serviceBridge.ensureStartedCount
+        locationFeed.setPermission(LocationPermissionStatus.GRANTED_COARSE)
+        restoredController.restoreAtLaunch()
+        assertThat(restoredController.sessionState.value.phase).isEqualTo(TrailWalkPhase.PAUSED)
+        assertThat(serviceBridge.ensureStartedCount).isEqualTo(startsBeforeRestore)
+        assertThat(restoredController.sessionState.value.permissionIssue)
+            .isEqualTo(TrailWalkPermissionIssue.PRECISE_LOCATION_REQUIRED)
+    }
+
+    @Test
+    fun publishesWalkSessionBeforeStartingForegroundService() = runTest {
+        val controller = createController()
+        controller.attachForegroundHike(hike, profile)
+        val observedPhases = mutableListOf<TrailWalkPhase?>()
+        serviceBridge.onEnsureStarted = { observedPhases.add(controller.sessionState.value.phase) }
+
+        // Manual start + resume must publish FOLLOWING before ensureStarted().
+        assertThat(controller.startByHand(hike.id)).isTrue()
+        assertThat(controller.pause()).isTrue()
+        assertThat(controller.resume()).isTrue()
+        assertThat(controller.endWalk()).isEqualTo(TrailWalkEnd.Discarded)
+        controller.onAutoFollowChanged(hike.id, true)
+
+        // Automatic start must also publish FOLLOWING before ensureStarted().
+        for (coord in TestFixtures.TRAIL_POINTS.take(4)) {
+            emitCoordinate(coord, stepMillis = 2_000L)
+        }
+        assertThat(controller.sessionState.value.phase).isEqualTo(TrailWalkPhase.FOLLOWING)
+        assertThat(observedPhases).containsExactly(
+            TrailWalkPhase.FOLLOWING,
+            TrailWalkPhase.FOLLOWING,
+            TrailWalkPhase.FOLLOWING
+        )
+    }
+
+    @Test
+    fun restoreAtLaunchClearsOpenWalkAlreadyCommittedToHistory() = runTest {
+        val record = TrailWalkRecord(
+            hikeId = hike.id.value,
+            startedAtEpochMillis = START_TIME_MILLIS - 120_000L,
+            lastMatchedAtEpochMillis = START_TIME_MILLIS - 10_000L,
+            coverage = TrailWalkCoverage().withRecordedMatch(0.0).withRecordedMatch(250.0),
+            routeDistanceMeters = hike.distanceMeters,
+            routeRevision = TrailWalkRecord.routeRevision(hike.route),
+            walkId = "already-finished-walk"
+        )
+        hikeRepository.finishWalk(record, START_TIME_MILLIS - 5_000L, TrailWalkEndReason.ENDED)
+        hikeRepository.seedOpenWalk(record)
+
+        val controller = createController()
+        controller.restoreAtLaunch()
+
+        assertThat(controller.sessionState.value.isWalkActive).isFalse()
+        assertThat(serviceBridge.ensureStartedCount).isEqualTo(0)
+        assertThat(hikeRepository.getOpenWalksInProgress().getOrThrow()).isEmpty()
+        assertThat(hikeRepository.observeWalks(hike.id).first()).hasSize(1)
+    }
+
+    @Test
+    fun restoresPreviewLocationFeedWhenRecordingRelinquishesIt() = runTest {
+        val controller = createController()
+        controller.attachForegroundHike(hike, profile)
+        assertThat(locationFeed.activeProfile.value).isNotNull()
+
+        recordingController.start()
+        locationFeed.stopUpdates()
+        recordingController.discard()
+
+        assertThat(locationFeed.activeProfile.value).isNotNull()
+    }
+
+    @Test
+    fun ignoresStaleAndLowConfidenceFixesForAutoStartAndGuidance() = runTest {
+        val controller = createController()
+        controller.attachForegroundHike(hike, profile)
+
+        // Four on-trail fixes with 350 m horizontal uncertainty and 0 speed must not start a walk.
+        for (coord in TestFixtures.TRAIL_POINTS.take(4)) {
+            clock.advanceBy(java.time.Duration.ofSeconds(2))
+            locationFeed.emitFix(
+                LocationFix(
+                    latitude = coord.latitude,
+                    longitude = coord.longitude,
+                    timestampEpochMillis = clock.now().toEpochMilli(),
+                    horizontalAccuracyMeters = 350.0,
+                    speedMps = 0.0
+                )
+            )
+        }
+        assertThat(controller.sessionState.value.isWalkActive).isFalse()
+        assertThat(controller.progressState.value.followMarkerDistanceMeters).isNull()
+
+        // Four stale fixes (> 30 s old) with good accuracy must also be ignored.
+        for (coord in TestFixtures.TRAIL_POINTS.take(4)) {
+            clock.advanceBy(java.time.Duration.ofSeconds(2))
+            locationFeed.emitFix(
+                LocationFix(
+                    latitude = coord.latitude,
+                    longitude = coord.longitude,
+                    timestampEpochMillis = clock.now().toEpochMilli() - 60_000L,
+                    horizontalAccuracyMeters = 5.0,
+                    speedMps = 1.4
+                )
+            )
+        }
+        assertThat(controller.sessionState.value.isWalkActive).isFalse()
+    }
+
     private fun TestScope.createController(): DefaultTrailWalkController = DefaultTrailWalkController(
         clock = clock,
         hikeRepository = hikeRepository,
@@ -370,7 +516,7 @@ class DefaultTrailWalkControllerTest {
             openWalks.remove(HikeId(record.hikeId))
             val walk = if (record.coverage.meetsMinimum) {
                 app.openhikes.core.model.HikeWalk(
-                    id = "walk-${walksFlow.value.size + 1}",
+                    id = record.durableWalkId,
                     hikeId = HikeId(record.hikeId),
                     startedAtEpochMillis = record.startedAtEpochMillis,
                     endedAtEpochMillis = endedAtEpochMillis,
@@ -381,7 +527,9 @@ class DefaultTrailWalkControllerTest {
                     routeDistanceMeters = record.routeDistanceMeters,
                     endReason = reason,
                     routeRevision = record.routeRevision
-                ).also { walksFlow.value = walksFlow.value + it }
+                ).also { saved ->
+                    walksFlow.value = walksFlow.value.filterNot { it.id == saved.id } + saved
+                }
             } else {
                 null
             }

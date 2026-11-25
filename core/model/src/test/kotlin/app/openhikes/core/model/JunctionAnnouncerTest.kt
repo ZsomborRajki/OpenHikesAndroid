@@ -81,4 +81,35 @@ class JunctionAnnouncerTest {
         assertThat(junctions.first().towardsEnd).isEqualTo(JunctionManeuver.TURN_RIGHT)
         assertThat(junctions.first().towardsStart).isEqualTo(JunctionManeuver.TURN_LEFT)
     }
+
+    @Test
+    fun turnDetectorIgnoresGeographicGapAcrossSegmentBreakAndKeepsInRunTurns() {
+        // Two straight eastbound runs separated by a northward pause gap, with a vertex 9 m after the break.
+        val metersPerDegLon = 111_111.0 * kotlin.math.cos(Math.toRadians(47.70))
+        fun eastPoint(lat: Double, eastMeters: Double, boundary: RouteBoundary? = null) = RouteCoordinate(
+            latitude = lat,
+            longitude = 12.8000 + eastMeters / metersPerDegLon,
+            boundary = boundary
+        )
+
+        val brokenStraightRuns = listOf(
+            eastPoint(47.7000, 0.0),
+            eastPoint(47.7000, 40.0),
+            eastPoint(47.7000, 80.0),
+            eastPoint(47.7020, 80.0, boundary = RouteBoundary.PAUSED),
+            eastPoint(47.7020, 89.0),
+            eastPoint(47.7020, 140.0),
+            eastPoint(47.7020, 190.0)
+        )
+        assertThat(RouteTurnJunctionDetector.detect(RouteProfile.from(brokenStraightRuns))).isEmpty()
+
+        // A genuine 90-degree turn well inside the second continuous run is still detected.
+        val turnInSecondRun = brokenStraightRuns + listOf(
+            RouteCoordinate(47.7025, 12.8000 + 190.0 / metersPerDegLon),
+            RouteCoordinate(47.7030, 12.8000 + 190.0 / metersPerDegLon)
+        )
+        val junctions = RouteTurnJunctionDetector.detect(RouteProfile.from(turnInSecondRun))
+        assertThat(junctions).hasSize(1)
+        assertThat(junctions.first().towardsEnd).isEqualTo(JunctionManeuver.TURN_LEFT)
+    }
 }
