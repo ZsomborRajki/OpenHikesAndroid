@@ -13,7 +13,6 @@ import app.openhikes.core.model.HikeWalk
 import app.openhikes.core.model.TrailWalkEndReason
 import app.openhikes.core.model.TrailWalkRecord
 import java.io.IOException
-import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
@@ -92,6 +91,7 @@ internal class WalkPersistenceStore(
             } else {
                 null
             }
+            val existingWalk = walkEntity?.let { hikeWalkDao.getById(it.id) }
             if (walkEntity != null) {
                 database.withTransaction {
                     hikeWalkDao.insert(walkEntity)
@@ -99,7 +99,7 @@ internal class WalkPersistenceStore(
             }
             val cleared = clearWalkInProgress(record.hikeId)
             if (cleared.isFailure) {
-                if (walkEntity != null) {
+                if (walkEntity != null && existingWalk == null) {
                     runCatching { hikeWalkDao.deleteById(walkEntity.id) }
                 }
                 Result.failure(cleared.exceptionOrNull() ?: IOException("Could not clear walk in progress"))
@@ -142,7 +142,7 @@ internal class WalkPersistenceStore(
         endedAtEpochMillis: Long,
         reason: TrailWalkEndReason
     ): HikeWalkEntity = HikeWalkEntity(
-        id = UUID.randomUUID().toString(),
+        id = record.durableWalkId,
         hikeId = record.hikeId,
         startedAtEpochMillis = record.startedAtEpochMillis,
         endedAtEpochMillis = maxOf(record.startedAtEpochMillis, endedAtEpochMillis),

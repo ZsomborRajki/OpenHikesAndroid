@@ -258,45 +258,96 @@ object RouteTurnJunctionDetector {
         }
         val found = ArrayList<TrailJunction>()
         var lastJunctionDistance = -MIN_JUNCTION_SPACING_METERS
-        for (index in 1 until profile.coordinates.lastIndex) {
-            val junction = detectAtVertex(profile, index, total, lastJunctionDistance)
-            if (junction != null) {
-                found.add(junction)
-                lastJunctionDistance = junction.distanceMeters
+        for (run in continuousRuns(profile)) {
+            val runStartDist = profile.distances[run.first]
+            val runEndDist = profile.distances[run.last]
+            if (run.last - run.first + 1 < MIN_COORDINATES_FOR_TURN ||
+                runEndDist - runStartDist < LOOK_DISTANCE_METERS * 2
+            ) {
+                continue
+            }
+            for (index in (run.first + 1) until run.last) {
+                val junction = detectAtVertex(profile, run, index, lastJunctionDistance)
+                if (junction != null) {
+                    found.add(junction)
+                    lastJunctionDistance = junction.distanceMeters
+                }
             }
         }
         return found
     }
 
+    private fun continuousRuns(profile: RouteProfile): List<IntRange> {
+        val lastIndex = profile.coordinates.lastIndex
+        if (lastIndex < 0) return emptyList()
+        val runs = ArrayList<IntRange>()
+        var start = 0
+        for (index in 0 until lastIndex) {
+            if (profile.pausedSegments.contains(index)) {
+                runs.add(start..index)
+                start = index + 1
+            }
+        }
+        runs.add(start..lastIndex)
+        return runs
+    }
+
     private fun detectAtVertex(
         profile: RouteProfile,
+        run: IntRange,
         index: Int,
-        totalDistance: Double,
         lastJunctionDistance: Double
     ): TrailJunction? {
         val dist = profile.distances[index]
-        val isNearPause = profile.pausedSegments.contains(index - 1) || profile.pausedSegments.contains(index)
-        val withinBounds = dist >= LOOK_DISTANCE_METERS && totalDistance - dist >= LOOK_DISTANCE_METERS
+        val runStartDist = profile.distances[run.first]
+        val runEndDist = profile.distances[run.last]
+        val withinRun = dist - runStartDist >= LOOK_DISTANCE_METERS &&
+            runEndDist - dist >= LOOK_DISTANCE_METERS
         val spacedOut = dist - lastJunctionDistance >= MIN_JUNCTION_SPACING_METERS
-        val before = if (!isNearPause && withinBounds && spacedOut) {
-            profile.coordinateAt(dist - LOOK_DISTANCE_METERS)
-        } else {
+        if (!withinRun || !spacedOut) return null
+        val before = coordinateInRun(profile, run, dist - LOOK_DISTANCE_METERS)
+        val after = coordinateInRun(profile, run, dist + LOOK_DISTANCE_METERS)
+        val signedTurn = signedTurnDegrees(before, profile.coordinates[index], after)
+        return if (abs(signedTurn) < TURN_ANGLE_MIN_DEGREES) {
             null
+        } else {
+            TrailJunction(
+                distanceMeters = dist,
+                towardsEnd = maneuverForSignedAngle(signedTurn),
+                towardsStart = maneuverForSignedAngle(-signedTurn)
+            )
         }
-        val after = if (before != null) profile.coordinateAt(dist + LOOK_DISTANCE_METERS) else null
-        return if (before == null || after == null) {
-            null
-        } else {
-            val signedTurn = signedTurnDegrees(before, profile.coordinates[index], after)
-            if (abs(signedTurn) < TURN_ANGLE_MIN_DEGREES) {
-                null
+    }
+
+    private fun coordinateInRun(profile: RouteProfile, run: IntRange, targetDistance: Double): GeoCoordinate {
+        val startDist = profile.distances[run.first]
+        val endDist = profile.distances[run.last]
+        return when {
+            targetDistance <= startDist -> profile.coordinates[run.first]
+            targetDistance >= endDist -> profile.coordinates[run.last]
+            else -> interpolateInRun(profile, run, targetDistance)
+        }
+    }
+
+    private fun interpolateInRun(profile: RouteProfile, run: IntRange, targetDistance: Double): GeoCoordinate {
+        var low = run.first
+        var high = run.last
+        while (low < high) {
+            val mid = (low + high) ushr 1
+            if (profile.distances[mid] < targetDistance) {
+                low = mid + 1
             } else {
-                TrailJunction(
-                    distanceMeters = dist,
-                    towardsEnd = maneuverForSignedAngle(signedTurn),
-                    towardsStart = maneuverForSignedAngle(-signedTurn)
-                )
+                high = mid
             }
+        }
+        val upper = low.coerceIn(run.first + 1, run.last)
+        val lower = upper - 1
+        val span = profile.distances[upper] - profile.distances[lower]
+        return if (span <= 0.0) {
+            profile.coordinates[upper]
+        } else {
+            val fraction = (targetDistance - profile.distances[lower]) / span
+            RouteGeometry.interpolate(profile.coordinates[lower], profile.coordinates[upper], fraction)
         }
     }
 

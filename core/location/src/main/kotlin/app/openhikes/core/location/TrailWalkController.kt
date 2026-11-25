@@ -31,6 +31,14 @@ sealed interface TrailWalkEnd {
 }
 
 /**
+ * Location permission condition preventing a trail walk from starting or resuming.
+ */
+enum class TrailWalkPermissionIssue {
+    LOCATION_DENIED,
+    PRECISE_LOCATION_REQUIRED
+}
+
+/**
  * Coarse UI/lifecycle state for trail following, separated from per-fix [TrailWalkProgressState]
  * so fix-rate progress updates never recompose screen-wide chrome or controls.
  */
@@ -43,7 +51,8 @@ data class TrailWalkSessionState(
     val lastEndedWalk: HikeWalk? = null,
     val isJunctionWarningsEnabled: Boolean = false,
     val isJunctionWarningsOffered: Boolean = false,
-    val lastJunctionCue: JunctionCue? = null
+    val lastJunctionCue: JunctionCue? = null,
+    val permissionIssue: TrailWalkPermissionIssue? = null
 ) {
     val isWalkActive: Boolean
         get() = walkedHikeId != null && phase != null
@@ -104,6 +113,10 @@ interface TrailWalkController {
     fun keepFollowingAfterOffTrail()
 
     fun consumeLastEndedWalk()
+
+    fun onLocationPermissionDenied(hasCoarse: Boolean)
+
+    fun dismissPermissionIssue()
 
     suspend fun toggleJunctionWarnings()
 

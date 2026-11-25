@@ -56,6 +56,7 @@ internal class TrailWalkRuntimeState(
     var offTrailQuestion: OffTrailQuestion? = null
     var lastEndedWalk: HikeWalk? = null
     var lastJunctionCue: app.openhikes.core.model.JunctionCue? = null
+    var permissionIssue: TrailWalkPermissionIssue? = null
     var followMarkerHikeId: HikeId? = null
     var followMarkerDistanceMeters: Double? = null
     var lastIsOnRoute: Boolean = true
@@ -81,7 +82,8 @@ internal class TrailWalkRuntimeState(
             lastEndedWalk = lastEndedWalk,
             isJunctionWarningsEnabled = isJunctionWarningsEnabled,
             isJunctionWarningsOffered = record != null,
-            lastJunctionCue = lastJunctionCue
+            lastJunctionCue = lastJunctionCue,
+            permissionIssue = permissionIssue
         )
     }
 
@@ -122,9 +124,12 @@ internal class TrailWalkRuntimeState(
             ownsLocationUpdates = false
             return
         }
-        val needsUpdates = activeRecord?.phase == TrailWalkPhase.FOLLOWING ||
-            (foregroundHike?.let { !it.isRecording && it.autoFollowEnabled } == true)
-        if (needsUpdates && !ownsLocationUpdates) {
+        val hasFinePermission = locationFeed.permissionStatus.value == LocationPermissionStatus.GRANTED_FINE
+        val wantsUpdates = activeRecord?.phase == TrailWalkPhase.FOLLOWING ||
+            foregroundHike?.let { !it.isRecording && it.autoFollowEnabled } == true
+        val needsUpdates = hasFinePermission && wantsUpdates
+        val feedStopped = locationFeed.activeProfile.value == null
+        if (needsUpdates && (!ownsLocationUpdates || feedStopped)) {
             locationFeed.startUpdates(RecordingEnergyProfile.Precise)
             ownsLocationUpdates = true
         } else if (!needsUpdates && ownsLocationUpdates) {
@@ -160,7 +165,7 @@ internal class TrailWalkRuntimeState(
         notificationController.onFollowingUpdate(payload)
     }
 
-    fun adoptWalk(record: TrailWalkRecord, hike: Hike, profile: RouteProfile?, nowEpochMillis: Long) {
+    fun adoptWalk(record: TrailWalkRecord, hike: Hike, profile: RouteProfile?) {
         activeRecord = if (record.routeRevision == null && hike.route.isNotEmpty()) {
             record.stampedAlong(hike.route)
         } else {
@@ -176,11 +181,6 @@ internal class TrailWalkRuntimeState(
         lastJunctionCue = null
         isJunctionFeedParked = false
         lastIsOnRoute = true
-        if (activeRecord?.phase == TrailWalkPhase.FOLLOWING) {
-            serviceBridge.ensureStarted()
-        }
-        publishLiveUpdate(nowEpochMillis)
-        syncLocationFeed()
     }
 
     suspend fun finishWalk(reason: TrailWalkEndReason, nowEpochMillis: Long): TrailWalkEnd {
@@ -284,6 +284,124 @@ internal class TrailWalkRuntimeState(
             junctionAnnouncer?.advance(distanceAlongRoute, onTrail)?.let { cue ->
                 lastJunctionCue = cue
                 junctionVoice.speak(JunctionCueFormatter.formatSpokenCue(cue, distanceUnit))
+            }
+        }
+    }
+
+    fun verifyFineLocationPermission(): Boolean {
+        locationFeed.refreshPermissionStatus()
+        return when (locationFeed.permissionStatus.value) {
+            LocationPermissionStatus.GRANTED_FINE -> {
+                permissionIssue = null
+                true
+            }
+            LocationPermissionStatus.GRANTED_COARSE -> {
+                permissionIssue = TrailWalkPermissionIssue.PRECISE_LOCATION_REQUIRED
+                false
+            }
+            LocationPermissionStatus.DENIED -> {
+                permissionIssue = TrailWalkPermissionIssue.LOCATION_DENIED
+                false
+            }
+        }
+    }
+
+    fun recordLocationPermissionDenied(hasCoarse: Boolean) {
+        locationFeed.refreshPermissionStatus()
+        val status = locationFeed.permissionStatus.value
+        permissionIssue = if (hasCoarse || status == LocationPermissionStatus.GRANTED_COARSE) {
+            TrailWalkPermissionIssue.PRECISE_LOCATION_REQUIRED
+        } else {
+            TrailWalkPermissionIssue.LOCATION_DENIED
+        }
+    }
+
+    fun tryEnsureServiceStarted(): Boolean = try {
+        serviceBridge.ensureStarted()
+        true
+    } catch (_: SecurityException) {
+        false
+    } catch (_: IllegalStateException) {
+        false
+    }
+
+    suspend fun handleOffRouteForActiveWalk(current: TrailWalkRecord, nowEpochMillis: Long) {
+        if (current.coverage.lastMatchedDistance != null) {
+            val broken = current.copy(coverage = current.coverage.withBrokenContinuity())
+            activeRecord = broken
+            persistIfDue(broken, nowEpochMillis)
+        }
+        publishLiveUpdate(nowEpochMillis)
+    }
+
+    suspend fun recordMatchedActiveFix(
+        current: TrailWalkRecord,
+        distanceAlongRoute: Double,
+        accuracyMeters: Double,
+        matchedAt: Long,
+        nowEpochMillis: Long
+    ): Boolean {
+        if (matchedAt < current.lastActivityAtEpochMillis) return false
+        return if (current.phase == TrailWalkPhase.PAUSED) {
+            val updated = current.copy(lastMatchedAtEpochMillis = matchedAt)
+            activeRecord = updated
+            persistIfDue(updated, nowEpochMillis)
+            false
+        } else {
+            val nextCoverage = current.coverage.withRecordedMatch(distanceAlongRoute, accuracyMeters)
+            val updated = current.copy(
+                coverage = nextCoverage,
+                lastMatchedAtEpochMillis = matchedAt,
+                lastFollowedDistanceMeters = distanceAlongRoute
+            )
+            activeRecord = updated
+            val completed = updated.reachesEnd(distanceAlongRoute) &&
+                finishWalk(TrailWalkEndReason.REACHED_END, nowEpochMillis) !is TrailWalkEnd.Refused
+            if (!completed) {
+                publishLiveUpdate(nowEpochMillis)
+                persistIfDue(updated, nowEpochMillis)
+            }
+            completed
+        }
+    }
+
+    fun advancePendingAutoStart(
+        hike: Hike,
+        profile: RouteProfile,
+        distanceMeters: Double,
+        accuracyMeters: Double,
+        matchedAt: Long,
+        nowEpochMillis: Long
+    ): TrailWalkRecord? {
+        if (!canAutoStart(hike) || profile.totalDistanceMeters <= 0.0) {
+            if (pendingStart?.hikeId == hike.id.value) pendingStart = null
+            return null
+        }
+        val revision = TrailWalkRecord.routeRevision(hike.route)
+        val existing = pendingStart
+        val canExtend = existing != null &&
+            existing.hikeId == hike.id.value &&
+            existing.record.routeRevision == revision &&
+            !existing.isExpired(nowEpochMillis)
+        val updated = if (canExtend) {
+            existing.withRecordedMatch(distanceMeters, matchedAt)
+        } else {
+            PendingWalkStart.start(
+                hikeId = hike.id.value,
+                routeDistanceMeters = profile.totalDistanceMeters,
+                endsApartMeters = PendingWalkStart.endsApartMeters(profile),
+                routeRevision = revision,
+                distanceMeters = distanceMeters,
+                atEpochMillis = matchedAt
+            )
+        }
+        return if (!updated.isConfirmed) {
+            pendingStart = updated
+            null
+        } else {
+            pendingStart = null
+            updated.confirmedRecord.let { base ->
+                base.copy(coverage = base.coverage.withRecordedMatch(distanceMeters, accuracyMeters))
             }
         }
     }

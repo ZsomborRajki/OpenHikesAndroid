@@ -47,4 +47,28 @@ class RouteProfileTest {
         assertThat(profile.samples.first().distanceMeters).isEqualTo(0.0)
         assertThat(profile.samples.last().distanceMeters).isWithin(1e-6).of(profile.totalDistanceMeters)
     }
+
+    @Test
+    fun continuityTieBreakStaysInsideMatchRadiusWhenCloserCandidateMatches() {
+        // Straight north-south 3-point route (~222 m total), split around 111 m.
+        val route = listOf(
+            RouteCoordinate(47.7000, 12.8000),
+            RouteCoordinate(47.7010, 12.8000),
+            RouteCoordinate(47.7020, 12.8000)
+        )
+        val profile = RouteProfile.from(route)
+        // Fix sits 69 m east of the second segment (46 m north of vertex 1 -> ~83 m from segment 0's end).
+        val latOffsetMeters = 46.0
+        val eastOffsetMeters = 69.0
+        val lat = 47.7010 + latOffsetMeters / 111_111.0
+        val lon = 12.8000 + eastOffsetMeters / (111_111.0 * kotlin.math.cos(Math.toRadians(47.7010)))
+
+        val projection = profile.nearestPoint(
+            coordinate = GeoCoordinate(lat, lon),
+            nearDistanceMeters = 0.0
+        )!!
+
+        assertThat(projection.offRouteMeters).isAtMost(RouteProfile.FOLLOW_MATCH_THRESHOLD_METERS)
+        assertThat(projection.offRouteMeters).isWithin(2.0).of(69.0)
+    }
 }

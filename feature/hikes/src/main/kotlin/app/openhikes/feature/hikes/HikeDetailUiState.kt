@@ -58,6 +58,7 @@ data class HikeDetailUiState(
     val isRecordingActive: Boolean = false,
     val showEndWalkDialog: Boolean = false,
     val showEndWalkRefusedDialog: Boolean = false,
+    val requestLocationPermission: Boolean = false,
     val isLoaded: Boolean = false,
     val isRenaming: Boolean = false,
     val titleDraft: String = "",
@@ -89,6 +90,7 @@ sealed interface HikeOfflineAction {
 
 sealed interface HikeWalkAction {
     data object ToggleWalk : HikeWalkAction
+    data class PermissionResult(val grantedFine: Boolean, val grantedCoarse: Boolean) : HikeWalkAction
     data object RequestEndWalk : HikeWalkAction
     data object ConfirmEndWalk : HikeWalkAction
     data object CancelEndWalk : HikeWalkAction

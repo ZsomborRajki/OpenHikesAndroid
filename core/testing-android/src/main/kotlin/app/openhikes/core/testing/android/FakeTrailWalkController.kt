@@ -3,6 +3,7 @@ package app.openhikes.core.testing.android
 import app.openhikes.core.location.OffTrailQuestion
 import app.openhikes.core.location.TrailWalkController
 import app.openhikes.core.location.TrailWalkEnd
+import app.openhikes.core.location.TrailWalkPermissionIssue
 import app.openhikes.core.location.TrailWalkProgressState
 import app.openhikes.core.location.TrailWalkSessionState
 import app.openhikes.core.location.TrailWalkStartNotice
@@ -159,6 +160,22 @@ class FakeTrailWalkController(
 
     override fun consumeLastEndedWalk() {
         sessionFlow.update { it.copy(lastEndedWalk = null) }
+    }
+
+    override fun onLocationPermissionDenied(hasCoarse: Boolean) {
+        sessionFlow.update {
+            it.copy(
+                permissionIssue = if (hasCoarse) {
+                    TrailWalkPermissionIssue.PRECISE_LOCATION_REQUIRED
+                } else {
+                    TrailWalkPermissionIssue.LOCATION_DENIED
+                }
+            )
+        }
+    }
+
+    override fun dismissPermissionIssue() {
+        sessionFlow.update { it.copy(permissionIssue = null) }
     }
 
     override suspend fun toggleJunctionWarnings() {

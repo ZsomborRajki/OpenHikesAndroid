@@ -130,4 +130,6 @@
     <string name="walk_end_refused_title">Couldn’t save hike</string>
     <string name="walk_end_refused_body">Your hike is still open. Try ending it again in a moment.</string>
     <string name="walk_end_refused_ok">OK</string>
+    <string name="walk_error_location_denied">Allow location access to follow a trail.</string>
+    <string name="walk_error_precise_location_required">Allow precise location access to follow a trail accurately.</string>
 </resources>

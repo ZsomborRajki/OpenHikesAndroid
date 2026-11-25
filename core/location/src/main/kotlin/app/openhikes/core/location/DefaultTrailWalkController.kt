@@ -8,7 +8,7 @@ import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.JunctionAnnouncer
 import app.openhikes.core.model.LocationFix
-import app.openhikes.core.model.PendingWalkStart
+import app.openhikes.core.model.LocationFixPolicy
 import app.openhikes.core.model.RouteProfile
 import app.openhikes.core.model.TrailWalkEndReason
 import app.openhikes.core.model.TrailWalkPhase
@@ -20,7 +20,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -89,6 +91,18 @@ internal class DefaultTrailWalkController @Inject constructor(
                 }
             }
         }
+        applicationScope.launch {
+            recordingController.state
+                .map { it.isActive }
+                .distinctUntilChanged()
+                .collect {
+                    mutex.withLock {
+                        locationFeed.refreshPermissionStatus()
+                        runtime.syncLocationFeed()
+                        publishFlowsLocked(clock.now().toEpochMilli())
+                    }
+                }
+        }
     }
 
     override fun activeSeconds(): Double = runtime.activeRecord?.activeSeconds(clock.now().toEpochMilli()) ?: 0.0
@@ -98,27 +112,85 @@ internal class DefaultTrailWalkController @Inject constructor(
             val now = clock.now().toEpochMilli()
             val openWalks = hikeRepository.getOpenWalksInProgress().getOrNull().orEmpty()
             val newest = openWalks.maxByOrNull { it.lastActivityAtEpochMillis } ?: return@withLock
+            val alreadyFinished = hikeRepository.observeWalk(newest.durableWalkId).first()
+            if (alreadyFinished != null) {
+                hikeRepository.saveWalkInProgress(HikeId(newest.hikeId), null)
+                return@withLock
+            }
             val hike = hikeRepository.observeHike(HikeId(newest.hikeId)).first()
             if (hike == null) {
                 hikeRepository.saveWalkInProgress(HikeId(newest.hikeId), null)
                 return@withLock
             }
             val profile = RouteProfile.from(hike.route)
-            runtime.adoptWalk(newest, hike, profile, now)
-            if (newest.isStaleAtLaunch(now)) {
-                runtime.finishWalk(TrailWalkEndReason.ABANDONED, now)
-            } else if (!newest.isAlong(hike.route)) {
-                runtime.finishWalk(TrailWalkEndReason.ROUTE_CHANGED, now)
-            } else {
-                syncJunctionGuideLocked()
+            when {
+                newest.isStaleAtLaunch(now) -> finishRestoredWalkLocked(
+                    record = newest,
+                    hike = hike,
+                    profile = profile,
+                    reason = TrailWalkEndReason.ABANDONED,
+                    now = now
+                )
+                !newest.isAlong(hike.route) -> finishRestoredWalkLocked(
+                    record = newest,
+                    hike = hike,
+                    profile = profile,
+                    reason = TrailWalkEndReason.ROUTE_CHANGED,
+                    now = now
+                )
+                else -> restoreLiveWalkLocked(newest, hike, profile, now)
             }
             publishFlowsLocked(now)
         }
     }
 
+    private suspend fun finishRestoredWalkLocked(
+        record: TrailWalkRecord,
+        hike: Hike,
+        profile: RouteProfile,
+        reason: TrailWalkEndReason,
+        now: Long
+    ) {
+        runtime.adoptWalk(record, hike, profile)
+        runtime.finishWalk(reason, now)
+    }
+
+    private suspend fun restoreLiveWalkLocked(record: TrailWalkRecord, hike: Hike, profile: RouteProfile, now: Long) {
+        when {
+            record.phase != TrailWalkPhase.FOLLOWING -> {
+                runtime.adoptWalk(record, hike, profile)
+                publishFlowsLocked(now)
+                runtime.publishLiveUpdate(now)
+                runtime.syncLocationFeed()
+            }
+            !runtime.verifyFineLocationPermission() -> pauseRestoredWalkLocked(record, hike, profile, now)
+            else -> {
+                runtime.adoptWalk(record, hike, profile)
+                publishFlowsLocked(now)
+                runtime.publishLiveUpdate(now)
+                if (runtime.tryEnsureServiceStarted()) {
+                    runtime.syncLocationFeed()
+                    syncJunctionGuideLocked()
+                } else {
+                    pauseRestoredWalkLocked(record, hike, profile, now)
+                }
+            }
+        }
+    }
+
+    private suspend fun pauseRestoredWalkLocked(record: TrailWalkRecord, hike: Hike, profile: RouteProfile, now: Long) {
+        val paused = record.pausedAt(now)
+        runtime.adoptWalk(paused, hike, profile)
+        runtime.persistMilestone(paused, now)
+        publishFlowsLocked(now)
+        runtime.publishLiveUpdate(now)
+        runtime.syncLocationFeed()
+    }
+
     override fun attachForegroundHike(hike: Hike, profile: RouteProfile) {
         applicationScope.launch {
             mutex.withLock {
+                locationFeed.refreshPermissionStatus()
                 runtime.foregroundHike = hike
                 runtime.foregroundProfile = profile
                 if (runtime.activeRecord?.hikeId == hike.id.value) {
@@ -152,6 +224,10 @@ internal class DefaultTrailWalkController @Inject constructor(
         mutex.withLock {
             val now = clock.now().toEpochMilli()
             endIfAbandonedLocked(now)
+            if (!runtime.verifyFineLocationPermission()) {
+                publishFlowsLocked(now)
+                return@withLock false
+            }
             val hike = resolveHikeLocked(hikeId)
             val profile = hike?.let { resolveProfileLocked(it) }
             val ready = hike != null && profile != null && runtime.canStartByHand(hike)
@@ -162,13 +238,10 @@ internal class DefaultTrailWalkController @Inject constructor(
                 hikeId = hike.id.value,
                 startedAtEpochMillis = now,
                 routeDistanceMeters = profile.totalDistanceMeters,
-                routeRevision = TrailWalkRecord.routeRevision(hike.route)
+                routeRevision = TrailWalkRecord.routeRevision(hike.route),
+                walkId = TrailWalkRecord.newWalkId()
             )
-            runtime.adoptWalk(started, hike, profile, now)
-            runtime.persistMilestone(started, now)
-            syncJunctionGuideLocked()
-            publishFlowsLocked(now)
-            true
+            activateFollowingWalkLocked(started, hike, profile, startNotice = null, now = now)
         }
     }
 
@@ -193,16 +266,35 @@ internal class DefaultTrailWalkController @Inject constructor(
         mutex.withLock {
             val now = clock.now().toEpochMilli()
             val current = runtime.activeRecord
-            if (current == null || current.phase != TrailWalkPhase.PAUSED) return@withLock false
-            val resumed = current.resumedAt(now)
-            if (!runtime.persistMilestone(resumed, now)) return@withLock false
-            runtime.activeRecord = resumed
-            serviceBridge.ensureStarted()
-            runtime.publishLiveUpdate(now)
+            val canResume = current != null && current.phase == TrailWalkPhase.PAUSED
+            when {
+                !canResume -> false
+                !runtime.verifyFineLocationPermission() -> {
+                    publishFlowsLocked(now)
+                    false
+                }
+                else -> executeResumeLocked(current, now)
+            }
+        }
+    }
+
+    private suspend fun executeResumeLocked(current: TrailWalkRecord, now: Long): Boolean {
+        val resumed = current.resumedAt(now)
+        if (!runtime.persistMilestone(resumed, now)) return false
+        runtime.activeRecord = resumed
+        publishFlowsLocked(now)
+        runtime.publishLiveUpdate(now)
+        return if (runtime.tryEnsureServiceStarted()) {
             runtime.syncLocationFeed()
             syncJunctionGuideLocked()
-            publishFlowsLocked(now)
             true
+        } else {
+            runtime.activeRecord = current
+            runtime.persistMilestone(current, now)
+            runtime.publishLiveUpdate(now)
+            runtime.syncLocationFeed()
+            publishFlowsLocked(now)
+            false
         }
     }
 
@@ -289,6 +381,24 @@ internal class DefaultTrailWalkController @Inject constructor(
         }
     }
 
+    override fun onLocationPermissionDenied(hasCoarse: Boolean) {
+        applicationScope.launch {
+            mutex.withLock {
+                runtime.recordLocationPermissionDenied(hasCoarse)
+                publishFlowsLocked(clock.now().toEpochMilli())
+            }
+        }
+    }
+
+    override fun dismissPermissionIssue() {
+        applicationScope.launch {
+            mutex.withLock {
+                runtime.permissionIssue = null
+                publishFlowsLocked(clock.now().toEpochMilli())
+            }
+        }
+    }
+
     override suspend fun toggleJunctionWarnings() = withContext(engineContext) {
         val next = mutex.withLock { !runtime.isJunctionWarningsEnabled }
         userSettingsRepository.setJunctionWarningsEnabled(next)
@@ -306,10 +416,15 @@ internal class DefaultTrailWalkController @Inject constructor(
         applicationScope.launch {
             mutex.withLock {
                 val now = clock.now().toEpochMilli()
+                locationFeed.refreshPermissionStatus()
+                if (locationFeed.permissionStatus.value == LocationPermissionStatus.GRANTED_FINE) {
+                    runtime.permissionIssue = null
+                }
                 endIfAbandonedLocked(now)
                 if (runtime.isJunctionFeedParked) {
                     runtime.isJunctionFeedParked = false
                 }
+                runtime.syncLocationFeed()
                 publishFlowsLocked(now)
             }
         }
@@ -317,9 +432,18 @@ internal class DefaultTrailWalkController @Inject constructor(
 
     private suspend fun handleIncomingFix(fix: LocationFix) {
         val now = clock.now().toEpochMilli()
-        val matchedAt = maxOf(fix.timestampEpochMillis, 0L).takeIf { it > 0L } ?: now
         endIfAbandonedLocked(now)
-
+        val accepted = LocationFixPolicy.accepts(
+            fix = fix,
+            maximumAgeSeconds = LocationFixPolicy.FOREGROUND_MAXIMUM_AGE_SECONDS,
+            maximumHorizontalAccuracyMeters = RouteProfile.FOLLOW_MATCH_THRESHOLD_METERS,
+            nowEpochMillis = now
+        )
+        if (!accepted) {
+            publishFlowsLocked(now)
+            return
+        }
+        val matchedAt = maxOf(fix.timestampEpochMillis, 0L).takeIf { it > 0L } ?: now
         val activeHike = runtime.walkedHike
         val activeProfile = runtime.walkedProfile
         if (runtime.activeRecord != null && activeHike != null && activeProfile != null) {
@@ -345,7 +469,7 @@ internal class DefaultTrailWalkController @Inject constructor(
         val projection = profile.nearestPoint(
             coordinate = fix.coordinate,
             nearDistanceMeters = current.lastFollowedDistanceMeters,
-            headingDegrees = fix.courseDegrees
+            headingDegrees = LocationFixPolicy.course(fix)
         ) ?: return
         val onTrail = projection.offRouteMeters <= RouteProfile.FOLLOW_MATCH_THRESHOLD_METERS
         if (onTrail && hike.autoFollowEnabled && runtime.foregroundHike?.id == hike.id) {
@@ -354,54 +478,17 @@ internal class DefaultTrailWalkController @Inject constructor(
         }
         runtime.evaluateOffTrailAndJunctions(fix, projection.distanceAlongRouteMeters, projection.offRouteMeters, now)
         if (!onTrail) {
-            handleOffRouteForActiveWalkLocked(current, now)
+            runtime.handleOffRouteForActiveWalk(current, now)
         } else {
-            recordMatchedActiveFixLocked(
-                current,
-                projection.distanceAlongRouteMeters,
-                fix.horizontalAccuracyMeters,
-                matchedAt,
-                now
+            val completed = runtime.recordMatchedActiveFix(
+                current = current,
+                distanceAlongRoute = projection.distanceAlongRouteMeters,
+                accuracyMeters = fix.horizontalAccuracyMeters,
+                matchedAt = matchedAt,
+                nowEpochMillis = now
             )
-        }
-    }
-
-    private suspend fun handleOffRouteForActiveWalkLocked(current: TrailWalkRecord, now: Long) {
-        if (current.coverage.lastMatchedDistance != null) {
-            val broken = current.copy(coverage = current.coverage.withBrokenContinuity())
-            runtime.activeRecord = broken
-            runtime.persistIfDue(broken, now)
-        }
-        runtime.publishLiveUpdate(now)
-    }
-
-    private suspend fun recordMatchedActiveFixLocked(
-        current: TrailWalkRecord,
-        distanceAlongRoute: Double,
-        accuracyMeters: Double,
-        matchedAt: Long,
-        now: Long
-    ) {
-        if (matchedAt < current.lastActivityAtEpochMillis) return
-        if (current.phase == TrailWalkPhase.PAUSED) {
-            val updated = current.copy(lastMatchedAtEpochMillis = matchedAt)
-            runtime.activeRecord = updated
-            runtime.persistIfDue(updated, now)
-        } else {
-            val nextCoverage = current.coverage.withRecordedMatch(distanceAlongRoute, accuracyMeters)
-            val updated = current.copy(
-                coverage = nextCoverage,
-                lastMatchedAtEpochMillis = matchedAt,
-                lastFollowedDistanceMeters = distanceAlongRoute
-            )
-            runtime.activeRecord = updated
-            val completed = updated.reachesEnd(distanceAlongRoute) &&
-                runtime.finishWalk(TrailWalkEndReason.REACHED_END, now) !is TrailWalkEnd.Refused
             if (completed) {
                 cancelJunctionGuideLocked()
-            } else {
-                runtime.publishLiveUpdate(now)
-                runtime.persistIfDue(updated, now)
             }
         }
     }
@@ -416,7 +503,7 @@ internal class DefaultTrailWalkController @Inject constructor(
         val projection = profile.nearestPoint(
             coordinate = fix.coordinate,
             nearDistanceMeters = runtime.pendingStart?.record?.lastFollowedDistanceMeters,
-            headingDegrees = fix.courseDegrees
+            headingDegrees = LocationFixPolicy.course(fix)
         ) ?: return
         val onTrail = projection.offRouteMeters <= RouteProfile.FOLLOW_MATCH_THRESHOLD_METERS
         if (!onTrail) {
@@ -428,58 +515,47 @@ internal class DefaultTrailWalkController @Inject constructor(
             runtime.followMarkerHikeId = hike.id
             runtime.followMarkerDistanceMeters = projection.distanceAlongRouteMeters
         }
-        proposeOrConfirmAutoStartLocked(
-            hike,
-            profile,
-            projection.distanceAlongRouteMeters,
-            fix.horizontalAccuracyMeters,
-            matchedAt,
-            now
+        val confirmed = runtime.advancePendingAutoStart(
+            hike = hike,
+            profile = profile,
+            distanceMeters = projection.distanceAlongRouteMeters,
+            accuracyMeters = fix.horizontalAccuracyMeters,
+            matchedAt = matchedAt,
+            nowEpochMillis = now
         )
-    }
-
-    private suspend fun proposeOrConfirmAutoStartLocked(
-        hike: Hike,
-        profile: RouteProfile,
-        distanceMeters: Double,
-        accuracyMeters: Double,
-        matchedAt: Long,
-        now: Long
-    ) {
-        if (!runtime.canAutoStart(hike) || profile.totalDistanceMeters <= 0.0) {
-            if (runtime.pendingStart?.hikeId == hike.id.value) runtime.pendingStart = null
-            return
-        }
-        val revision = TrailWalkRecord.routeRevision(hike.route)
-        val existing = runtime.pendingStart
-        val matchesExisting = existing != null && existing.hikeId == hike.id.value
-        val canExtendExisting = matchesExisting &&
-            existing.record.routeRevision == revision &&
-            !existing.isExpired(now)
-        val updated = if (canExtendExisting) {
-            existing.withRecordedMatch(distanceMeters, matchedAt)
-        } else {
-            PendingWalkStart.start(
-                hikeId = hike.id.value,
-                routeDistanceMeters = profile.totalDistanceMeters,
-                endsApartMeters = PendingWalkStart.endsApartMeters(profile),
-                routeRevision = revision,
-                distanceMeters = distanceMeters,
-                atEpochMillis = matchedAt
+        if (confirmed != null && runtime.verifyFineLocationPermission()) {
+            activateFollowingWalkLocked(
+                record = confirmed,
+                hike = hike,
+                profile = profile,
+                startNotice = TrailWalkStartNotice(hikeId = hike.id, title = hike.displayTitle),
+                now = now
             )
         }
-        if (!updated.isConfirmed) {
-            runtime.pendingStart = updated
-            return
+    }
+
+    private suspend fun activateFollowingWalkLocked(
+        record: TrailWalkRecord,
+        hike: Hike,
+        profile: RouteProfile,
+        startNotice: TrailWalkStartNotice?,
+        now: Long
+    ): Boolean {
+        runtime.adoptWalk(record, hike, profile)
+        runtime.startNotice = startNotice
+        publishFlowsLocked(now)
+        runtime.publishLiveUpdate(now)
+        if (!runtime.tryEnsureServiceStarted()) {
+            runtime.clearActiveWalkState()
+            notificationController.endFollowing()
+            runtime.syncLocationFeed()
+            publishFlowsLocked(now)
+            return false
         }
-        runtime.pendingStart = null
-        val confirmed = updated.confirmedRecord.let { base ->
-            base.copy(coverage = base.coverage.withRecordedMatch(distanceMeters, accuracyMeters))
-        }
-        runtime.adoptWalk(confirmed, hike, profile, now)
-        runtime.startNotice = TrailWalkStartNotice(hikeId = hike.id, title = hike.displayTitle)
-        runtime.persistMilestone(confirmed, now)
+        runtime.syncLocationFeed()
+        runtime.persistMilestone(record, now)
         syncJunctionGuideLocked()
+        return true
     }
 
     private suspend fun endIfAbandonedLocked(nowEpochMillis: Long) {
