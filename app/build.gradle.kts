@@ -49,6 +49,7 @@ dependencies {
     implementation(projects.feature.offlinemaps)
     implementation(projects.feature.recording)
     implementation(projects.feature.settings)
+    implementation(projects.feature.walks)
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

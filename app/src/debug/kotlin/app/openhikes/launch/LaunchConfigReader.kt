@@ -21,6 +21,7 @@ object LaunchConfigReader {
     const val EXTRA_ENABLE_LOCATION = "ui_test_enable_location"
     const val EXTRA_AUTO_PAUSE_SECONDS = "ui_test_auto_pause_seconds"
     const val EXTRA_DISABLE_AUTO_RECOVERY = "ui_test_disable_auto_recovery"
+    const val EXTRA_SEED_WALKS = "ui_test_seed_walks"
 
     fun fromIntent(intent: Intent?): LaunchConfig {
         val extras = intent?.extras ?: return LaunchConfig.Production
@@ -49,7 +50,8 @@ object LaunchConfigReader {
             refusesHikeDeletion = arguments.boolFlag(EXTRA_REFUSE_HIKE_DELETION),
             enableSimulatedLocation = arguments.boolFlag(EXTRA_ENABLE_LOCATION),
             autoPauseSecondsOverride = parsePositiveSeconds(arguments[EXTRA_AUTO_PAUSE_SECONDS]),
-            disableAutomaticRecovery = arguments.boolFlag(EXTRA_DISABLE_AUTO_RECOVERY)
+            disableAutomaticRecovery = arguments.boolFlag(EXTRA_DISABLE_AUTO_RECOVERY),
+            seedWalkPresetName = sanitizeFixtureName(arguments[EXTRA_SEED_WALKS])
         )
     }
 
@@ -70,7 +72,8 @@ object LaunchConfigReader {
             refusesHikeDeletion = base.refusesHikeDeletion || fromIntent.refusesHikeDeletion,
             enableSimulatedLocation = base.enableSimulatedLocation || fromIntent.enableSimulatedLocation,
             autoPauseSecondsOverride = fromIntent.autoPauseSecondsOverride ?: base.autoPauseSecondsOverride,
-            disableAutomaticRecovery = base.disableAutomaticRecovery || fromIntent.disableAutomaticRecovery
+            disableAutomaticRecovery = base.disableAutomaticRecovery || fromIntent.disableAutomaticRecovery,
+            seedWalkPresetName = fromIntent.seedWalkPresetName ?: base.seedWalkPresetName
         )
     }
 

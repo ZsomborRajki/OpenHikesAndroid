@@ -64,6 +64,8 @@ private val DialogRowMinHeight = 48.dp
 private val DialogIconSize = 18.dp
 private val DialogSpacing = 8.dp
 private val PillElevation = 3.dp
+private val WalkStackSpacing = 8.dp
+private val WalkStackEndClearance = 76.dp
 
 /**
  * Floating map controls (Material 3 Expressive [VerticalFloatingToolbar]) and clickable
@@ -87,15 +89,29 @@ fun MapFloatingControls(
     modifier: Modifier = Modifier,
     isRecordingActive: Boolean = false,
     onOpenRecording: () -> Unit = {},
-    onOpenOfflineMaps: () -> Unit = {}
+    onOpenOfflineMaps: () -> Unit = {},
+    walkChrome: MapWalkChromeState = MapWalkChromeState()
 ) {
     val safePadding = WindowInsets.safeDrawing.asPaddingValues()
     val layoutDirection = LocalLayoutDirection.current
+    val topStartPadding = if (shellLayout == ShellLayout.SIDE_PANEL) {
+        sidePanelEdge + ControlsEdgePadding
+    } else {
+        safePadding.calculateStartPadding(layoutDirection) + ControlsEdgePadding
+    }
 
     Box(modifier = modifier.fillMaxSize()) {
+        WalkChromeStack(
+            walkChrome = walkChrome,
+            topStartPadding = topStartPadding,
+            topPadding = safePadding.calculateTopPadding() + ControlsEdgePadding,
+            modifier = Modifier.align(Alignment.TopStart)
+        )
+
         MapActionToolbar(
             showsHikingRoutes = overlayState.showsHikingRoutes,
             isRecordingActive = isRecordingActive,
+            walkChrome = walkChrome,
             onOpenRecording = onOpenRecording,
             onOpenOfflineMaps = onOpenOfflineMaps,
             onToggleHikingRoutes = onToggleHikingRoutes,
@@ -132,11 +148,38 @@ fun MapFloatingControls(
     }
 }
 
+@Composable
+private fun WalkChromeStack(
+    walkChrome: MapWalkChromeState,
+    topStartPadding: Dp,
+    topPadding: Dp,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(WalkStackSpacing),
+        modifier = modifier.padding(
+            start = topStartPadding,
+            top = topPadding,
+            end = WalkStackEndClearance
+        )
+    ) {
+        walkChrome.session.startNotice?.let { notice ->
+            WalkStartedPill(
+                notice = notice,
+                onOpenHike = walkChrome.onOpenWalkedHike,
+                onDismiss = walkChrome.onDismissStartNotice
+            )
+        }
+        WalkTimeLeftBubble(timeLeftFlow = walkChrome.timeLeftMarkFlow)
+    }
+}
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun MapActionToolbar(
     showsHikingRoutes: Boolean,
     isRecordingActive: Boolean,
+    walkChrome: MapWalkChromeState,
     onOpenRecording: () -> Unit,
     onOpenOfflineMaps: () -> Unit,
     onToggleHikingRoutes: () -> Unit,
@@ -157,6 +200,12 @@ private fun MapActionToolbar(
         modifier = modifier
     ) {
         RecordActionButton(isRecordingActive = isRecordingActive, onOpenRecording = onOpenRecording)
+        if (walkChrome.session.isJunctionWarningsOffered) {
+            JunctionWarningsToolbarButton(
+                enabled = walkChrome.session.isJunctionWarningsEnabled,
+                onToggle = walkChrome.onToggleJunctionWarnings
+            )
+        }
         MapToolbarIconButton(
             iconRes = OpenHikesIcons.Map,
             contentDescription = stringResource(R.string.action_offline_maps),

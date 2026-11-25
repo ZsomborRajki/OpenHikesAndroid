@@ -36,16 +36,11 @@ class HikeDetailViewModelTest {
         val repo = FakeHikeRepository(listOf(hike))
         val coordinator = MapClaimCoordinator()
         val highlightState = RouteHighlightState()
-        val viewModel = HikeDetailViewModel(
-            rawHikeId = hike.id.value,
-            hikeRepository = repo,
-            userSettingsRepository = FakeUserSettingsRepository(),
-            offlineCountryRepository = FakeOfflineCountryRepository(),
-            trailWalkController = FakeTrailWalkController(),
-            recordingController = FakeRecordingController(),
-            mapClaimCoordinator = coordinator,
-            routeHighlightState = highlightState,
-            defaultDispatcher = mainDispatcherRule.testDispatcher
+        val viewModel = createViewModel(
+            hike = hike,
+            repo = repo,
+            coordinator = coordinator,
+            highlightState = highlightState
         )
         val store = ViewModelStore().apply { put("detail", viewModel) }
 
@@ -97,19 +92,8 @@ class HikeDetailViewModelTest {
     @Test
     fun controlsWalkLifecycleSyncsFollowScrubAndHandlesEndOutcomes() = runTest {
         val hike = sampleDetailHike()
-        val repo = FakeHikeRepository(listOf(hike))
         val walkController = FakeTrailWalkController()
-        val viewModel = HikeDetailViewModel(
-            rawHikeId = hike.id.value,
-            hikeRepository = repo,
-            userSettingsRepository = FakeUserSettingsRepository(),
-            offlineCountryRepository = FakeOfflineCountryRepository(),
-            trailWalkController = walkController,
-            recordingController = FakeRecordingController(),
-            mapClaimCoordinator = MapClaimCoordinator(),
-            routeHighlightState = RouteHighlightState(),
-            defaultDispatcher = mainDispatcherRule.testDispatcher
-        )
+        val viewModel = createViewModel(hike = hike, walkController = walkController)
         val openedSummaries = mutableListOf<Pair<HikeId, String>>()
 
         viewModel.uiState.test {
@@ -120,25 +104,13 @@ class HikeDetailViewModelTest {
             advanceUntilIdle()
             assertThat(expectMostRecentItem().walkSession.phase).isEqualTo(TrailWalkPhase.FOLLOWING)
 
-            walkController.setProgress(
-                TrailWalkProgressState(
-                    hikeId = hike.id,
-                    followMarkerHikeId = hike.id,
-                    followMarkerDistanceMeters = 120.0
-                )
-            )
+            walkController.setProgress(followMarkerProgress(hike.id, 120.0))
             advanceUntilIdle()
             assertThat(viewModel.scrubDistanceMeters.value).isWithin(1e-3).of(120.0)
 
             viewModel.onWalkAction(HikeWalkAction.SetAutoFollow(false)) { _, _ -> }
             advanceUntilIdle()
-            walkController.setProgress(
-                TrailWalkProgressState(
-                    hikeId = hike.id,
-                    followMarkerHikeId = hike.id,
-                    followMarkerDistanceMeters = 200.0
-                )
-            )
+            walkController.setProgress(followMarkerProgress(hike.id, 200.0))
             advanceUntilIdle()
             assertThat(viewModel.scrubDistanceMeters.value).isWithin(1e-3).of(120.0)
             assertThat(walkController.lastAutoFollowChange).isEqualTo(hike.id to false)
@@ -166,6 +138,31 @@ class HikeDetailViewModelTest {
             cancelAndIgnoreRemainingEvents()
         }
     }
+
+    private fun createViewModel(
+        hike: Hike,
+        repo: FakeHikeRepository = FakeHikeRepository(listOf(hike)),
+        walkController: FakeTrailWalkController = FakeTrailWalkController(),
+        coordinator: MapClaimCoordinator = MapClaimCoordinator(),
+        highlightState: RouteHighlightState = RouteHighlightState()
+    ): HikeDetailViewModel = HikeDetailViewModel(
+        rawHikeId = hike.id.value,
+        hikeRepository = repo,
+        userSettingsRepository = FakeUserSettingsRepository(),
+        offlineCountryRepository = FakeOfflineCountryRepository(),
+        trailWalkController = walkController,
+        recordingController = FakeRecordingController(),
+        mapClaimCoordinator = coordinator,
+        routeHighlightState = highlightState,
+        defaultDispatcher = mainDispatcherRule.testDispatcher
+    )
+
+    private fun followMarkerProgress(hikeId: HikeId, distanceMeters: Double): TrailWalkProgressState =
+        TrailWalkProgressState(
+            hikeId = hikeId,
+            followMarkerHikeId = hikeId,
+            followMarkerDistanceMeters = distanceMeters
+        )
 
     private fun sampleDetailHike(): Hike = Hike(
         id = HikeId("h1"),

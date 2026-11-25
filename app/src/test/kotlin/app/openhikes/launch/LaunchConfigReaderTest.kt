@@ -57,13 +57,15 @@ class LaunchConfigReaderTest {
                 LaunchConfigReader.EXTRA_UI_TESTING to "true",
                 LaunchConfigReader.EXTRA_ENABLE_LOCATION to "true",
                 LaunchConfigReader.EXTRA_AUTO_PAUSE_SECONDS to "5.0",
-                LaunchConfigReader.EXTRA_DISABLE_AUTO_RECOVERY to "true"
+                LaunchConfigReader.EXTRA_DISABLE_AUTO_RECOVERY to "true",
+                LaunchConfigReader.EXTRA_SEED_WALKS to "HalfLoop"
             )
         )
 
         assertThat(config.enableSimulatedLocation).isTrue()
         assertThat(config.autoPauseSecondsOverride).isEqualTo(5.0)
         assertThat(config.disableAutomaticRecovery).isTrue()
+        assertThat(config.seedWalkPresetName).isEqualTo("HalfLoop")
 
         val invalidPause = LaunchConfigReader.fromArguments(
             mapOf(

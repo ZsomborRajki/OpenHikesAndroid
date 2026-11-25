@@ -3,6 +3,7 @@ package app.openhikes.feature.walks
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -417,22 +418,22 @@ private fun WalkStatsCard(walk: HikeWalk, trailAscentMeters: Double?, distanceUn
 
 @Composable
 private fun WalkStatRow(label: String, value: String) {
-    Row(
+    FlowRow(
         modifier = Modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = RowMinHeight)
             .semantics(mergeDescendants = true) {}
             .padding(horizontal = HorizontalPadding, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        itemVerticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = label,
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.padding(end = 8.dp)
         )
-        Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = value,
             style = MaterialTheme.typography.bodyMedium,

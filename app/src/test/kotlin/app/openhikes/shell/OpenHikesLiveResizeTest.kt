@@ -25,11 +25,13 @@ import app.openhikes.core.common.LaunchConfigHolder
 import app.openhikes.core.designsystem.theme.OpenHikesTheme
 import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.map.RouteHighlightState
+import app.openhikes.core.map.WalkOverlayState
 import app.openhikes.core.model.AppBuildInfo
 import app.openhikes.core.testing.android.FakeHikeRepository
 import app.openhikes.core.testing.android.FakeOfflineCountryRepository
 import app.openhikes.core.testing.android.FakeRecordingController
 import app.openhikes.core.testing.android.FakeTrailMapRenderer
+import app.openhikes.core.testing.android.FakeTrailWalkController
 import app.openhikes.core.testing.android.FakeUserSettingsRepository
 import app.openhikes.core.ui.navigation.EntryProviderInstaller
 import app.openhikes.core.ui.navigation.SettingsRoute
@@ -125,7 +127,9 @@ class OpenHikesLiveResizeTest {
         offlineCountryRepository = FakeOfflineCountryRepository(),
         mapClaimCoordinator = MapClaimCoordinator(),
         recordingController = FakeRecordingController(),
+        trailWalkController = FakeTrailWalkController(),
         routeHighlightState = RouteHighlightState(),
+        walkOverlayState = WalkOverlayState(),
         launchConfigHolder = LaunchConfigHolder(launchConfig),
         defaultDispatcher = DefaultOpenHikesDispatchers().default
     )

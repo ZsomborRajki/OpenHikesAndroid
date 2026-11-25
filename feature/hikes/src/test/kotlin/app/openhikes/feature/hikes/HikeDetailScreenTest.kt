@@ -97,36 +97,8 @@ class HikeDetailScreenTest {
 
     @Test
     fun displaysActiveWalkAcrossDetailsAndHistoryTabsAndOpensWalkSummary() {
-        val walk = HikeWalk(
-            id = "w1",
-            hikeId = HikeId("h1"),
-            startedAtEpochMillis = 1_767_225_600_000L,
-            endedAtEpochMillis = 1_767_227_400_000L,
-            distanceMeters = 425.0,
-            durationSeconds = 1_800.0,
-            coveredIntervals = listOf(0.0, 425.0),
-            furthestDistanceMeters = 425.0,
-            routeDistanceMeters = 850.0,
-            endReason = TrailWalkEndReason.ENDED
-        )
-        var uiState by mutableStateOf(
-            sampleDetailUiState().copy(
-                walks = listOf(walk),
-                walkSession = TrailWalkSessionState(
-                    walkedHikeId = HikeId("h1"),
-                    walkedHikeTitle = "Thumsee Loop",
-                    phase = TrailWalkPhase.PAUSED
-                )
-            )
-        )
-        val progressFlow = MutableStateFlow(
-            TrailWalkProgressState(
-                hikeId = HikeId("h1"),
-                coveredFraction = 0.5,
-                metersLeft = 425.0,
-                secondsLeft = 600.0
-            )
-        )
+        var uiState by mutableStateOf(samplePausedWalkUiState())
+        val progressFlow = MutableStateFlow(sampleWalkProgress())
         var openedWalkId: String? = null
         var toggledWalk = false
 
@@ -176,6 +148,36 @@ class HikeDetailScreenTest {
         composeRule.onNodeWithTag(OpenHikesTestTags.WALK_CONTROLS).performClick()
         composeRule.onNodeWithTag(OpenHikesTestTags.WALK_END_DIALOG).assertIsDisplayed()
     }
+
+    private fun samplePausedWalkUiState(): HikeDetailUiState {
+        val walk = HikeWalk(
+            id = "w1",
+            hikeId = HikeId("h1"),
+            startedAtEpochMillis = 1_767_225_600_000L,
+            endedAtEpochMillis = 1_767_227_400_000L,
+            distanceMeters = 425.0,
+            durationSeconds = 1_800.0,
+            coveredIntervals = listOf(0.0, 425.0),
+            furthestDistanceMeters = 425.0,
+            routeDistanceMeters = 850.0,
+            endReason = TrailWalkEndReason.ENDED
+        )
+        return sampleDetailUiState().copy(
+            walks = listOf(walk),
+            walkSession = TrailWalkSessionState(
+                walkedHikeId = HikeId("h1"),
+                walkedHikeTitle = "Thumsee Loop",
+                phase = TrailWalkPhase.PAUSED
+            )
+        )
+    }
+
+    private fun sampleWalkProgress(): TrailWalkProgressState = TrailWalkProgressState(
+        hikeId = HikeId("h1"),
+        coveredFraction = 0.5,
+        metersLeft = 425.0,
+        secondsLeft = 600.0
+    )
 
     private fun sampleDetailUiState(): HikeDetailUiState {
         val route = listOf(
