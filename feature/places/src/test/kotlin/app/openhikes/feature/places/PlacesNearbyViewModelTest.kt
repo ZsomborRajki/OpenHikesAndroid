@@ -64,7 +64,54 @@ class PlacesNearbyViewModelTest {
             advanceUntilIdle()
             val afterAdd = expectMostRecentItem()
             assertThat(afterAdd.selectedCard?.isOnHike).isTrue()
-            assertThat(afterAdd.entries.first { it.id == carPark.id }.entry.isAdded).isTrue()
+            val savedEntry = afterAdd.entries.first { it.entry.row.place.name == "Thumsee Car Park" }
+            assertThat(savedEntry.entry.isAdded).isTrue()
+            assertThat(afterAdd.selectedCard?.row?.id).isEqualTo(savedEntry.id)
+            assertThat(savedEntry.id).isNotEqualTo(carPark.id)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun refreshesSearchThisAreaPillAndZoomHintWhenZoomChanges() = runTest {
+        val hikeId = HikeId("rec-2")
+        val here = GeoCoordinate(47.7188, 12.8311)
+        val cameraTracker = MapCameraTracker().apply { update(MapCameraState(center = here, zoom = 10.0)) }
+        val overlayState = TrailPlacesOverlayState()
+        val viewModel = PlacesNearbyViewModel(
+            rawHikeId = hikeId.value,
+            initialLatitude = here.latitude,
+            initialLongitude = here.longitude,
+            hikeRepository = FakeHikeRepository(
+                listOf(Hike(id = hikeId, title = "Morning Walk", distanceMeters = 0.0, dateEpochMillis = 10_000L))
+            ),
+            userSettingsRepository = FakeUserSettingsRepository(),
+            recordingController = FakeRecordingController(),
+            trailPointSource = FakeTrailPointSource(),
+            wikidataPlaceLookup = WikidataPlaceLookup(FakeWikidataPlaceSource()),
+            mapClaimCoordinator = MapClaimCoordinator(),
+            mapCameraTracker = cameraTracker,
+            trailPlacesOverlayState = overlayState
+        )
+
+        viewModel.uiState.test {
+            awaitItem()
+            advanceUntilIdle()
+            val zoomedOut = expectMostRecentItem()
+            assertThat(zoomedOut.isZoomedOutTooFar).isTrue()
+            assertThat(overlayState.claims.value.values.single().searchAreaPill?.isEnabled).isFalse()
+
+            cameraTracker.update(MapCameraState(center = here, zoom = 16.0))
+            advanceUntilIdle()
+            val zoomedIn = expectMostRecentItem()
+            assertThat(zoomedIn.isZoomedOutTooFar).isFalse()
+            assertThat(overlayState.claims.value.values.single().searchAreaPill?.isEnabled).isTrue()
+
+            cameraTracker.update(MapCameraState(center = here, zoom = 8.0))
+            advanceUntilIdle()
+            val zoomedBackOut = expectMostRecentItem()
+            assertThat(zoomedBackOut.isZoomedOutTooFar).isTrue()
+            assertThat(overlayState.claims.value.values.single().searchAreaPill?.isEnabled).isFalse()
             cancelAndIgnoreRemainingEvents()
         }
     }

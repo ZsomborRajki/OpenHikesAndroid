@@ -98,6 +98,11 @@ class FakeTrailMapRenderer @Inject constructor() : TrailMapRenderer {
     fun simulateCameraMove(next: MapCameraState) {
         cameraStateFlow.value = next
         latestOnCameraChanged?.invoke(next)
+        latestTrailPlacesHandlerProvider()?.onPlacementCoordinateChanged(next.center)
+    }
+
+    fun simulatePlacementCoordinate(coordinate: GeoCoordinate) {
+        latestTrailPlacesHandlerProvider()?.onPlacementCoordinateChanged(coordinate)
     }
 
     fun simulatePlaceLongPress(coordinate: GeoCoordinate) {

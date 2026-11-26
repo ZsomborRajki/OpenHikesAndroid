@@ -10,6 +10,7 @@ import app.openhikes.core.model.TrailPlaceHolding
 import app.openhikes.core.model.TrailPlaceSymbol
 import app.openhikes.core.model.TrailPoint
 import java.io.IOException
+import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 
@@ -37,7 +38,15 @@ internal class HikePlaceStore(
             return@withContext Result.success(false)
         }
         val nextSortOrder = trailPointDao.maxSortOrderForHike(hikeId.value) + 1
+        val osm = place.osm
+        val scopedId = when {
+            osm != null -> "${hikeId.value}:osm-${osm.elementType}-${osm.elementId}"
+            place.id.isBlank() -> UUID.randomUUID().toString()
+            trailPointDao.getById(place.id)?.let { it.hikeId != hikeId.value } == true -> UUID.randomUUID().toString()
+            else -> place.id
+        }
         val normalized = place.copy(
+            id = scopedId,
             hikeId = hikeId,
             name = BoundedText.boundedOrEmpty(place.name, TextBound.TITLE),
             note = BoundedText.boundedOrEmpty(place.note, TextBound.NOTES),

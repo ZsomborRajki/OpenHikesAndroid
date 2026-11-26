@@ -332,7 +332,9 @@ private fun OpenHikesShellStage(
         var measuredPanelEdge by remember(maxWidth, shellLayout) { mutableStateOf<Dp?>(null) }
         val metrics = rememberViewportChromeMetrics(
             availableWidth = maxWidth,
+            availableHeight = maxHeight,
             shellLayout = shellLayout,
+            navHostState = navHostState,
             measuredPanelEdge = measuredPanelEdge
         )
 
@@ -424,7 +426,9 @@ private fun ShellTrailMap(
 @Composable
 private fun rememberViewportChromeMetrics(
     availableWidth: Dp,
+    availableHeight: Dp,
     shellLayout: ShellLayout,
+    navHostState: ShellNavigationHostState,
     measuredPanelEdge: Dp?
 ): ViewportChromeMetrics {
     val safePadding = WindowInsets.safeDrawing.asPaddingValues()
@@ -441,7 +445,13 @@ private fun rememberViewportChromeMetrics(
     val viewportPadding = if (shellLayout == ShellLayout.SIDE_PANEL) {
         PaddingValues(start = effectivePanelEdge, top = safeTop, end = safeEnd, bottom = safeBottom)
     } else {
-        PaddingValues(start = safeStart, top = safeTop, end = safeEnd, bottom = SheetPeekViewportInset + safeBottom)
+        val peekBottom = SheetPeekViewportInset + safeBottom
+        val bottomInset = if (navHostState.isCenterPlacementActive && navHostState.sheetDetent != SheetDetent.PEEK) {
+            (availableHeight * (1f - SHEET_HALF_SCREEN_TOP_FRACTION)).coerceAtLeast(peekBottom)
+        } else {
+            peekBottom
+        }
+        PaddingValues(start = safeStart, top = safeTop, end = safeEnd, bottom = bottomInset)
     }
     return ViewportChromeMetrics(sidePanelEdge = effectivePanelEdge, viewportPadding = viewportPadding)
 }

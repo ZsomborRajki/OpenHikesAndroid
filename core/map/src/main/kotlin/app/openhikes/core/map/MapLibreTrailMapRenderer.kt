@@ -237,6 +237,7 @@ private fun TrailMapCanvas(
             )
             TrailPlacesInteractiveOverlay(
                 mapState = mapState,
+                viewportPadding = viewportPadding,
                 trailPlacesOverlayState = trailPlacesOverlayState,
                 interactionHandlerProvider = trailPlacesHandlerProvider
             )

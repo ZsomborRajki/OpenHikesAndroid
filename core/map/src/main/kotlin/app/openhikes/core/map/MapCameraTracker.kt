@@ -7,9 +7,12 @@ import javax.inject.Singleton
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.pow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 /**
  * Isolated holder tracking the live map camera position and zoom so feature destinations
@@ -21,6 +24,14 @@ class MapCameraTracker @Inject constructor() {
     private val cameraStateFlow = MutableStateFlow(MapCameraState())
 
     val cameraState: StateFlow<MapCameraState> = cameraStateFlow.asStateFlow()
+
+    /**
+     * Emits only when zoom/latitude crosses the [TrailPointQuery.MAXIMUM_RADIUS_METERS] threshold,
+     * keeping *Search This Area* controls reactive without recomposing on every pan tick.
+     */
+    val canSearchVisibleArea: Flow<Boolean> = cameraStateFlow
+        .map { searchableAreaFor(it) != null }
+        .distinctUntilChanged()
 
     fun update(state: MapCameraState) {
         cameraStateFlow.value = state

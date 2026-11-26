@@ -13,6 +13,7 @@ import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.map.MapPlacePin
 import app.openhikes.core.map.MapTrailPlacesOverlay
 import app.openhikes.core.map.TrailPlacesClaim
+import app.openhikes.core.map.TrailPlacesMapInteractionHandler
 import app.openhikes.core.map.TrailPlacesOverlayState
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeId
@@ -85,6 +86,16 @@ class AddHikePlaceViewModel @AssistedInject constructor(
 
     @Volatile
     private var latestHikePins: List<MapPlacePin> = emptyList()
+
+    @Volatile
+    private var hasProjectedCoordinate = false
+
+    private val placementInteractionHandler = object : TrailPlacesMapInteractionHandler {
+        override fun onPlacementCoordinateChanged(coordinate: GeoCoordinate) {
+            hasProjectedCoordinate = true
+            uiStateFlow.update { it.copy(coordinate = coordinate) }
+        }
+    }
 
     init {
         mapClaimCoordinator.registerClaim(
@@ -183,7 +194,9 @@ class AddHikePlaceViewModel @AssistedInject constructor(
     private fun observeMapCenter() {
         viewModelScope.launch {
             mapCameraTracker.cameraState.drop(1).collect { camera ->
-                uiStateFlow.update { it.copy(coordinate = camera.center) }
+                if (!hasProjectedCoordinate) {
+                    uiStateFlow.update { it.copy(coordinate = camera.center) }
+                }
             }
         }
     }
@@ -196,7 +209,8 @@ class AddHikePlaceViewModel @AssistedInject constructor(
                     pins = latestHikePins,
                     showCenterPlacementPin = true,
                     placementSymbol = uiStateFlow.value.symbol
-                )
+                ),
+                handler = placementInteractionHandler
             )
         )
     }

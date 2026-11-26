@@ -53,7 +53,7 @@ private val SheetTopSafeMargin = 16.dp
 private val SheetCornerRadius = 28.dp
 private val SheetElevation = 8.dp
 private val TouchTargetMinSize = 48.dp
-private const val HALF_SCREEN_TOP_FRACTION = 0.48f
+internal const val SHEET_HALF_SCREEN_TOP_FRACTION = 0.48f
 private const val DETENT_GAP_DP = 40
 private const val DRAG_POSITIONAL_THRESHOLD = 0.4f
 
@@ -116,7 +116,7 @@ private fun rememberSheetAnchors(fullHeightPx: Float, bottomInsetPx: Float): Dra
     val minGapPx = with(density) { DETENT_GAP_DP.dp.toPx() }
     return remember(fullHeightPx, peekHeightPx, expandedTopPx, minGapPx) {
         val peekTopPx = (fullHeightPx - peekHeightPx).coerceAtLeast(expandedTopPx + minGapPx * 2f)
-        val halfTopPx = (fullHeightPx * HALF_SCREEN_TOP_FRACTION)
+        val halfTopPx = (fullHeightPx * SHEET_HALF_SCREEN_TOP_FRACTION)
             .coerceIn(expandedTopPx + minGapPx, peekTopPx - minGapPx)
         DraggableAnchors {
             SheetDetent.EXPANDED at expandedTopPx

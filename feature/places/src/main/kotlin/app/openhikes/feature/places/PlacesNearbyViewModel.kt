@@ -106,6 +106,7 @@ class PlacesNearbyViewModel @AssistedInject constructor(
         null
     }
     private var latestShownSymbols: Set<TrailPlaceSymbol> = TrailPointQuery.searchableSymbols.toSet()
+    private var latestHeldPlaces: List<TrailPoint> = emptyList()
     private var searchJob: Job? = null
 
     private val settingsFlow = userSettingsRepository.userSettings.catch { ex ->
@@ -125,9 +126,12 @@ class PlacesNearbyViewModel @AssistedInject constructor(
         hikeRepository.observeHike(hikeId),
         settingsFlow,
         searchState,
-        selectionBundleFlow
-    ) { hike, settings, search, sel ->
-        val heldRows = hike?.places.orEmpty().map { TrailPlaceRow(place = it) }
+        selectionBundleFlow,
+        mapCameraTracker.canSearchVisibleArea
+    ) { hike, settings, search, sel, canSearchArea ->
+        val heldPlaces = hike?.places.orEmpty()
+        latestHeldPlaces = heldPlaces
+        val heldRows = heldPlaces.map { TrailPlaceRow(place = it) }
         val filteredCandidates = search.found
             .filter { row -> row.place.symbolKind?.let { it in settings.shownSearchPlaceSymbols } ?: true }
         val unheldIds = TrailPlaceHolding.unheld(
@@ -141,13 +145,14 @@ class PlacesNearbyViewModel @AssistedInject constructor(
             heldRows = heldRows,
             candidates = candidates,
             isSearching = search.isSearching,
-            shownSymbols = settings.shownSearchPlaceSymbols
+            shownSymbols = settings.shownSearchPlaceSymbols,
+            canSearchArea = canSearchArea
         )
         PlacesNearbyUiState(
             isSearching = search.isSearching,
             outage = search.outage,
             hasAnsweredEmpty = search.hasAnswered && entries.isEmpty(),
-            isZoomedOutTooFar = mapCameraTracker.currentSearchableArea() == null && !search.isSearching,
+            isZoomedOutTooFar = !canSearchArea && !search.isSearching,
             shownSymbols = settings.shownSearchPlaceSymbols,
             distanceUnit = settings.distanceUnit,
             entries = entries,
@@ -201,7 +206,8 @@ class PlacesNearbyViewModel @AssistedInject constructor(
 
     fun onSelectPlace(placeId: String) {
         selectedIdState.value = placeId
-        val place = searchState.value.found.firstOrNull { it.id == placeId }?.place
+        val place = latestHeldPlaces.firstOrNull { it.id == placeId }
+            ?: searchState.value.found.firstOrNull { it.id == placeId }?.place
         val wikidataItem = place?.osm?.wikidata
         if (wikidataItem == null) {
             wikidataState.value = null
@@ -308,7 +314,12 @@ class PlacesNearbyViewModel @AssistedInject constructor(
     ): SelectedAroundCard? {
         val pair = selectedId?.let { id ->
             heldRows.firstOrNull { it.id == id }?.let { it to true }
-                ?: foundRows.firstOrNull { it.id == id }?.let { it to false }
+                ?: foundRows.firstOrNull { it.id == id }?.let { candidate ->
+                    val heldMatch = heldRows.firstOrNull { held ->
+                        TrailPlaceHolding.holds(candidate.place, listOf(held.place))
+                    }
+                    if (heldMatch != null) heldMatch to true else candidate to false
+                }
         }
         return pair?.let { (row, isOnHike) ->
             val item = row.place.osm?.wikidata
@@ -324,7 +335,8 @@ class PlacesNearbyViewModel @AssistedInject constructor(
         heldRows: List<TrailPlaceRow>,
         candidates: List<TrailPlaceRow>,
         isSearching: Boolean,
-        shownSymbols: Set<TrailPlaceSymbol>
+        shownSymbols: Set<TrailPlaceSymbol>,
+        canSearchArea: Boolean
     ) {
         trailPlacesOverlayState.setClaim(
             TrailPlacesClaim(
@@ -359,7 +371,7 @@ class PlacesNearbyViewModel @AssistedInject constructor(
                 searchAreaPill = MapSearchAreaPillState(
                     isVisible = trailPointSource.isAvailable && shownSymbols.isNotEmpty(),
                     isSearching = isSearching,
-                    isEnabled = mapCameraTracker.currentSearchableArea() != null && !isSearching,
+                    isEnabled = canSearchArea && !isSearching,
                     onSearchArea = ::onSearchVisibleArea
                 )
             )

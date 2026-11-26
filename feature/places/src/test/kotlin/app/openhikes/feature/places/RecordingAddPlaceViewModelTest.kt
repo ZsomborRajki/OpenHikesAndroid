@@ -58,8 +58,10 @@ class RecordingAddPlaceViewModelTest {
             advanceUntilIdle()
 
             val afterPick = expectMostRecentItem()
-            assertThat(afterPick.openedPlaceId).isEqualTo(picked.id)
-            assertThat(repo.observeHike(hikeId).first()!!.places.map { it.name }).containsExactly("Thumsee Car Park")
+            val persisted = repo.observeHike(hikeId).first()!!.places.single()
+            assertThat(persisted.name).isEqualTo("Thumsee Car Park")
+            assertThat(persisted.id).isNotEqualTo(picked.id)
+            assertThat(afterPick.openedPlaceId).isEqualTo(persisted.id)
             cancelAndIgnoreRemainingEvents()
         }
     }

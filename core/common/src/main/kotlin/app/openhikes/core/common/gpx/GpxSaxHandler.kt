@@ -1,5 +1,6 @@
 package app.openhikes.core.common.gpx
 
+import app.openhikes.core.model.TrailPlaceOsm
 import java.time.Instant
 import java.time.LocalDateTime
 import java.time.OffsetDateTime
@@ -133,15 +134,16 @@ internal class GpxSaxHandler(private val maximumPointCount: Int) : DefaultHandle
 
     private fun captureWaypointLink(attributes: Attributes?) {
         val point = pendingPoint
-        val canAttach = point != null &&
+        val isDirectWaypointLink = point != null &&
             point.kind == PointKind.WAYPOINT &&
             point.linkHref == null &&
             path.size == point.depth + 1 &&
             path[path.lastIndex - 1] == point.element
-        if (canAttach) {
+        if (isDirectWaypointLink) {
             val href = attributes?.getValue("", ATTR_HREF) ?: attributes?.getValue(ATTR_HREF)
-            if (!href.isNullOrBlank()) {
-                point.linkHref = href.trim()
+            val trimmed = href?.trim()
+            if (!trimmed.isNullOrEmpty() && TrailPlaceOsm.fromUrl(trimmed) != null) {
+                point.linkHref = trimmed
             }
         }
     }

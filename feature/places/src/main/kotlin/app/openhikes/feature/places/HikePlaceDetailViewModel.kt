@@ -85,11 +85,13 @@ class HikePlaceDetailViewModel @AssistedInject constructor(
     private var lastLoadedWikidataItem: String? = null
 
     private val rowsFlow = hikeRepository.observeHike(hikeId)
-        .map { hike ->
-            if (hike == null) {
+        .map { hike -> hike?.let { it.places to it.route } }
+        .distinctUntilChanged()
+        .map { pair ->
+            if (pair == null) {
                 null
             } else {
-                TrailPlaceOrder.ordered(hike.places, hike.route)
+                TrailPlaceOrder.ordered(pair.first, pair.second)
             }
         }
         .flowOn(defaultDispatcher)
