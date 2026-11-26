@@ -4,6 +4,7 @@ import app.openhikes.core.database.RouteBlobCodec
 import app.openhikes.core.database.dao.HikeMapRouteChunkRow
 import app.openhikes.core.database.entity.HikeEntity
 import app.openhikes.core.database.entity.HikeLocalStateEntity
+import app.openhikes.core.database.entity.HikePhotoEntity
 import app.openhikes.core.database.entity.HikeRouteChunkEntity
 import app.openhikes.core.database.entity.HikeWalkEntity
 import app.openhikes.core.database.entity.TrailPointEntity
@@ -12,8 +13,11 @@ import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeLocalState
 import app.openhikes.core.model.HikeMapRoute
+import app.openhikes.core.model.HikePhoto
+import app.openhikes.core.model.HikePhotoLicense
 import app.openhikes.core.model.HikeSummary
 import app.openhikes.core.model.HikeWalk
+import app.openhikes.core.model.PhotoMatchEvidence
 import app.openhikes.core.model.RouteLinePattern
 import app.openhikes.core.model.TrailPlaceFact
 import app.openhikes.core.model.TrailPlaceOsm
@@ -41,28 +45,77 @@ internal fun HikeEntity.toSummary(localState: HikeLocalStateEntity?): HikeSummar
     descentMeters = localState?.descentMeters
 )
 
-internal fun HikeEntity.toDomain(routeChunks: List<HikeRouteChunkEntity>, trailPoints: List<TrailPointEntity>): Hike =
-    Hike(
-        id = HikeId(id),
-        title = title,
-        customName = customName,
-        distanceMeters = distanceMeters,
-        durationSeconds = durationSeconds,
-        dateEpochMillis = dateEpochMillis,
-        tintHex = tintHex,
-        routeWidthDp = routeWidthDp,
-        linePattern = RouteLinePattern.fromStoredId(routeLinePatternId),
-        routeBorderHex = routeBorderHex,
-        isRecording = isRecording,
-        autoFollowEnabled = autoFollowEnabled,
-        trackDescription = trackDescription,
-        author = author,
-        keywords = keywords,
-        route = RouteBlobCodec.decodeChunksOrEmpty(
-            routeChunks.sortedBy { it.chunkIndex }.map { it.chunkBlob }
-        ),
-        places = trailPoints.map { it.toDomain() }
+internal fun HikeEntity.toDomain(
+    routeChunks: List<HikeRouteChunkEntity>,
+    trailPoints: List<TrailPointEntity>,
+    photos: List<HikePhotoEntity> = emptyList()
+): Hike = Hike(
+    id = HikeId(id),
+    title = title,
+    customName = customName,
+    distanceMeters = distanceMeters,
+    durationSeconds = durationSeconds,
+    dateEpochMillis = dateEpochMillis,
+    tintHex = tintHex,
+    routeWidthDp = routeWidthDp,
+    linePattern = RouteLinePattern.fromStoredId(routeLinePatternId),
+    routeBorderHex = routeBorderHex,
+    isRecording = isRecording,
+    autoFollowEnabled = autoFollowEnabled,
+    trackDescription = trackDescription,
+    author = author,
+    keywords = keywords,
+    route = RouteBlobCodec.decodeChunksOrEmpty(
+        routeChunks.sortedBy { it.chunkIndex }.map { it.chunkBlob }
+    ),
+    places = trailPoints.map { it.toDomain() },
+    photos = photos.map { it.toDomain() }
+)
+
+internal fun HikePhotoEntity.toDomain(): HikePhoto {
+    val lat = latitude
+    val lon = longitude
+    val coordinate = if (lat != null && lon != null) {
+        runCatching { GeoCoordinate(latitude = lat, longitude = lon) }.getOrNull()
+    } else {
+        null
+    }
+    val license = licenseJson?.let { raw ->
+        runCatching { Json.decodeFromString<HikePhotoLicense>(raw) }.getOrNull()
+    }
+    return HikePhoto(
+        id = id,
+        hikeId = HikeId(hikeId),
+        capturedAtEpochMillis = capturedAtEpochMillis,
+        pathExtension = pathExtension,
+        coordinate = coordinate,
+        assetLocalIdentifier = assetLocalIdentifier,
+        matchEvidence = PhotoMatchEvidence.fromStoredId(matchEvidenceId),
+        importedFromListingId = importedFromListingId,
+        importedAuthorName = importedAuthorName,
+        sentToCommunityAtEpochMillis = sentToCommunityAtEpochMillis,
+        isPlaceOnly = isPlaceOnly,
+        placeId = placeId,
+        license = license
     )
+}
+
+internal fun HikePhoto.toEntity(): HikePhotoEntity = HikePhotoEntity(
+    id = id,
+    hikeId = hikeId.value,
+    capturedAtEpochMillis = capturedAtEpochMillis,
+    pathExtension = pathExtension,
+    latitude = coordinate?.latitude,
+    longitude = coordinate?.longitude,
+    assetLocalIdentifier = assetLocalIdentifier,
+    matchEvidenceId = matchEvidence?.storedId,
+    importedFromListingId = importedFromListingId,
+    importedAuthorName = importedAuthorName,
+    sentToCommunityAtEpochMillis = sentToCommunityAtEpochMillis,
+    isPlaceOnly = isPlaceOnly,
+    placeId = placeId,
+    licenseJson = license?.let { Json.encodeToString(it) }
+)
 
 internal fun TrailPointEntity.toDomain(): TrailPoint {
     val osm = if (osmElementType in TrailPlaceOsm.ELEMENT_TYPES && osmElementId > 0L) {

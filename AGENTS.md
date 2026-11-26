@@ -17,27 +17,30 @@ Supporting reference docs:
   pyramid, porting `OpenHikesUITests` fixtures/tags, static analysis wiring, and
   Phase 0–4 bootstrap roadmap.
 
-> **Repository status:** Phase 9 complete (Places along a trail: pure-JVM
-> `TrailPlaceSymbol`, `TrailPlaceOsm`, `TrailPlaceFact`, `TrailPlaceOrder`,
-> `TrailPlaceHolding`, `TrailPlaceCorridorSearch`, `PlaceSquareGrid`,
-> `TrailPointQuery`, `PlacesNearbyFrame`, `NearbyPlaceSuggestions`,
-> `WikidataPlace`/`WikidataPhoto`, `OHPS` v2 binary `PlaceSquareFile` codec,
-> `TrailPointDecoding`, `WikidataQuery`/`CommonsPhotoQuery`, GPX `<wpt><link>`
-> OSM round-trip, and bundled `ThumseeLoopPlaces.gpx` fixture across
-> `:core:model`, `:core:common`, and `:core:testing`; Proto DataStore
-> `shows_place_pins` & `hidden_place_symbols`, Room v4 `trail_points` OSM/facts/
-> Wikidata persistence, `HikePlaceStore`, in-memory `WikidataPlaceLookup`,
-> `noBackupFilesDir` cached `HttpPlaceSquareDataSource` &
-> `OverpassPlaceDataSource`, `HttpWikidataPlaceSource`, and launch-aware test
-> scenarios across `:core:datastore`, `:core:database`, `:core:network`, and
-> `:core:data`; `TrailPlacesOverlayState`, `MapCameraTracker`, and interactive
-> MapLibre + fake place pin/candidate/placement layers in `:core:map` and
-> `:core:testing-android`; new `:feature:places` module with place detail &
-> inline edit, Wikidata/Wikipedia summary & Wikimedia Commons photo attribution,
-> map-pan *Add Place*, *Places Around Trail*, *Places Nearby*, and recording
-> place picker; `:feature:hikes`, `:feature:recording`, `:core:location`
-> (`holdsKeepsakes`), and `:app` adaptive shell & floating controls integration,
-> plus Tier 1/2/3 & screenshot tests). Phases 0–9 are complete.
+> **Repository status:** Phase 10 complete (Photos along a trail: pure-JVM
+> `HikePhoto`, `HikePhotoLicense`, `PhotoMatchEvidence`, `OrderedHikePhotos`,
+> `PhotoUnavailableReason`, `PhotoCreditPlacement`, `PhotoMapPin`,
+> `ExportedHikeArchive`, `PhotoTrailAnchor`, `HikePhotoTimeline`,
+> `RecordedRouteLegs`, `HikeWalkPhotoTimeline`, `HikePhotoSearchPlan`,
+> `LibraryPhotoMatcher`, `PickedPhotoPlacement`, `PhotoCaptureDate`,
+> `ImageDataFormat`, `HikePhotoArchiveBuilder` `.zip` exporter, and GPX photo
+> `<wpt>` round-trip across `:core:model` and `:core:common`; Room v5
+> `hike_photos`, `DiskHikePhotoStore` under `noBackupFilesDir/hike_photos/`,
+> lossless `PhotoMetadataCodec` EXIF time/GPS/Commons credit stamping,
+> `AndroidPhotoLibrarySource` & launch-aware stubbing, `MediaStorePhotoLibraryMirror`,
+> `HikePhotoImportStore`, and 30-minute recording shutter-time anchoring across
+> `:core:database`, `:core:data`, and `:core:location`; `TrailPhotosOverlayState`,
+> `PhotoCaptureController`, `HikePhotoStrip`, and interactive MapLibre + fake
+> photo pins & callout previews in `:core:designsystem`, `:core:ui`, `:core:map`,
+> and `:core:testing-android`; new `:feature:photos` module with full-screen
+> swipeable gallery viewer, Commons license credit dialog, *Show on Map* /
+> tap-to-re-expand transitions, unavailable photo recovery views, and *Find
+> Photos of This Hike* discovery; integrated into `:feature:hikes`,
+> `:feature:places` (place photos, staged Add Place photos, place-removal
+> gallery preservation), `:feature:recording`, `:feature:settings` (read-only
+> Photos storage usage), and `:app`'s adaptive shell, `FileProvider`, floating
+> camera/library controls, and full-window landscape gallery mode, plus Tier
+> 1/2/3 & screenshot tests). Phases 0–10 are complete.
 
 ---
 

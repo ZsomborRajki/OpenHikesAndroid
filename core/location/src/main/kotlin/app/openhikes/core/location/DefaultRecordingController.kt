@@ -6,6 +6,7 @@ import app.openhikes.core.common.OpenHikesClock
 import app.openhikes.core.common.RecordingTitle
 import app.openhikes.core.data.HikeRepository
 import app.openhikes.core.data.UserSettingsRepository
+import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.RecordingFailure
@@ -139,6 +140,9 @@ internal class DefaultRecordingController @Inject constructor(
     }
 
     override fun elapsedSeconds(): Double = runtime.elapsedSeconds()
+
+    override fun photoCoordinateAt(shutterEpochMillis: Long?): GeoCoordinate? =
+        runtime.photoCoordinateAt(shutterEpochMillis)
 
     override fun consumeCompletedSave(hikeId: HikeId) {
         if (runtime.completedSaveFlow.value?.hikeId == hikeId) {

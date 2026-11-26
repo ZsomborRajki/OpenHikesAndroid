@@ -226,6 +226,58 @@ internal class LocalFakeHikeRepository : HikeRepository {
         note: String
     ) = Result.success(true)
     override suspend fun removePlace(hikeId: HikeId, placeId: String) = Result.success(Unit)
+    override suspend fun addCameraPhoto(
+        hikeId: HikeId,
+        rawBytes: ByteArray,
+        capturedAtEpochMillis: Long?,
+        coordinate: app.openhikes.core.model.GeoCoordinate?,
+        placeId: String?,
+        saveToSystemLibrary: Boolean
+    ): Result<app.openhikes.core.model.HikePhoto> {
+        val photo = app.openhikes.core.model.HikePhoto(
+            id = "photo-${System.nanoTime()}",
+            hikeId = hikeId,
+            capturedAtEpochMillis = capturedAtEpochMillis ?: 0L,
+            coordinate = coordinate,
+            placeId = placeId
+        )
+        hikesState.update { list ->
+            list.map { h -> if (h.id == hikeId) h.copy(photos = h.photos + photo) else h }
+        }
+        return Result.success(photo)
+    }
+    override suspend fun addPickedPhoto(
+        hikeId: HikeId,
+        bytes: ByteArray,
+        assetLocalIdentifier: String?,
+        fallbackCoordinate: app.openhikes.core.model.GeoCoordinate?,
+        placeId: String?
+    ) = error("Unused")
+    override suspend fun addPickedPhotoUri(
+        hikeId: HikeId,
+        uriString: String,
+        fallbackCoordinate: app.openhikes.core.model.GeoCoordinate?,
+        placeId: String?
+    ) = error("Unused")
+    override suspend fun addDiscoveredPhoto(
+        hikeId: HikeId,
+        bytes: ByteArray,
+        match: app.openhikes.core.model.LibraryPhotoMatch,
+        expectedPlanFingerprint: Long
+    ) = error("Unused")
+    override suspend fun removePhoto(hikeId: HikeId, photoId: String) = Result.success(Unit)
+    override suspend fun readPhotoBytes(photo: app.openhikes.core.model.HikePhoto): ByteArray? = null
+    override suspend fun readPhotoThumbnailBytes(photo: app.openhikes.core.model.HikePhoto): ByteArray? = null
+    override suspend fun hasPhotoFile(photo: app.openhikes.core.model.HikePhoto): Boolean = false
+    override suspend fun prepareSharePhotoFile(
+        hikeTitle: String,
+        positionOneBased: Int,
+        photo: app.openhikes.core.model.HikePhoto
+    ) = error("Unused")
+    override suspend fun exportHikeArchive(hikeId: HikeId) = error("Unused")
+    override suspend fun exportHikeArchiveToUri(hikeId: HikeId, uriString: String) = error("Unused")
+    override suspend fun measurePhotoStorageBytes(): Long = 0L
+    override suspend fun reclaimOrphanedPhotos(): Result<Int> = Result.success(0)
     override suspend fun seedFixtureIfConfigured(): HikeId? = null
 
     fun getHike(hikeId: HikeId): Hike? = hikesState.value.firstOrNull { it.id == hikeId }
@@ -309,6 +361,7 @@ internal class LocalFakeRecordingController @Inject constructor() : RecordingCon
         private set
 
     override fun elapsedSeconds(): Double = 0.0
+    override fun photoCoordinateAt(shutterEpochMillis: Long?): app.openhikes.core.model.GeoCoordinate? = null
     override fun consumeCompletedSave(hikeId: HikeId) = Unit
     override suspend fun start() {
         stateFlow.value = RecordingSessionState(

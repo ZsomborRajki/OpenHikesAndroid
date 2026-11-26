@@ -283,34 +283,43 @@ class OfflineFirstHikeRepositoryTest {
         writtenUris: MutableMap<String, String>,
         dispatcher: CoroutineDispatcher,
         localStateDao: HikeLocalStateDao = localDb.hikeLocalStateDao()
-    ): OfflineFirstHikeRepository = OfflineFirstHikeRepository(
-        database = portableDb,
-        hikeDao = portableDb.hikeDao(),
-        trailPointDao = portableDb.trailPointDao(),
-        hikeWalkDao = portableDb.hikeWalkDao(),
-        hikeLocalStateDao = localStateDao,
-        gpxFileSource = object : GpxFileSource {
-            override suspend fun read(uriString: String): GpxFilePayload? = null
-        },
-        gpxFileSink = object : GpxFileSink {
-            override suspend fun write(uriString: String, xml: String): Result<Unit> {
-                writtenUris[uriString] = xml
-                return Result.success(Unit)
-            }
-        },
-        bundledGpxFixtureSource = object : BundledGpxFixtureSource {
-            override suspend fun loadFixture(fixtureName: String): Pair<String, ByteArray>? =
-                if (fixtureName == TestFixtures.THUMSEE_LOOP_FAST_NAME) {
-                    "${TestFixtures.THUMSEE_LOOP_FAST_NAME}.gpx" to TestFixtures.thumseeLoopFastGpxBytes()
-                } else {
-                    null
+    ): OfflineFirstHikeRepository {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val (_, photoStore) = createTestPhotoStore(dispatcher, context)
+        return OfflineFirstHikeRepository(
+            context = context,
+            database = portableDb,
+            hikeDao = portableDb.hikeDao(),
+            trailPointDao = portableDb.trailPointDao(),
+            hikePhotoDao = portableDb.hikePhotoDao(),
+            hikeWalkDao = portableDb.hikeWalkDao(),
+            hikeLocalStateDao = localStateDao,
+            photoStore = photoStore,
+            photoLibraryMirror = TestPhotoLibraryMirror(),
+            photoFileIo = TestPhotoFileIo(),
+            gpxFileSource = object : GpxFileSource {
+                override suspend fun read(uriString: String): GpxFilePayload? = null
+            },
+            gpxFileSink = object : GpxFileSink {
+                override suspend fun write(uriString: String, xml: String): Result<Unit> {
+                    writtenUris[uriString] = xml
+                    return Result.success(Unit)
                 }
-        },
-        launchConfigHolder = launchConfigHolder,
-        clock = TestClock(),
-        ioDispatcher = dispatcher,
-        defaultDispatcher = dispatcher
-    )
+            },
+            bundledGpxFixtureSource = object : BundledGpxFixtureSource {
+                override suspend fun loadFixture(fixtureName: String): Pair<String, ByteArray>? =
+                    if (fixtureName == TestFixtures.THUMSEE_LOOP_FAST_NAME) {
+                        "${TestFixtures.THUMSEE_LOOP_FAST_NAME}.gpx" to TestFixtures.thumseeLoopFastGpxBytes()
+                    } else {
+                        null
+                    }
+            },
+            launchConfigHolder = launchConfigHolder,
+            clock = TestClock(),
+            ioDispatcher = dispatcher,
+            defaultDispatcher = dispatcher
+        )
+    }
 
     private fun buildLargeGpxBytes(pointCount: Int): ByteArray {
         val sb = StringBuilder(pointCount * 96 + 256)

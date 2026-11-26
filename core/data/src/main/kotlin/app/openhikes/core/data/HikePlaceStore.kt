@@ -1,9 +1,12 @@
 package app.openhikes.core.data
 
+import androidx.room.withTransaction
 import app.openhikes.core.common.BoundedText
 import app.openhikes.core.common.OpenHikesClock
 import app.openhikes.core.common.TextBound
+import app.openhikes.core.database.OpenHikesDatabase
 import app.openhikes.core.database.dao.HikeDao
+import app.openhikes.core.database.dao.HikePhotoDao
 import app.openhikes.core.database.dao.TrailPointDao
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.TrailPlaceHolding
@@ -17,11 +20,15 @@ import kotlinx.coroutines.withContext
 /**
  * Main-safe persistence helper for adding, editing, and removing places on a hike.
  * Enforces iOS OpenHikes invariants: duplicate OSM elements are skipped, OSM places are never
- * renamed or re-categorized, and text inputs are grapheme-cluster bounded.
+ * renamed or re-categorized, removing a place unfiles its photos back to the hike gallery,
+ * and text inputs are grapheme-cluster bounded.
  */
+@Suppress("LongParameterList")
 internal class HikePlaceStore(
+    private val database: OpenHikesDatabase,
     private val hikeDao: HikeDao,
     private val trailPointDao: TrailPointDao,
+    private val hikePhotoDao: HikePhotoDao,
     private val clock: OpenHikesClock,
     private val shouldFailFirstSave: () -> Boolean,
     private val ioDispatcher: CoroutineDispatcher
@@ -84,7 +91,10 @@ internal class HikePlaceStore(
         if (shouldFailFirstSave()) {
             return@withContext Result.failure(IOException("Simulated place removal failure"))
         }
-        trailPointDao.deleteById(hikeId = hikeId.value, id = placeId)
+        database.withTransaction {
+            hikePhotoDao.unfileFromPlace(hikeId = hikeId.value, placeId = placeId)
+            trailPointDao.deleteById(hikeId = hikeId.value, id = placeId)
+        }
         Result.success(Unit)
     }
 }

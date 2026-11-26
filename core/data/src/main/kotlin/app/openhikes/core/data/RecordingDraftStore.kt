@@ -7,6 +7,7 @@ import app.openhikes.core.database.OpenHikesDatabase
 import app.openhikes.core.database.RouteBlobCodec
 import app.openhikes.core.database.dao.HikeDao
 import app.openhikes.core.database.dao.HikeLocalStateDao
+import app.openhikes.core.database.dao.HikePhotoDao
 import app.openhikes.core.database.dao.HikeWalkDao
 import app.openhikes.core.database.dao.TrailPointDao
 import app.openhikes.core.database.entity.HikeEntity
@@ -38,9 +39,11 @@ internal class RecordingDraftStore(
     private val database: OpenHikesDatabase,
     private val hikeDao: HikeDao,
     private val trailPointDao: TrailPointDao,
+    private val hikePhotoDao: HikePhotoDao,
     private val hikeWalkDao: HikeWalkDao,
     private val hikeLocalStateDao: HikeLocalStateDao,
     private val localStateRepairer: HikeLocalStateRepairer,
+    private val photoStore: HikePhotoStore,
     private val shouldFailFirstSave: () -> Boolean,
     private val ioDispatcher: CoroutineDispatcher,
     private val defaultDispatcher: CoroutineDispatcher
@@ -55,7 +58,8 @@ internal class RecordingDraftStore(
                     }
                     val chunks = hikeDao.getRouteChunks(hikeId.value)
                     val trailPoints = trailPointDao.getByHikeId(hikeId.value)
-                    return@runStorageCatching Result.success(existing.toDomain(chunks, trailPoints))
+                    val photos = hikePhotoDao.getByHikeId(hikeId.value)
+                    return@runStorageCatching Result.success(existing.toDomain(chunks, trailPoints, photos))
                 }
 
                 val tintIndex = hikeDao.getHikeCount()
@@ -102,7 +106,8 @@ internal class RecordingDraftStore(
             val existing = hikeDao.getHikeById(hikeId.value)
             if (existing != null && !existing.isRecording) {
                 val points = trailPointDao.getByHikeId(hikeId.value)
-                return@runStorageCatching Result.success(existing.toDomain(emptyList(), points))
+                val photos = hikePhotoDao.getByHikeId(hikeId.value)
+                return@runStorageCatching Result.success(existing.toDomain(emptyList(), points, photos))
             }
 
             val finalizedEntity =
@@ -138,7 +143,8 @@ internal class RecordingDraftStore(
             }
             upsertFinalizedLocalState(hikeId.value, prepared)
             val points = trailPointDao.getByHikeId(hikeId.value)
-            Result.success(finalizedEntity.toDomain(chunks, points))
+            val photos = hikePhotoDao.getByHikeId(hikeId.value)
+            Result.success(finalizedEntity.toDomain(chunks, points, photos))
         }
     }
 
@@ -199,8 +205,10 @@ internal class RecordingDraftStore(
             if (!existing.isRecording) {
                 return@runStorageCatching Result.success(Unit)
             }
+            val photos = hikePhotoDao.getByHikeId(hikeId.value).map { it.toDomain() }
             hikeDao.deleteHikeById(hikeId.value)
             localStateRepairer.deleteBestEffort(hikeId.value)
+            photoStore.deleteFiles(photos)
             Result.success(Unit)
         }
     }
@@ -212,8 +220,10 @@ internal class RecordingDraftStore(
             var deletedCount = 0
             for (draftId in recordingIds) {
                 if (draftId != exceptHikeId?.value && ownedDraftIds.contains(draftId)) {
+                    val photos = hikePhotoDao.getByHikeId(draftId).map { it.toDomain() }
                     if (hikeDao.deleteHikeById(draftId) > 0) {
                         deletedCount += 1
+                        photoStore.deleteFiles(photos)
                     }
                     localStateRepairer.deleteBestEffort(draftId)
                 }

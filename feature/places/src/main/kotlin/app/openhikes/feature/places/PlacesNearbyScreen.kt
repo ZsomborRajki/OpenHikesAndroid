@@ -36,6 +36,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openhikes.core.designsystem.icon.OpenHikesIcons
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.HikePhoto
 import app.openhikes.core.model.TrailPlaceSymbol
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 
@@ -47,6 +48,7 @@ fun PlacesNearbyRoute(
     onBack: () -> Unit,
     onAddOwnPlace: (GeoCoordinate) -> Unit,
     modifier: Modifier = Modifier,
+    onOpenPhoto: (String) -> Unit = {},
     viewModel: PlacesNearbyViewModel = hiltViewModel<PlacesNearbyViewModel, PlacesNearbyViewModel.Factory>(
         key = "${hikeId.value}:nearby"
     ) { factory ->
@@ -77,6 +79,16 @@ fun PlacesNearbyRoute(
         },
         onOpenUrl = { url -> runCatching { uriHandler.openUri(url) } },
         onDismissSaveRefusal = viewModel::onDismissSaveRefusal,
+        onTakeCardPhoto = {
+            val place = uiState.selectedCard?.row?.place ?: return@PlacesNearbyScreen
+            viewModel.onTakeCardPhoto(place.id, place.coordinate)
+        },
+        onAddCardPhotos = {
+            val place = uiState.selectedCard?.row?.place ?: return@PlacesNearbyScreen
+            viewModel.onAddCardPhotos(place.id, place.coordinate)
+        },
+        onOpenPhoto = onOpenPhoto,
+        loadPhotoThumbnailBytes = viewModel::loadPhotoThumbnailBytes,
         modifier = modifier
     )
 }
@@ -94,7 +106,11 @@ fun PlacesNearbyScreen(
     onShareCard: (String) -> Unit,
     onOpenUrl: (String) -> Unit,
     onDismissSaveRefusal: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onTakeCardPhoto: () -> Unit = {},
+    onAddCardPhotos: () -> Unit = {},
+    onOpenPhoto: (String) -> Unit = {},
+    loadPhotoThumbnailBytes: suspend (HikePhoto) -> ByteArray? = { null }
 ) {
     Box(
         modifier = modifier
@@ -111,7 +127,12 @@ fun PlacesNearbyScreen(
                 onAdd = { onAddPlace(selected.row.id) },
                 onShare = onShareCard,
                 onClose = onCloseCard,
-                onOpenUrl = onOpenUrl
+                onOpenUrl = onOpenUrl,
+                photos = selected.photos,
+                loadPhotoThumbnailBytes = loadPhotoThumbnailBytes,
+                onTakePhoto = onTakeCardPhoto,
+                onAddPhotos = onAddCardPhotos,
+                onOpenPhoto = onOpenPhoto
             )
         } else {
             PlacesNearbyListContent(

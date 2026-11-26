@@ -7,6 +7,8 @@ import app.openhikes.core.common.LaunchConfigHolder
 import app.openhikes.core.location.RecordingEntryCoordinator
 import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapClaimCoordinator
+import app.openhikes.core.map.PhotoCaptureController
+import app.openhikes.core.map.TrailPhotosOverlayState
 import app.openhikes.core.map.TrailPlacesOverlayState
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeId
@@ -48,6 +50,8 @@ class RecordingViewModelTest {
             userSettingsRepository = FakeUserSettingsRepository(),
             mapClaimCoordinator = coordinator,
             trailPlacesOverlayState = TrailPlacesOverlayState(),
+            trailPhotosOverlayState = TrailPhotosOverlayState(),
+            photoCaptureController = PhotoCaptureController(),
             launchConfigHolder = LaunchConfigHolder(LaunchConfig(isUiTesting = true, enableSimulatedLocation = true))
         )
         val store = ViewModelStore().apply { put("rec", viewModel) }
@@ -81,6 +85,8 @@ class RecordingViewModelTest {
             userSettingsRepository = FakeUserSettingsRepository(),
             mapClaimCoordinator = MapClaimCoordinator(),
             trailPlacesOverlayState = TrailPlacesOverlayState(),
+            trailPhotosOverlayState = TrailPhotosOverlayState(),
+            photoCaptureController = PhotoCaptureController(),
             launchConfigHolder = LaunchConfigHolder(LaunchConfig.Production)
         )
 
@@ -115,6 +121,8 @@ class RecordingViewModelTest {
             userSettingsRepository = FakeUserSettingsRepository(),
             mapClaimCoordinator = MapClaimCoordinator(),
             trailPlacesOverlayState = TrailPlacesOverlayState(),
+            trailPhotosOverlayState = TrailPhotosOverlayState(),
+            photoCaptureController = PhotoCaptureController(),
             launchConfigHolder = LaunchConfigHolder(LaunchConfig(isUiTesting = true, enableSimulatedLocation = true))
         )
 
@@ -175,6 +183,8 @@ class RecordingViewModelTest {
             userSettingsRepository = FakeUserSettingsRepository(),
             mapClaimCoordinator = MapClaimCoordinator(),
             trailPlacesOverlayState = TrailPlacesOverlayState(),
+            trailPhotosOverlayState = TrailPhotosOverlayState(),
+            photoCaptureController = PhotoCaptureController(),
             launchConfigHolder = LaunchConfigHolder(LaunchConfig(isUiTesting = true, enableSimulatedLocation = true))
         )
         val firstStore = ViewModelStore().apply { put("first", firstVm) }
@@ -205,6 +215,8 @@ class RecordingViewModelTest {
             userSettingsRepository = FakeUserSettingsRepository(),
             mapClaimCoordinator = MapClaimCoordinator(),
             trailPlacesOverlayState = TrailPlacesOverlayState(),
+            trailPhotosOverlayState = TrailPhotosOverlayState(),
+            photoCaptureController = PhotoCaptureController(),
             launchConfigHolder = LaunchConfigHolder(LaunchConfig(isUiTesting = true, enableSimulatedLocation = true))
         )
         val secondStore = ViewModelStore().apply { put("second", secondVm) }

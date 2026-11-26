@@ -136,4 +136,20 @@ object OpenHikesIcons {
     @DrawableRes val AddLocation: Int = R.drawable.ic_add_location_24
 
     @DrawableRes val AddCircle: Int = R.drawable.ic_add_circle_24
+
+    @DrawableRes val PhotoCamera: Int = R.drawable.ic_photo_camera_24
+
+    @DrawableRes val PhotoLibrary: Int = R.drawable.ic_photo_library_24
+
+    @DrawableRes val Photo: Int = R.drawable.ic_photo_24
+
+    @DrawableRes val CloudOff: Int = R.drawable.ic_cloud_off_24
+
+    @DrawableRes val CloudDownload: Int = R.drawable.ic_cloud_download_24
+
+    @DrawableRes val BrokenImage: Int = R.drawable.ic_broken_image_24
+
+    @DrawableRes val FolderZip: Int = R.drawable.ic_folder_zip_24
+
+    @DrawableRes val RadioButtonUnchecked: Int = R.drawable.ic_radio_button_unchecked_24
 }

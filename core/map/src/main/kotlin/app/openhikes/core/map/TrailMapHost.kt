@@ -28,7 +28,9 @@ fun TrailMapHost(
     trailDraftOverlayState: StateFlow<MapTrailDraftOverlay?> = remember { MutableStateFlow(null) },
     trailDraftHandlerProvider: () -> TrailDraftMapInteractionHandler? = { null },
     trailPlacesOverlayState: StateFlow<MapTrailPlacesOverlay?> = remember { MutableStateFlow(null) },
-    trailPlacesHandlerProvider: () -> TrailPlacesMapInteractionHandler? = { null }
+    trailPlacesHandlerProvider: () -> TrailPlacesMapInteractionHandler? = { null },
+    trailPhotosOverlayState: StateFlow<MapTrailPhotosOverlay?> = remember { MutableStateFlow(null) },
+    trailPhotosHandlerProvider: () -> TrailPhotosMapInteractionHandler? = { null }
 ) {
     renderer.Render(
         cameraState = cameraState,
@@ -46,6 +48,8 @@ fun TrailMapHost(
         trailDraftOverlayState = trailDraftOverlayState,
         trailDraftHandlerProvider = trailDraftHandlerProvider,
         trailPlacesOverlayState = trailPlacesOverlayState,
-        trailPlacesHandlerProvider = trailPlacesHandlerProvider
+        trailPlacesHandlerProvider = trailPlacesHandlerProvider,
+        trailPhotosOverlayState = trailPhotosOverlayState,
+        trailPhotosHandlerProvider = trailPhotosHandlerProvider
     )
 }

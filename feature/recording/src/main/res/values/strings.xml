@@ -73,4 +73,5 @@
     <string name="recording_discard_confirm">Discard recording</string>
     <string name="recording_discard_cancel">Keep recording</string>
     <string name="recording_places_section_title">Places</string>
+    <string name="recording_photos_section_title">Photos</string>
 </resources>

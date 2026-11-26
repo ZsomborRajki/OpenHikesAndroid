@@ -108,10 +108,25 @@ data class Hike(
     val author: String? = null,
     val keywords: String? = null,
     val route: List<RouteCoordinate> = emptyList(),
-    val places: List<TrailPoint> = emptyList()
+    val places: List<TrailPoint> = emptyList(),
+    val photos: List<HikePhoto> = emptyList()
 ) {
     val displayTitle: String
         get() = customName?.takeIf { it.isNotEmpty() } ?: title
+
+    val hasPhotos: Boolean
+        get() = photos.isNotEmpty()
+
+    val orderedPhotos: List<HikePhoto>
+        get() = OrderedHikePhotos.from(photos).photos
+
+    val anchoredPhotoCount: Int
+        get() = photos.count { it.isAnchored }
+
+    val importedPhotoAssetIdentifiers: Set<String>
+        get() = OrderedHikePhotos.from(photos).importedAssetIdentifiers
+
+    fun photosOfPlace(placeId: String): List<HikePhoto> = orderedPhotos.filter { it.placeId == placeId }
 
     fun toSummary(climbMeters: Double? = null, descentMeters: Double? = null): HikeSummary = HikeSummary(
         id = id,

@@ -3,7 +3,9 @@ package app.openhikes.feature.hikes
 import app.openhikes.core.ui.navigation.AddHikePlaceRoute
 import app.openhikes.core.ui.navigation.EntryProviderInstaller
 import app.openhikes.core.ui.navigation.HikeDetailRoute
+import app.openhikes.core.ui.navigation.HikePhotoViewerRoute
 import app.openhikes.core.ui.navigation.HikePlaceDetailRoute
+import app.openhikes.core.ui.navigation.PhotoDiscoveryRoute
 import app.openhikes.core.ui.navigation.PlacesAroundRoute
 import app.openhikes.core.ui.navigation.RouteEditRoute
 import app.openhikes.core.ui.navigation.RouteStyleRoute
@@ -31,6 +33,8 @@ object HikesNavigationModule {
                 onOpenRouteEdit = { hikeId -> navigator.navigate(RouteEditRoute(hikeId)) },
                 onOpenPlace = { hikeId, placeId -> navigator.navigate(HikePlaceDetailRoute(hikeId, placeId)) },
                 onOpenPlacesAround = { hikeId -> navigator.navigate(PlacesAroundRoute(hikeId)) },
+                onOpenPhoto = { hikeId, photoId -> navigator.navigate(HikePhotoViewerRoute(hikeId, photoId)) },
+                onOpenPhotoDiscovery = { hikeId -> navigator.navigate(PhotoDiscoveryRoute(hikeId)) },
                 onAddPlaceAt = { hikeId, coordinate ->
                     navigator.navigate(
                         AddHikePlaceRoute(

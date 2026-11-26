@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import app.openhikes.core.location.RecordingSessionState
 import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.HikePhoto
 import app.openhikes.core.model.RecordingStopStep
 import app.openhikes.core.model.TrailPoint
 
@@ -26,9 +27,12 @@ data class RecordingUiState(
     val showDiscardDialog: Boolean = false,
     val savedHikeId: HikeId? = null,
     val discardCompleted: Boolean = false,
+    val discardedHikeId: HikeId? = null,
     val requestLocationPermission: Boolean = false,
     val places: List<TrailPoint> = emptyList(),
-    val pendingOpenPlaceId: String? = null
+    val pendingOpenPlaceId: String? = null,
+    val photos: List<HikePhoto> = emptyList(),
+    val pendingOpenPhotoId: String? = null
 ) {
     val activeHikeId: HikeId?
         get() = session.sessionId?.takeIf { session.isActive }?.let(::HikeId)

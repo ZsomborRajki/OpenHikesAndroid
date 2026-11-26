@@ -31,21 +31,34 @@ internal object GpxWaypointSpatialIndex {
         places: List<GpxWaypoint>,
         routes: List<List<RouteCoordinate>>,
         maxPlaces: Int
-    ): List<List<GpxWaypoint>> {
-        val buckets = List(routes.size) { ArrayList<GpxWaypoint>() }
-        if (places.isEmpty() || routes.isEmpty() || maxPlaces <= 0) return buckets
+    ): List<List<GpxWaypoint>> = assignByCoordinate(
+        items = places,
+        routes = routes,
+        maxItems = maxPlaces,
+        coordinateOf = { it.coordinate }
+    )
+
+    fun <T> assignByCoordinate(
+        items: List<T>,
+        routes: List<List<RouteCoordinate>>,
+        maxItems: Int,
+        coordinateOf: (T) -> GeoCoordinate
+    ): List<List<T>> {
+        val buckets = List(routes.size) { ArrayList<T>() }
+        if (items.isEmpty() || routes.isEmpty() || maxItems <= 0) return buckets
 
         val reaches = routes.map { TrackReach.from(it) }
         val grids = routes.map { TrackGrid.create(it) }
         var assignedCount = 0
-        var placeIndex = 0
-        while (placeIndex < places.size && assignedCount < maxPlaces) {
-            val place = places[placeIndex]
+        var itemIndex = 0
+        while (itemIndex < items.size && assignedCount < maxItems) {
+            val item = items[itemIndex]
+            val coordinate = coordinateOf(item)
             var bestTrackIndex: Int? = null
             var bestDistance = WAYPOINT_THRESHOLD_METERS
             for (index in routes.indices) {
-                val distance = if (reaches[index].mayHold(place.coordinate)) {
-                    grids[index]?.offRouteMeters(place.coordinate)
+                val distance = if (reaches[index].mayHold(coordinate)) {
+                    grids[index]?.offRouteMeters(coordinate)
                 } else {
                     null
                 }
@@ -55,10 +68,10 @@ internal object GpxWaypointSpatialIndex {
                 }
             }
             if (bestTrackIndex != null) {
-                buckets[bestTrackIndex].add(place)
+                buckets[bestTrackIndex].add(item)
                 assignedCount += 1
             }
-            placeIndex += 1
+            itemIndex += 1
         }
         return buckets
     }

@@ -200,8 +200,10 @@ internal class RecordingLifecycleSupport(
         val current = runtime.stateFlow.value
         val hasLiveDrawableLeg = RecordingPreparation.hasDrawableRouteLeg(runtime.tracePoints)
         val holdsKeepsakes = current.sessionId?.let { id ->
-            runCatching { hikeRepository.observeHike(HikeId(id)).first()?.places?.isNotEmpty() == true }
-                .getOrDefault(false)
+            runCatching {
+                val hike = hikeRepository.observeHike(HikeId(id)).first()
+                hike != null && (hike.places.isNotEmpty() || hike.hasPhotos)
+            }.getOrDefault(false)
         } ?: false
         return when {
             !current.isStoppable -> null
@@ -395,6 +397,7 @@ internal class RecordingLifecycleSupport(
         runtime.sessionMonotonicBaseMillis = clock.monotonicMillis()
         runtime.accumulator = RecordingDistanceAccumulator()
         runtime.tracePoints.clear()
+        synchronized(runtime.recentAcceptedPoints) { runtime.recentAcceptedPoints.clear() }
         runtime.stateFlow.value = RecordingSessionState(
             phase = RecordingPhase.WAITING_FOR_FIX,
             sessionId = sessionId,
@@ -439,6 +442,7 @@ internal class RecordingLifecycleSupport(
     private fun keepAcceptedPoint(point: RecordingPoint) {
         runtime.accumulator.append(point)
         runtime.lastAcceptedPoint = point
+        runtime.recordRecentPoint(point)
         runtime.latestHorizontalAccuracyMeters = point.horizontalAccuracyMeters
         runtime.tracePoints.add(point.toRouteCoordinate())
         val currentState = runtime.stateFlow.value

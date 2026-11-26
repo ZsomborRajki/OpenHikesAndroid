@@ -10,7 +10,12 @@ import app.openhikes.core.model.HikeId
  * root preservation, sheet collapse coordination, and atomic removal of deleted hike routes.
  */
 @Stable
-class OpenHikesNavigator(val backStack: NavBackStack<NavKey>, private val onCollapseSheet: () -> Unit = {}) {
+class OpenHikesNavigator(
+    val backStack: NavBackStack<NavKey>,
+    private val onCollapseSheet: () -> Unit = {},
+    private val onRevealMap: () -> Unit = {},
+    private val onExpandFullHeight: () -> Unit = {}
+) {
     val currentRoute: NavKey?
         get() = backStack.lastOrNull()
 
@@ -60,6 +65,21 @@ class OpenHikesNavigator(val backStack: NavBackStack<NavKey>, private val onColl
      */
     fun collapseSheet() {
         onCollapseSheet()
+    }
+
+    /**
+     * Drops a full-height destination (such as the photo viewer) to reveal the live map beneath or
+     * beside it without leaving the destination.
+     */
+    fun revealMap() {
+        onRevealMap()
+    }
+
+    /**
+     * Re-expands a full-height destination back over the live map after [revealMap].
+     */
+    fun expandFullHeight() {
+        onExpandFullHeight()
     }
 
     /**

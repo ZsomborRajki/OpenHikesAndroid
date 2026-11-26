@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -95,7 +96,8 @@ fun MapFloatingControls(
     showTrailMakerButton: Boolean = false,
     onOpenTrailMaker: () -> Unit = {},
     walkChrome: MapWalkChromeState = MapWalkChromeState(),
-    placesChrome: MapPlacesChromeState = MapPlacesChromeState()
+    placesChrome: MapPlacesChromeState = MapPlacesChromeState(),
+    photosChrome: MapPhotosChromeState = MapPhotosChromeState()
 ) {
     val safePadding = WindowInsets.safeDrawing.asPaddingValues()
     val layoutDirection = LocalLayoutDirection.current
@@ -127,6 +129,7 @@ fun MapFloatingControls(
             showTrailMakerButton = showTrailMakerButton,
             showAddPlaceButton = placesChrome.showAddPlaceButton,
             walkChrome = walkChrome,
+            photosChrome = photosChrome,
             onOpenRecording = onOpenRecording,
             onOpenTrailMaker = onOpenTrailMaker,
             onAddPlace = placesChrome.onAddPlace,
@@ -254,6 +257,7 @@ private fun SearchAreaFloatingPill(pill: MapSearchAreaPillState) {
     }
 }
 
+@Suppress("LongParameterList")
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun MapActionToolbar(
@@ -262,6 +266,7 @@ private fun MapActionToolbar(
     showTrailMakerButton: Boolean,
     showAddPlaceButton: Boolean,
     walkChrome: MapWalkChromeState,
+    photosChrome: MapPhotosChromeState,
     onOpenRecording: () -> Unit,
     onOpenTrailMaker: () -> Unit,
     onAddPlace: () -> Unit,
@@ -285,6 +290,9 @@ private fun MapActionToolbar(
                 onClick = onOpenTrailMaker
             )
         }
+        if (photosChrome.showPhotoButtons) {
+            MapPhotoToolbarButtons(photosChrome = photosChrome)
+        }
         if (showAddPlaceButton) {
             MapToolbarIconButton(
                 iconRes = OpenHikesIcons.AddLocation,
@@ -300,25 +308,46 @@ private fun MapActionToolbar(
             )
         }
         MapModesToolbarButton(isOpen = isMapModesOpen, onClick = onOpenMapModes)
-        MapToolbarIconButton(
-            iconRes = OpenHikesIcons.Add,
-            contentDescription = stringResource(R.string.map_zoom_in_description),
-            testTag = OpenHikesTestTags.MAP_ZOOM_IN_BUTTON,
-            onClick = onZoomIn
-        )
-        MapToolbarIconButton(
-            iconRes = OpenHikesIcons.Remove,
-            contentDescription = stringResource(R.string.map_zoom_out_description),
-            testTag = OpenHikesTestTags.MAP_ZOOM_OUT_BUTTON,
-            onClick = onZoomOut
-        )
-        MapToolbarIconButton(
-            iconRes = OpenHikesIcons.Explore,
-            contentDescription = stringResource(R.string.map_reset_north_description),
-            testTag = OpenHikesTestTags.MAP_RESET_NORTH_BUTTON,
-            onClick = onResetNorth
-        )
+        MapZoomToolbarButtons(onZoomIn = onZoomIn, onZoomOut = onZoomOut, onResetNorth = onResetNorth)
     }
+}
+
+@Composable
+private fun ColumnScope.MapPhotoToolbarButtons(photosChrome: MapPhotosChromeState) {
+    MapToolbarIconButton(
+        iconRes = OpenHikesIcons.PhotoCamera,
+        contentDescription = stringResource(R.string.action_take_photo),
+        testTag = OpenHikesTestTags.MAP_CAMERA_BUTTON,
+        onClick = photosChrome.onTakePhoto
+    )
+    MapToolbarIconButton(
+        iconRes = OpenHikesIcons.PhotoLibrary,
+        contentDescription = stringResource(R.string.action_add_photo_from_library),
+        testTag = OpenHikesTestTags.MAP_PHOTO_LIBRARY_BUTTON,
+        onClick = photosChrome.onAddFromLibrary
+    )
+}
+
+@Composable
+private fun ColumnScope.MapZoomToolbarButtons(onZoomIn: () -> Unit, onZoomOut: () -> Unit, onResetNorth: () -> Unit) {
+    MapToolbarIconButton(
+        iconRes = OpenHikesIcons.Add,
+        contentDescription = stringResource(R.string.map_zoom_in_description),
+        testTag = OpenHikesTestTags.MAP_ZOOM_IN_BUTTON,
+        onClick = onZoomIn
+    )
+    MapToolbarIconButton(
+        iconRes = OpenHikesIcons.Remove,
+        contentDescription = stringResource(R.string.map_zoom_out_description),
+        testTag = OpenHikesTestTags.MAP_ZOOM_OUT_BUTTON,
+        onClick = onZoomOut
+    )
+    MapToolbarIconButton(
+        iconRes = OpenHikesIcons.Explore,
+        contentDescription = stringResource(R.string.map_reset_north_description),
+        testTag = OpenHikesTestTags.MAP_RESET_NORTH_BUTTON,
+        onClick = onResetNorth
+    )
 }
 
 @Composable

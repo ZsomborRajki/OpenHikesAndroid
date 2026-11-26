@@ -2,6 +2,7 @@ package app.openhikes.feature.settings
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.openhikes.core.data.HikeRepository
 import app.openhikes.core.data.OfflineCountryRepository
 import app.openhikes.core.data.UserSettingsRepository
 import app.openhikes.core.model.AppBuildInfo
@@ -28,11 +29,21 @@ import kotlinx.coroutines.launch
 class SettingsViewModel @Inject constructor(
     private val userSettingsRepository: UserSettingsRepository,
     offlineCountryRepository: OfflineCountryRepository,
+    hikeRepository: HikeRepository,
     appBuildInfo: AppBuildInfo
 ) : ViewModel() {
     private val errorIdGenerator = AtomicLong(0L)
     private val saveErrorState = MutableStateFlow<SettingsSaveError?>(null)
+    private val photoStorageBytesState = MutableStateFlow<Long?>(null)
     private var lastFailedUpdate: (suspend () -> Unit)? = null
+
+    init {
+        viewModelScope.launch {
+            hikeRepository.hikes.collect {
+                photoStorageBytesState.value = hikeRepository.measurePhotoStorageBytes()
+            }
+        }
+    }
 
     val uiState: StateFlow<SettingsUiState> = combine(
         userSettingsRepository.userSettings.catch { exception ->
@@ -43,12 +54,14 @@ class SettingsViewModel @Inject constructor(
             }
         },
         offlineCountryRepository.state.map { it.installedByteCount }.distinctUntilChanged(),
+        photoStorageBytesState,
         saveErrorState
-    ) { settings, offlineInstalledBytes, saveError ->
+    ) { settings, offlineInstalledBytes, photoStorageBytes, saveError ->
         SettingsUiState(
             settings = settings,
             appVersion = appBuildInfo.displayVersion,
             offlineInstalledBytes = offlineInstalledBytes,
+            photoStorageBytes = photoStorageBytes,
             isLoaded = true,
             saveError = saveError
         )

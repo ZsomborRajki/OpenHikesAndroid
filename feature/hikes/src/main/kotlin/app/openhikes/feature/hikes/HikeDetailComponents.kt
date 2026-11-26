@@ -218,7 +218,9 @@ internal fun HikeDetailActionsRow(
     onZoomToRoute: () -> Unit,
     onExportGpx: () -> Unit,
     offlineCoverage: HikeOfflineCoverageState = HikeOfflineCoverageState(),
-    onOpenOfflineDialog: () -> Unit = {}
+    onOpenOfflineDialog: () -> Unit = {},
+    hasPhotos: Boolean = false,
+    onShareArchive: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -259,6 +261,9 @@ internal fun HikeDetailActionsRow(
                 Text(text = stringResource(R.string.hike_detail_export_gpx), maxLines = 1)
             }
         }
+        if (hasPhotos) {
+            ShareHikeArchiveButton(onClick = onShareArchive)
+        }
         if (offlineCoverage.isOpenHikesMap && offlineCoverage.crossed.isNotEmpty()) {
             HikeOfflineCountryButton(
                 coverage = offlineCoverage,
@@ -266,6 +271,25 @@ internal fun HikeDetailActionsRow(
                 modifier = Modifier.fillMaxWidth()
             )
         }
+    }
+}
+
+@Composable
+private fun ShareHikeArchiveButton(onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = TouchTargetMinSize)
+            .testTag(OpenHikesTestTags.HIKE_SHARE_ARCHIVE_BUTTON)
+    ) {
+        Icon(
+            painter = painterResource(OpenHikesIcons.FolderZip),
+            contentDescription = null,
+            modifier = Modifier.size(ButtonDefaults.IconSize)
+        )
+        Spacer(modifier = Modifier.width(ButtonDefaults.IconSpacing))
+        Text(text = stringResource(R.string.hike_detail_share_with_photos), maxLines = 1)
     }
 }
 

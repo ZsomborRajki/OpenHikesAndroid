@@ -17,6 +17,7 @@ data class SettingsUiState(
     val settings: UserSettings = UserSettings(),
     val appVersion: String = "",
     val offlineInstalledBytes: Long = 0L,
+    val photoStorageBytes: Long? = null,
     val isLoaded: Boolean = false,
     val saveError: SettingsSaveError? = null
 )

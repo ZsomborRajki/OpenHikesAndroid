@@ -5,6 +5,8 @@ import app.cash.turbine.test
 import app.openhikes.core.data.WikidataPlaceLookup
 import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapClaimCoordinator
+import app.openhikes.core.map.PhotoCaptureController
+import app.openhikes.core.map.TrailPhotosOverlayState
 import app.openhikes.core.map.TrailPlacesOverlayState
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.Hike
@@ -148,6 +150,8 @@ class HikePlaceDetailViewModelTest {
         wikidataPlaceLookup = WikidataPlaceLookup(FakeWikidataPlaceSource()),
         mapClaimCoordinator = coordinator,
         trailPlacesOverlayState = overlayState,
+        trailPhotosOverlayState = TrailPhotosOverlayState(),
+        photoCaptureController = PhotoCaptureController(),
         defaultDispatcher = mainDispatcherRule.testDispatcher
     )
 

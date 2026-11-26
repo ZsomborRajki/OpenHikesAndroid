@@ -7,11 +7,13 @@ import app.openhikes.core.map.MapClaim
 import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.map.MapRouteEditOverlay
 import app.openhikes.core.map.MapTrailDraftOverlay
+import app.openhikes.core.map.PhotoCaptureController
 import app.openhikes.core.map.RouteEditMapInteractionHandler
 import app.openhikes.core.map.RouteEditOverlayState
 import app.openhikes.core.map.RouteHighlightState
 import app.openhikes.core.map.TrailDraftMapInteractionHandler
 import app.openhikes.core.map.TrailDraftOverlayState
+import app.openhikes.core.map.TrailPhotosOverlayState
 import app.openhikes.core.map.TrailPlacesOverlayState
 import app.openhikes.core.map.WalkOverlayState
 import app.openhikes.core.model.GeoCoordinate
@@ -70,6 +72,8 @@ class MapShellViewModelTest {
             trailDraftOverlayState = TrailDraftOverlayState(),
             mapCameraTracker = MapCameraTracker(),
             trailPlacesOverlayState = TrailPlacesOverlayState(),
+            trailPhotosOverlayState = TrailPhotosOverlayState(),
+            photoCaptureController = PhotoCaptureController(),
             mapProviderKeys = MapProviderKeys.Empty,
             launchConfigHolder = LaunchConfigHolder(LaunchConfig.Production),
             defaultDispatcher = mainDispatcherRule.testDispatcher
@@ -208,6 +212,8 @@ class MapShellViewModelTest {
         trailDraftOverlayState = draftOverlayState,
         mapCameraTracker = MapCameraTracker(),
         trailPlacesOverlayState = TrailPlacesOverlayState(),
+        trailPhotosOverlayState = TrailPhotosOverlayState(),
+        photoCaptureController = PhotoCaptureController(),
         mapProviderKeys = MapProviderKeys.Empty,
         launchConfigHolder = LaunchConfigHolder(LaunchConfig.Production),
         defaultDispatcher = mainDispatcherRule.testDispatcher

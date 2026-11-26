@@ -2,6 +2,7 @@ package app.openhikes.core.common.gpx
 
 import app.openhikes.core.model.ExportedGpx
 import app.openhikes.core.model.Hike
+import app.openhikes.core.model.HikePhoto
 import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.TrailPoint
 import app.openhikes.core.model.toTrailRuns
@@ -42,7 +43,7 @@ object GpxExporter {
         xml = exportXml(hike)
     )
 
-    fun exportXml(hike: Hike): String {
+    fun exportXml(hike: Hike, photoArchivePaths: Map<String, String> = emptyMap()): String {
         val sb = StringBuilder(PREAMBLE_BYTES_ESTIMATE + hike.route.size * CHARS_PER_POINT_ESTIMATE)
         sb.append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
         sb.append("<gpx version=\"1.1\" creator=\"${escaped(CREATOR)}\"")
@@ -51,6 +52,7 @@ object GpxExporter {
         sb.append(" xsi:schemaLocation=\"$SCHEMA_LOCATION\">\n")
         appendMetadata(sb, hike)
         appendPlaces(sb, hike.places)
+        appendPhotos(sb, hike.orderedPhotos, photoArchivePaths)
         appendTrack(sb, hike)
         sb.append("</gpx>\n")
         return sb.toString()
@@ -120,6 +122,35 @@ object GpxExporter {
             place.symbol?.takeIf { it.isNotBlank() }?.let { sym ->
                 sb.append("    <sym>${escaped(sym)}</sym>\n")
             }
+            sb.append("  </wpt>\n")
+        }
+    }
+
+    private fun appendPhotos(sb: StringBuilder, photos: List<HikePhoto>, photoArchivePaths: Map<String, String>) {
+        for (photo in photos) {
+            val coordinate = photo.coordinate ?: continue
+            val lat = String.format(Locale.US, "%.7f", coordinate.latitude)
+            val lon = String.format(Locale.US, "%.7f", coordinate.longitude)
+            val iso = DateTimeFormatter.ISO_INSTANT.format(Instant.ofEpochMilli(photo.capturedAtEpochMillis))
+            sb.append("  <wpt lat=\"$lat\" lon=\"$lon\">\n")
+            sb.append("    <time>$iso</time>\n")
+            sb.append("    <name>Photo</name>\n")
+            val author = photo.importedAuthorName?.trim()?.takeIf { it.isNotEmpty() }
+            val licenseName = photo.license?.name?.trim()?.takeIf { it.isNotEmpty() }
+            val credit = when {
+                author != null && licenseName != null -> "Photo by $author · $licenseName"
+                author != null -> "Photo by $author"
+                licenseName != null -> "Photo · $licenseName"
+                else -> null
+            }
+            credit?.let { sb.append("    <desc>${escaped(it)}</desc>\n") }
+            photoArchivePaths[photo.id]?.let { relativePath ->
+                sb.append("    <link href=\"${escaped(relativePath)}\"/>\n")
+            }
+            photo.license?.sourceUrl?.takeIf { it.isNotBlank() }?.let { sourceUrl ->
+                sb.append("    <link href=\"${escaped(sourceUrl)}\"/>\n")
+            }
+            sb.append("    <sym>Photo</sym>\n")
             sb.append("  </wpt>\n")
         }
     }

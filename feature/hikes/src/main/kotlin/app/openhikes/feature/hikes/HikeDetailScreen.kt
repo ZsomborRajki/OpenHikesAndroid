@@ -41,6 +41,7 @@ import app.openhikes.core.location.TrailWalkPermissionIssue
 import app.openhikes.core.location.TrailWalkProgressState
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.HikePhoto
 import app.openhikes.core.ui.components.ElevationProfileChart
 import app.openhikes.core.ui.components.HikeSegmentList
 import app.openhikes.core.ui.testing.OpenHikesTestTags
@@ -70,6 +71,8 @@ fun HikeDetailRoute(
     onOpenPlace: (HikeId, String) -> Unit = { _, _ -> },
     onOpenPlacesAround: (HikeId) -> Unit = {},
     onAddPlaceAt: (HikeId, GeoCoordinate) -> Unit = { _, _ -> },
+    onOpenPhoto: (HikeId, String) -> Unit = { _, _ -> },
+    onOpenPhotoDiscovery: (HikeId) -> Unit = {},
     viewModel: HikeDetailViewModel = hiltViewModel<HikeDetailViewModel, HikeDetailViewModel.Factory>(
         key = hikeId.value
     ) { factory ->
@@ -81,19 +84,13 @@ fun HikeDetailRoute(
     HikeDetailRouteEffects(
         hikeId = hikeId,
         uiState = uiState,
-        onExportDestinationPicked = viewModel::onExportDestinationPicked,
-        onPermissionResult = { grantedFine, grantedCoarse ->
-            viewModel.onWalkAction(
-                HikeWalkAction.PermissionResult(grantedFine = grantedFine, grantedCoarse = grantedCoarse),
-                onOpenWalkSummary
-            )
-        },
-        onConsumeEndedWalk = viewModel::onConsumeEndedWalk,
-        onOpenWalkSummary = onOpenWalkSummary,
-        onConsumeOpenPlace = viewModel::consumePendingOpenPlace,
-        onOpenPlace = onOpenPlace,
-        onConsumeAddPlaceCoordinate = viewModel::consumePendingAddPlaceCoordinate,
-        onAddPlaceAt = onAddPlaceAt
+        callbacks = buildDetailEffectCallbacks(
+            viewModel = viewModel,
+            onOpenWalkSummary = onOpenWalkSummary,
+            onOpenPlace = onOpenPlace,
+            onAddPlaceAt = onAddPlaceAt,
+            onOpenPhoto = onOpenPhoto
+        )
     )
 
     HikeDetailScreen(
@@ -127,52 +124,93 @@ fun HikeDetailRoute(
                 is HikePlaceAction.SetShowPlacePins -> viewModel.onSetShowPlacePins(action.enabled)
                 HikePlaceAction.OpenPlacesAround -> onOpenPlacesAround(hikeId)
             }
-        }
+        },
+        onPhotoAction = { action ->
+            when (action) {
+                is HikePhotoAction.OpenPhoto -> onOpenPhoto(hikeId, action.photoId)
+                HikePhotoAction.OpenPhotoDiscovery -> onOpenPhotoDiscovery(hikeId)
+                HikePhotoAction.ShareArchive -> viewModel.onRequestExportArchive()
+            }
+        },
+        loadPhotoThumbnailBytes = viewModel::loadPhotoThumbnailBytes
     )
 }
 
-@Composable
-private fun HikeDetailRouteEffects(
-    hikeId: HikeId,
-    uiState: HikeDetailUiState,
-    onExportDestinationPicked: (String?) -> Unit,
-    onPermissionResult: (Boolean, Boolean) -> Unit,
-    onConsumeEndedWalk: () -> Unit,
+private fun buildDetailEffectCallbacks(
+    viewModel: HikeDetailViewModel,
     onOpenWalkSummary: (HikeId, String) -> Unit,
-    onConsumeOpenPlace: () -> Unit,
     onOpenPlace: (HikeId, String) -> Unit,
-    onConsumeAddPlaceCoordinate: () -> Unit,
-    onAddPlaceAt: (HikeId, GeoCoordinate) -> Unit
-) {
+    onAddPlaceAt: (HikeId, GeoCoordinate) -> Unit,
+    onOpenPhoto: (HikeId, String) -> Unit
+): HikeDetailEffectCallbacks = HikeDetailEffectCallbacks(
+    onExportDestinationPicked = viewModel::onExportDestinationPicked,
+    onArchiveExportDestinationPicked = viewModel::onArchiveExportDestinationPicked,
+    onPermissionResult = { fine, coarse ->
+        viewModel.onWalkAction(HikeWalkAction.PermissionResult(fine, coarse), onOpenWalkSummary)
+    },
+    onConsumeEndedWalk = viewModel::onConsumeEndedWalk,
+    onConsumePendingOpenPlace = viewModel::consumePendingOpenPlace,
+    onConsumePendingAddPlaceCoordinate = viewModel::consumePendingAddPlaceCoordinate,
+    onConsumePendingOpenPhoto = viewModel::consumePendingOpenPhoto,
+    onOpenWalkSummary = onOpenWalkSummary,
+    onOpenPlace = onOpenPlace,
+    onAddPlaceAt = onAddPlaceAt,
+    onOpenPhoto = onOpenPhoto
+)
+
+private data class HikeDetailEffectCallbacks(
+    val onExportDestinationPicked: (String?) -> Unit,
+    val onArchiveExportDestinationPicked: (String?) -> Unit,
+    val onPermissionResult: (Boolean, Boolean) -> Unit,
+    val onConsumeEndedWalk: () -> Unit,
+    val onConsumePendingOpenPlace: () -> Unit,
+    val onConsumePendingAddPlaceCoordinate: () -> Unit,
+    val onConsumePendingOpenPhoto: () -> Unit,
+    val onOpenWalkSummary: (HikeId, String) -> Unit,
+    val onOpenPlace: (HikeId, String) -> Unit,
+    val onAddPlaceAt: (HikeId, GeoCoordinate) -> Unit,
+    val onOpenPhoto: (HikeId, String) -> Unit
+)
+
+@Composable
+private fun HikeDetailRouteEffects(hikeId: HikeId, uiState: HikeDetailUiState, callbacks: HikeDetailEffectCallbacks) {
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/gpx+xml")
-    ) { uri ->
-        onExportDestinationPicked(uri?.toString())
-    }
+    ) { uri -> callbacks.onExportDestinationPicked(uri?.toString()) }
+    val archiveExportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri -> callbacks.onArchiveExportDestinationPicked(uri?.toString()) }
     WalkLocationPermissionEffect(
         requestLocationPermission = uiState.requestLocationPermission,
-        onPermissionResult = onPermissionResult
+        onPermissionResult = callbacks.onPermissionResult
     )
     LaunchedEffect(uiState.pendingExport) {
-        val pending = uiState.pendingExport ?: return@LaunchedEffect
-        exportLauncher.launch(pending.fileName)
+        uiState.pendingExport?.let { exportLauncher.launch(it.fileName) }
+    }
+    LaunchedEffect(uiState.pendingArchiveExport) {
+        uiState.pendingArchiveExport?.let { archiveExportLauncher.launch(it.fileName) }
     }
     LaunchedEffect(uiState.walkSession.lastEndedWalk) {
         val ended = uiState.walkSession.lastEndedWalk ?: return@LaunchedEffect
         if (ended.hikeId == hikeId) {
-            onConsumeEndedWalk()
-            onOpenWalkSummary(hikeId, ended.id)
+            callbacks.onConsumeEndedWalk()
+            callbacks.onOpenWalkSummary(hikeId, ended.id)
         }
     }
     LaunchedEffect(uiState.pendingOpenPlaceId) {
         val placeId = uiState.pendingOpenPlaceId ?: return@LaunchedEffect
-        onConsumeOpenPlace()
-        onOpenPlace(hikeId, placeId)
+        callbacks.onConsumePendingOpenPlace()
+        callbacks.onOpenPlace(hikeId, placeId)
     }
     LaunchedEffect(uiState.pendingAddPlaceCoordinate) {
         val coordinate = uiState.pendingAddPlaceCoordinate ?: return@LaunchedEffect
-        onConsumeAddPlaceCoordinate()
-        onAddPlaceAt(hikeId, coordinate)
+        callbacks.onConsumePendingAddPlaceCoordinate()
+        callbacks.onAddPlaceAt(hikeId, coordinate)
+    }
+    LaunchedEffect(uiState.pendingOpenPhotoId) {
+        val photoId = uiState.pendingOpenPhotoId ?: return@LaunchedEffect
+        callbacks.onConsumePendingOpenPhoto()
+        callbacks.onOpenPhoto(hikeId, photoId)
     }
 }
 
@@ -202,7 +240,9 @@ fun HikeDetailScreen(
     onDismissMessages: () -> Unit = {},
     onOfflineAction: (HikeOfflineAction) -> Unit = {},
     onWalkAction: (HikeWalkAction) -> Unit = {},
-    onPlaceAction: (HikePlaceAction) -> Unit = {}
+    onPlaceAction: (HikePlaceAction) -> Unit = {},
+    onPhotoAction: (HikePhotoAction) -> Unit = {},
+    loadPhotoThumbnailBytes: suspend (HikePhoto) -> ByteArray? = { null }
 ) {
     val hike = uiState.hike
     val listState = rememberLazyListState()
@@ -248,7 +288,9 @@ fun HikeDetailScreen(
                     onCancelRename = onCancelRename,
                     onRequestDelete = onRequestDelete,
                     onWalkAction = onWalkAction,
-                    onPlaceAction = onPlaceAction
+                    onPlaceAction = onPlaceAction,
+                    onPhotoAction = onPhotoAction,
+                    loadPhotoThumbnailBytes = loadPhotoThumbnailBytes
                 ),
                 modifier = Modifier.weight(1f)
             )
@@ -318,7 +360,9 @@ private data class DetailListCallbacks(
     val onCancelRename: () -> Unit,
     val onRequestDelete: () -> Unit,
     val onWalkAction: (HikeWalkAction) -> Unit,
-    val onPlaceAction: (HikePlaceAction) -> Unit
+    val onPlaceAction: (HikePlaceAction) -> Unit,
+    val onPhotoAction: (HikePhotoAction) -> Unit,
+    val loadPhotoThumbnailBytes: suspend (HikePhoto) -> ByteArray?
 )
 
 @Composable
@@ -410,7 +454,9 @@ private fun LazyListScope.addDetailTabItems(uiState: HikeDetailUiState, callback
             onZoomToRoute = callbacks.onZoomToRoute,
             onExportGpx = callbacks.onExportGpx,
             offlineCoverage = uiState.offlineCoverage,
-            onOpenOfflineDialog = callbacks.onOpenOfflineDialog
+            onOpenOfflineDialog = callbacks.onOpenOfflineDialog,
+            hasPhotos = uiState.orderedPhotos.isNotEmpty(),
+            onShareArchive = { callbacks.onPhotoAction(HikePhotoAction.ShareArchive) }
         )
     }
     item(key = "follow_trail") {
@@ -424,6 +470,15 @@ private fun LazyListScope.addDetailTabItems(uiState: HikeDetailUiState, callback
             hike = hike,
             statistics = statistics,
             distanceUnit = uiState.distanceUnit
+        )
+    }
+    item(key = "photos") {
+        HikeDetailPhotosSection(
+            photos = uiState.orderedPhotos,
+            anchoredPhotoCount = uiState.anchoredPhotoCount,
+            canMatchPhotos = uiState.canMatchPhotos,
+            loadThumbnailBytes = callbacks.loadPhotoThumbnailBytes,
+            onPhotoAction = callbacks.onPhotoAction
         )
     }
     addDetailSecondaryItems(

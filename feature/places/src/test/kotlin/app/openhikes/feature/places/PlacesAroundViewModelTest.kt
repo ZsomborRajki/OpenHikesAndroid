@@ -5,6 +5,7 @@ import app.openhikes.core.data.WikidataPlaceLookup
 import app.openhikes.core.map.MapCameraState
 import app.openhikes.core.map.MapCameraTracker
 import app.openhikes.core.map.MapClaimCoordinator
+import app.openhikes.core.map.PhotoCaptureController
 import app.openhikes.core.map.TrailPlacesOverlayState
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.Hike
@@ -199,6 +200,7 @@ class PlacesAroundViewModelTest {
             mapClaimCoordinator = MapClaimCoordinator(),
             mapCameraTracker = cameraTracker,
             trailPlacesOverlayState = overlayState,
+            photoCaptureController = PhotoCaptureController(),
             defaultDispatcher = mainDispatcherRule.testDispatcher
         )
     }

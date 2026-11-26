@@ -240,3 +240,40 @@ GitHub issues once created.)*
       live recording place picker wired into `:feature:hikes`,
       `:feature:recording`, `:core:location` (`holdsKeepsakes`), and `:app`
       with Tier 1/2/3 & screenshot tests.
+11. **Phase 10 — Photos Along a Trail (Slice 10):**
+    - Pure-JVM photo domain & archive codecs (`HikePhoto`, `HikePhotoLicense`,
+      `PhotoMatchEvidence`, `OrderedHikePhotos`, `PhotoUnavailableReason`,
+      `PhotoCreditPlacement`, `PhotoMapPin`, `ExportedHikeArchive`,
+      `PhotoTrailAnchor`, `HikePhotoTimeline`, `RecordedRouteLegs`,
+      `HikeWalkPhotoTimeline`, `HikePhotoSearchPlan`, `LibraryPhotoMatcher`,
+      `PickedPhotoPlacement`, `PhotoCaptureDate`, `ImageDataFormat`,
+      `HikePhotoArchiveBuilder` `.zip` exporter with GPX photo `<wpt>` links &
+      `Credits.txt`, and GPX timed photo waypoint parsing) across `:core:model`
+      and `:core:common`.
+    - Room v5 `hike_photos` with CASCADE on hike deletion and place-unfiling on
+      place removal, `DiskHikePhotoStore` (`noBackupFilesDir/hike_photos/`,
+      512 px thumbnails, 32 MiB LRU cache, EXIF orientation baking, orphan
+      reclamation), lossless `PhotoMetadataCodec` EXIF time/GPS/Commons credit
+      stamping, `AndroidPhotoLibrarySource` with launch-config test stubbing,
+      `MediaStorePhotoLibraryMirror` (`Pictures/OpenHikes`),
+      `HikePhotoImportStore` (disk-first durability, dedupe/refiling, fingerprint
+      guard), and 30-minute recording shutter-time anchoring across
+      `:core:database`, `:core:data`, and `:core:location`.
+    - `TrailPhotosOverlayState`, `PhotoCaptureController`, `HikePhotoStrip`,
+      and MapLibre + fake tinted photo pin markers & 4:3 thumbnail callout
+      previews across `:core:designsystem`, `:core:ui`, `:core:map`, and
+      `:core:testing-android`.
+    - `:feature:photos` dark full-screen swipeable gallery viewer (chronological
+      paging, Show on Map & tap-to-re-expand, Share, confirmed Delete with
+      auto-close on last photo, Commons license credit dialog, unavailable
+      recovery views) and *Find Photos of This Hike* discovery (untimed guard,
+      limited-access *Select More Photos*, live route-fingerprint refresh,
+      sequential import with partial-failure retry).
+    - Integrated across `:feature:hikes` (Photos section, *Share Hike with
+      Photos* `.zip`, map photo pins persisting across History tab),
+      `:feature:places` (place photos, staged Add Place photos, *Places Around*
+      / *Places Nearby* card photos, gallery preservation on place removal),
+      `:feature:recording`, `:feature:settings` (read-only *Photos* storage
+      row), and `:app` (`FileProvider`, `PhotoCaptureHost`, floating camera /
+      library controls, full-window landscape gallery mode, and Tier 1/2/3 &
+      screenshot tests).

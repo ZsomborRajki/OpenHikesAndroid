@@ -5,6 +5,7 @@ import app.openhikes.core.model.AppBuildInfo
 import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.UserSettings
 import app.openhikes.core.testing.MainDispatcherRule
+import app.openhikes.core.testing.android.FakeHikeRepository
 import app.openhikes.core.testing.android.FakeOfflineCountryRepository
 import app.openhikes.core.testing.android.FakeUserSettingsRepository
 import com.google.common.truth.Truth.assertThat
@@ -24,6 +25,7 @@ class SettingsViewModelTest {
         val viewModel = SettingsViewModel(
             userSettingsRepository = repository,
             offlineCountryRepository = FakeOfflineCountryRepository(),
+            hikeRepository = FakeHikeRepository(),
             appBuildInfo = AppBuildInfo(versionName = "0.1.0", versionCode = 1)
         )
 
@@ -70,6 +72,7 @@ class SettingsViewModelTest {
         val viewModel = SettingsViewModel(
             userSettingsRepository = repository,
             offlineCountryRepository = FakeOfflineCountryRepository(),
+            hikeRepository = FakeHikeRepository(),
             appBuildInfo = AppBuildInfo(versionName = "0.1.0", versionCode = 1)
         )
 
@@ -102,6 +105,7 @@ class SettingsViewModelTest {
         val viewModel = SettingsViewModel(
             userSettingsRepository = failingRepository,
             offlineCountryRepository = FakeOfflineCountryRepository(),
+            hikeRepository = FakeHikeRepository(),
             appBuildInfo = AppBuildInfo(versionName = "0.1.0", versionCode = 1)
         )
 

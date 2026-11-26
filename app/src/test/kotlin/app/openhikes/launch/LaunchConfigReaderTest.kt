@@ -77,4 +77,32 @@ class LaunchConfigReaderTest {
         )
         assertThat(invalidPause.autoPauseSecondsOverride).isNull()
     }
+
+    @Test
+    fun parsesPhotoSeedingAndStubLibraryOverridesAndRejectsNegativeCounts() {
+        val config = LaunchConfigReader.fromArguments(
+            mapOf(
+                LaunchConfigReader.EXTRA_UI_TESTING to "true",
+                LaunchConfigReader.EXTRA_SEED_PHOTO_COUNT to "3",
+                LaunchConfigReader.EXTRA_OMIT_SEEDED_PHOTO_FILES to "true",
+                LaunchConfigReader.EXTRA_STUB_PHOTO_LIBRARY_COUNT to "5",
+                LaunchConfigReader.EXTRA_STUB_PHOTO_LIBRARY_ACCESS to "limited"
+            )
+        )
+
+        assertThat(config.seedPhotoCount).isEqualTo(3)
+        assertThat(config.omitSeededPhotoFiles).isTrue()
+        assertThat(config.stubPhotoLibraryCount).isEqualTo(5)
+        assertThat(config.stubPhotoLibraryAccess).isEqualTo("limited")
+
+        val negative = LaunchConfigReader.fromArguments(
+            mapOf(
+                LaunchConfigReader.EXTRA_UI_TESTING to "true",
+                LaunchConfigReader.EXTRA_SEED_PHOTO_COUNT to "-1",
+                LaunchConfigReader.EXTRA_STUB_PHOTO_LIBRARY_COUNT to "-4"
+            )
+        )
+        assertThat(negative.seedPhotoCount).isEqualTo(0)
+        assertThat(negative.stubPhotoLibraryCount).isNull()
+    }
 }

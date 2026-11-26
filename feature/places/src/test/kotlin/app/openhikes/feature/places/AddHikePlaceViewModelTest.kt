@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModelStore
 import app.openhikes.core.map.MapCameraState
 import app.openhikes.core.map.MapCameraTracker
 import app.openhikes.core.map.MapClaimCoordinator
+import app.openhikes.core.map.PhotoCaptureController
 import app.openhikes.core.map.TrailPlacesOverlayState
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.Hike
@@ -12,6 +13,7 @@ import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.TrailPlaceSymbol
 import app.openhikes.core.testing.MainDispatcherRule
 import app.openhikes.core.testing.android.FakeHikeRepository
+import app.openhikes.core.testing.android.FakeUserSettingsRepository
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
@@ -49,9 +51,11 @@ class AddHikePlaceViewModelTest {
             initialLatitude = initial.latitude,
             initialLongitude = initial.longitude,
             hikeRepository = repo,
+            userSettingsRepository = FakeUserSettingsRepository(),
             mapClaimCoordinator = coordinator,
             mapCameraTracker = cameraTracker,
-            trailPlacesOverlayState = overlayState
+            trailPlacesOverlayState = overlayState,
+            photoCaptureController = PhotoCaptureController()
         )
         val store = ViewModelStore().apply { put("add", viewModel) }
         advanceUntilIdle()
@@ -116,9 +120,11 @@ class AddHikePlaceViewModelTest {
             initialLatitude = initial.latitude,
             initialLongitude = initial.longitude,
             hikeRepository = repo,
+            userSettingsRepository = FakeUserSettingsRepository(),
             mapClaimCoordinator = MapClaimCoordinator(),
             mapCameraTracker = cameraTracker,
-            trailPlacesOverlayState = overlayState
+            trailPlacesOverlayState = overlayState,
+            photoCaptureController = PhotoCaptureController()
         )
         advanceUntilIdle()
 

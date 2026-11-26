@@ -2,6 +2,7 @@ package app.openhikes.core.common.gpx
 
 import app.openhikes.core.common.BoundedText
 import app.openhikes.core.common.TextBound
+import app.openhikes.core.model.GpxPhotoWaypoint
 import app.openhikes.core.model.GpxTrack
 import app.openhikes.core.model.GpxWaypoint
 import app.openhikes.core.model.RouteBoundary
@@ -16,7 +17,8 @@ internal object GpxTrackAssembler {
         document: ParsedGpxDocument,
         words: ContainerWords,
         segments: List<List<ValidatedGpxPoint>>,
-        places: List<GpxWaypoint>
+        places: List<GpxWaypoint>,
+        photos: List<GpxPhotoWaypoint> = emptyList()
     ): GpxTrack {
         val route = buildRoute(segments)
         return GpxTrack(
@@ -32,7 +34,8 @@ internal object GpxTrackAssembler {
                     ?.timestampEpochMillis,
             route = route,
             distanceMeters = RouteGeometry.routeLengthMeters(route),
-            places = places
+            places = places,
+            photos = photos
         )
     }
 
@@ -41,10 +44,17 @@ internal object GpxTrackAssembler {
         wordsMap: Map<Int, ContainerWords>,
         containers: List<Pair<Int, List<List<ValidatedGpxPoint>>>>,
         places: List<GpxWaypoint>,
+        photos: List<GpxPhotoWaypoint> = emptyList(),
         maxPlaces: Int
     ): List<GpxTrack> {
         val routes = containers.map { (_, segments) -> buildRoute(segments) }
-        val assigned = assignPlacesToTracks(places, routes, maxPlaces)
+        val assignedPlaces = assignPlacesToTracks(places, routes, maxPlaces)
+        val assignedPhotos = GpxWaypointSpatialIndex.assignByCoordinate(
+            items = photos,
+            routes = routes,
+            maxItems = maxPlaces,
+            coordinateOf = { it.coordinate }
+        )
         return containers.mapIndexed { index, (containerIndex, segments) ->
             val words = wordsMap[containerIndex] ?: ContainerWords()
             val route = routes[index]
@@ -60,7 +70,8 @@ internal object GpxTrackAssembler {
                     .firstOrNull { it.timestampEpochMillis != null }?.timestampEpochMillis,
                 route = route,
                 distanceMeters = RouteGeometry.routeLengthMeters(route),
-                places = assigned[index]
+                places = assignedPlaces[index],
+                photos = assignedPhotos[index]
             )
         }
     }
@@ -91,6 +102,27 @@ internal object GpxTrackAssembler {
                 note = BoundedText.boundedOrEmpty(raw.note, TextBound.NOTES),
                 osm = TrailPlaceOsm.fromUrl(raw.linkHref)
             )
+        }
+    }
+
+    fun parsePhoto(raw: RawGpxPoint): GpxPhotoWaypoint? {
+        val timestamp = raw.timestampEpochMillis
+        if (!isPhotographMarker(raw) || timestamp == null) return null
+        return GpxPlaceholderFilter.toValidatedPoint(raw)?.let { point ->
+            GpxPhotoWaypoint(
+                coordinate = point.coordinate,
+                capturedAtEpochMillis = timestamp,
+                authorName = extractPhotoAuthor(raw.note),
+                sourceUrl = raw.firstHttpsLinkHref
+            )
+        }
+    }
+
+    private fun extractPhotoAuthor(note: String?): String? {
+        val prefix = "Photo by "
+        val trimmed = note?.trim()?.takeIf { it.startsWith(prefix) }
+        return trimmed?.let {
+            BoundedText.bounded(it.removePrefix(prefix).substringBefore(" · ").trim(), TextBound.CREDIT)
         }
     }
 

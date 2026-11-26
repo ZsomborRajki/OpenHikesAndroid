@@ -42,6 +42,16 @@ data class GpxWaypoint(
 )
 
 /**
+ * Parsed `<wpt>` photo marker from a GPX file (records where & when a photo was taken, without pixels).
+ */
+data class GpxPhotoWaypoint(
+    val coordinate: GeoCoordinate,
+    val capturedAtEpochMillis: Long,
+    val authorName: String? = null,
+    val sourceUrl: String? = null
+)
+
+/**
  * Single parsed GPX track or route ready to persist as a [Hike].
  */
 data class GpxTrack(
@@ -52,7 +62,8 @@ data class GpxTrack(
     val startTimeEpochMillis: Long?,
     val route: List<RouteCoordinate>,
     val distanceMeters: Double,
-    val places: List<GpxWaypoint> = emptyList()
+    val places: List<GpxWaypoint> = emptyList(),
+    val photos: List<GpxPhotoWaypoint> = emptyList()
 )
 
 /**

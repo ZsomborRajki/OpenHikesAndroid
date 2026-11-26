@@ -159,6 +159,38 @@ data class HikeWalkEntity(
     @ColumnInfo(name = "route_revision") val routeRevision: String? = null
 )
 
+@Entity(
+    tableName = "hike_photos",
+    foreignKeys = [
+        ForeignKey(
+            entity = HikeEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["hike_id"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [
+        Index(value = ["hike_id"]),
+        Index(value = ["place_id"])
+    ]
+)
+data class HikePhotoEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "hike_id") val hikeId: String,
+    @ColumnInfo(name = "captured_at_epoch_millis") val capturedAtEpochMillis: Long,
+    @ColumnInfo(name = "path_extension") val pathExtension: String = "jpeg",
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    @ColumnInfo(name = "asset_local_identifier") val assetLocalIdentifier: String? = null,
+    @ColumnInfo(name = "match_evidence_id") val matchEvidenceId: String? = null,
+    @ColumnInfo(name = "imported_from_listing_id") val importedFromListingId: String? = null,
+    @ColumnInfo(name = "imported_author_name") val importedAuthorName: String? = null,
+    @ColumnInfo(name = "sent_to_community_at_epoch_millis") val sentToCommunityAtEpochMillis: Long? = null,
+    @ColumnInfo(name = "is_place_only") val isPlaceOnly: Boolean = false,
+    @ColumnInfo(name = "place_id") val placeId: String? = null,
+    @ColumnInfo(name = "license_json") val licenseJson: String? = null
+)
+
 @Entity(tableName = "hike_local_state")
 data class HikeLocalStateEntity(
     @PrimaryKey @ColumnInfo(name = "hike_id") val hikeId: String,

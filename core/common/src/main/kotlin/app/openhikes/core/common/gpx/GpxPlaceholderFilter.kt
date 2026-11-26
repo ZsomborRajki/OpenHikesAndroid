@@ -13,7 +13,8 @@ internal data class RawGpxPoint(
     val name: String? = null,
     val symbol: String? = null,
     val note: String? = null,
-    val linkHref: String? = null
+    val linkHref: String? = null,
+    val firstHttpsLinkHref: String? = null
 )
 
 internal data class ValidatedGpxPoint(

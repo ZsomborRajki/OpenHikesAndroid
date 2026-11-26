@@ -49,7 +49,8 @@ private data class PendingPoint(
     var name: String? = null,
     var symbol: String? = null,
     var note: String? = null,
-    var linkHref: String? = null
+    var linkHref: String? = null,
+    var firstHttpsLinkHref: String? = null
 )
 
 internal class GpxSaxHandler(private val maximumPointCount: Int) : DefaultHandler() {
@@ -136,14 +137,18 @@ internal class GpxSaxHandler(private val maximumPointCount: Int) : DefaultHandle
         val point = pendingPoint
         val isDirectWaypointLink = point != null &&
             point.kind == PointKind.WAYPOINT &&
-            point.linkHref == null &&
             path.size == point.depth + 1 &&
             path[path.lastIndex - 1] == point.element
         if (isDirectWaypointLink) {
             val href = attributes?.getValue("", ATTR_HREF) ?: attributes?.getValue(ATTR_HREF)
             val trimmed = href?.trim()
-            if (!trimmed.isNullOrEmpty() && TrailPlaceOsm.fromUrl(trimmed) != null) {
-                point.linkHref = trimmed
+            if (!trimmed.isNullOrEmpty()) {
+                if (point.linkHref == null && TrailPlaceOsm.fromUrl(trimmed) != null) {
+                    point.linkHref = trimmed
+                }
+                if (point.firstHttpsLinkHref == null && trimmed.startsWith("https://")) {
+                    point.firstHttpsLinkHref = trimmed
+                }
             }
         }
     }
@@ -229,7 +234,8 @@ internal class GpxSaxHandler(private val maximumPointCount: Int) : DefaultHandle
             name = point.name,
             symbol = point.symbol,
             note = point.note,
-            linkHref = point.linkHref
+            linkHref = point.linkHref,
+            firstHttpsLinkHref = point.firstHttpsLinkHref
         )
         when (point.kind) {
             PointKind.TRACK -> {

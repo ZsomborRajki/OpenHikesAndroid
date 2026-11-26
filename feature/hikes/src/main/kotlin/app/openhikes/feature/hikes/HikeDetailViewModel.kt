@@ -15,20 +15,31 @@ import app.openhikes.core.location.TrailWalkSessionState
 import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapClaim
 import app.openhikes.core.map.MapClaimCoordinator
+import app.openhikes.core.map.MapPhotoPinItem
 import app.openhikes.core.map.MapPlacePin
 import app.openhikes.core.map.MapRouteHighlight
+import app.openhikes.core.map.MapTrailPhotosOverlay
 import app.openhikes.core.map.MapTrailPlacesOverlay
+import app.openhikes.core.map.PhotoCaptureController
+import app.openhikes.core.map.PhotoCaptureSubject
 import app.openhikes.core.map.RouteHighlightState
+import app.openhikes.core.map.TrailPhotosClaim
+import app.openhikes.core.map.TrailPhotosMapInteractionHandler
+import app.openhikes.core.map.TrailPhotosOverlayState
 import app.openhikes.core.map.TrailPlacesClaim
 import app.openhikes.core.map.TrailPlacesMapInteractionHandler
 import app.openhikes.core.map.TrailPlacesOverlayState
 import app.openhikes.core.model.ExportedGpx
+import app.openhikes.core.model.ExportedHikeArchive
 import app.openhikes.core.model.GeoBoundingBox
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.HikePhoto
+import app.openhikes.core.model.HikePhotoSearchPlan
 import app.openhikes.core.model.HikeRouteStatistics
 import app.openhikes.core.model.HikeWalk
+import app.openhikes.core.model.LiveTrailAnchor
 import app.openhikes.core.model.MapProviderKeys
 import app.openhikes.core.model.MapStyleCatalog
 import app.openhikes.core.model.MapStyleId
@@ -36,6 +47,9 @@ import app.openhikes.core.model.OfflineCountriesState
 import app.openhikes.core.model.OfflineListPhase
 import app.openhikes.core.model.OfflineRouteCoverage
 import app.openhikes.core.model.OfflineRouteCoverageCalculator
+import app.openhikes.core.model.OrderedHikePhotos
+import app.openhikes.core.model.PhotoMapPin
+import app.openhikes.core.model.PhotoTrailAnchor
 import app.openhikes.core.model.RouteProfile
 import app.openhikes.core.model.RouteSegment
 import app.openhikes.core.model.RouteSegments
@@ -45,6 +59,7 @@ import app.openhikes.core.model.TrailPlaceRow
 import app.openhikes.core.model.TrailPointSource
 import app.openhikes.core.model.TrailWalkPhase
 import app.openhikes.core.model.UserSettings
+import app.openhikes.core.ui.components.PhotoPresentationFormatter
 import app.openhikes.core.ui.navigation.HikeDetailRoute
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
@@ -73,7 +88,7 @@ import kotlinx.coroutines.launch
  * trail-following lifecycle, walk history, map selection/bounds claims, scrub highlight
  * isolation, rename, GPX export, and delete.
  */
-@Suppress("TooManyFunctions", "LongParameterList")
+@Suppress("TooManyFunctions", "LongParameterList", "LargeClass")
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel(assistedFactory = HikeDetailViewModel.Factory::class)
 class HikeDetailViewModel @AssistedInject constructor(
@@ -86,6 +101,8 @@ class HikeDetailViewModel @AssistedInject constructor(
     private val mapClaimCoordinator: MapClaimCoordinator,
     private val routeHighlightState: RouteHighlightState,
     private val trailPlacesOverlayState: TrailPlacesOverlayState,
+    private val trailPhotosOverlayState: TrailPhotosOverlayState,
+    private val photoCaptureController: PhotoCaptureController,
     trailPointSource: TrailPointSource,
     mapProviderKeys: MapProviderKeys,
     private val launchConfigHolder: LaunchConfigHolder,
@@ -106,6 +123,7 @@ class HikeDetailViewModel @AssistedInject constructor(
     private val showDeleteDialogState = MutableStateFlow(false)
     private val actionErrorState = MutableStateFlow<HikeDetailError?>(null)
     private val pendingExportState = MutableStateFlow<ExportedGpx?>(null)
+    private val pendingArchiveExportState = MutableStateFlow<ExportedHikeArchive?>(null)
     private val exportSuccessState = MutableStateFlow(false)
     private val showOfflineDialogState = MutableStateFlow(false)
     private val selectedTabState = MutableStateFlow(HikeDetailTab.DETAILS)
@@ -115,6 +133,7 @@ class HikeDetailViewModel @AssistedInject constructor(
     private val scrubDistanceState = MutableStateFlow(0.0)
     private val pendingOpenPlaceIdState = MutableStateFlow<String?>(null)
     private val pendingAddPlaceCoordinateState = MutableStateFlow<GeoCoordinate?>(null)
+    private val pendingOpenPhotoIdState = MutableStateFlow<String?>(null)
     private var pendingPermissionAction: PendingWalkPermissionAction? = null
 
     @Volatile
@@ -160,15 +179,20 @@ class HikeDetailViewModel @AssistedInject constructor(
         titleDraftState,
         showDeleteDialogState,
         actionErrorState,
-        combine(pendingExportState, exportSuccessState) { pending, success -> pending to success }
-    ) { isRenaming, draft, showDelete, error, exportPair ->
+        combine(
+            pendingExportState,
+            pendingArchiveExportState,
+            exportSuccessState
+        ) { pending, archive, success -> Triple(pending, archive, success) }
+    ) { isRenaming, draft, showDelete, error, exportTriple ->
         TransientDetailState(
             isRenaming = isRenaming,
             titleDraft = draft,
             showDeleteDialog = showDelete,
             actionError = error,
-            pendingExport = exportPair.first,
-            exportSuccess = exportPair.second
+            pendingExport = exportTriple.first,
+            pendingArchiveExport = exportTriple.second,
+            exportSuccess = exportTriple.third
         )
     }
 
@@ -217,15 +241,36 @@ class HikeDetailViewModel @AssistedInject constructor(
         }
         .flowOn(defaultDispatcher)
 
+    private val photosSummaryFlow = combine(
+        hikeRepository.observeHike(hikeId).map { hike -> hike?.let { it.photos to it.route } }.distinctUntilChanged(),
+        hikeRepository.observeWalks(hikeId).distinctUntilChanged()
+    ) { hikePair, walks ->
+        if (hikePair == null) {
+            PhotosSectionBundle()
+        } else {
+            val ordered = OrderedHikePhotos.from(hikePair.first)
+            val canMatch = HikePhotoSearchPlan.canMatchPhotos(hikePair.second, walks)
+            PhotosSectionBundle(
+                orderedPhotos = ordered.photos,
+                anchoredCount = ordered.anchoredCount,
+                canMatchPhotos = canMatch
+            )
+        }
+    }.flowOn(defaultDispatcher)
+
     private val placesBundleFlow = combine(
         placeRowsFlow,
         pendingOpenPlaceIdState,
-        pendingAddPlaceCoordinateState
-    ) { rows, pendingPlaceId, pendingAddCoord ->
+        pendingAddPlaceCoordinateState,
+        photosSummaryFlow,
+        pendingOpenPhotoIdState
+    ) { rows, pendingPlaceId, pendingAddCoord, photosSummary, pendingPhotoId ->
         PlacesSectionBundle(
             rows = rows,
             pendingOpenPlaceId = pendingPlaceId,
-            pendingAddPlaceCoordinate = pendingAddCoord
+            pendingAddPlaceCoordinate = pendingAddCoord,
+            photosSummary = photosSummary,
+            pendingOpenPhotoId = pendingPhotoId
         )
     }
 
@@ -285,7 +330,12 @@ class HikeDetailViewModel @AssistedInject constructor(
             showDeleteDialog = transient.showDeleteDialog,
             actionError = transient.actionError,
             pendingExport = transient.pendingExport,
+            pendingArchiveExport = transient.pendingArchiveExport,
             exportSuccess = transient.exportSuccess,
+            orderedPhotos = bundle.placesBundle.photosSummary.orderedPhotos,
+            anchoredPhotoCount = bundle.placesBundle.photosSummary.anchoredCount,
+            canMatchPhotos = bundle.placesBundle.photosSummary.canMatchPhotos,
+            pendingOpenPhotoId = bundle.placesBundle.pendingOpenPhotoId,
             placeRows = bundle.placesBundle.rows,
             showsPlacePins = settings.showsPlacePins,
             canSearchPlaces = trailPointSource.isAvailable && (hike?.route?.size ?: 0) > 1,
@@ -306,6 +356,17 @@ class HikeDetailViewModel @AssistedInject constructor(
                 selectedHikeId = hikeId
             )
         )
+        photoCaptureController.registerSubject(
+            PhotoCaptureSubject(
+                routeKey = routeKey,
+                depth = INITIAL_CLAIM_DEPTH,
+                hikeId = hikeId,
+                placeId = null,
+                showFloatingMapButtons = true,
+                anchorProvider = { resolvePhotoAnchorCoordinate() }
+            )
+        )
+        observePhotoPins()
         viewModelScope.launch {
             val snapshot = offlineCountryRepository.state.value
             if (snapshot.listPhase == OfflineListPhase.IDLE && snapshot.listedCountries.isEmpty()) {
@@ -379,7 +440,110 @@ class HikeDetailViewModel @AssistedInject constructor(
         trailWalkController.detachForegroundHike(hikeId)
         routeHighlightState.clearIfHike(hikeId)
         trailPlacesOverlayState.clearClaim(routeKey)
+        trailPhotosOverlayState.clearClaim(routeKey)
+        photoCaptureController.releaseSubject(routeKey)
         mapClaimCoordinator.releaseClaim(routeKey)
+    }
+
+    private val photosInteractionHandler = object : TrailPhotosMapInteractionHandler {
+        override fun onTapPhotoPin(pinId: String) {
+            trailPhotosOverlayState.selectPhoto(routeKey, pinId)
+        }
+
+        override fun onTapPhotoCallout(photoId: String) {
+            trailPhotosOverlayState.selectPhoto(routeKey, null)
+            pendingOpenPhotoIdState.value = photoId
+        }
+
+        override fun onDismissPhotoCallout() {
+            trailPhotosOverlayState.selectPhoto(routeKey, null)
+        }
+
+        override suspend fun loadThumbnailBytes(photo: HikePhoto): ByteArray? =
+            hikeRepository.readPhotoThumbnailBytes(photo)
+    }
+
+    suspend fun loadPhotoThumbnailBytes(photo: HikePhoto): ByteArray? = hikeRepository.readPhotoThumbnailBytes(photo)
+
+    fun consumePendingOpenPhoto() {
+        pendingOpenPhotoIdState.value = null
+    }
+
+    fun onRequestExportArchive() {
+        actionErrorState.value = null
+        exportSuccessState.value = false
+        viewModelScope.launch {
+            hikeRepository.exportHikeArchive(hikeId)
+                .onSuccess { archive -> pendingArchiveExportState.value = archive }
+                .onFailure { actionErrorState.value = HikeDetailError.EXPORT_FAILED }
+        }
+    }
+
+    fun onArchiveExportDestinationPicked(uriString: String?) {
+        val pending = pendingArchiveExportState.value
+        pendingArchiveExportState.value = null
+        if (uriString == null || pending == null) return
+        viewModelScope.launch {
+            val result = hikeRepository.exportHikeArchiveToUri(hikeId, uriString)
+            if (result.isSuccess) {
+                exportSuccessState.value = true
+            } else {
+                actionErrorState.value = HikeDetailError.EXPORT_FAILED
+            }
+        }
+    }
+
+    private fun observePhotoPins() {
+        viewModelScope.launch {
+            hikeRepository.observeHike(hikeId)
+                .map { hike -> hike?.let { it.photos to it.tintHex } }
+                .distinctUntilChanged()
+                .collect { pair ->
+                    if (pair == null || pair.first.isEmpty()) {
+                        trailPhotosOverlayState.clearClaim(routeKey)
+                    } else {
+                        val tint = pair.second.ifBlank { RouteTint.DEFAULT_HEX }
+                        val pins = PhotoMapPin.pinsFor(pair.first).map { pin ->
+                            MapPhotoPinItem(
+                                pin = pin,
+                                tintHex = tint,
+                                spokenLabel = PhotoPresentationFormatter.pinSpokenLabel(pin),
+                                subtitle = PhotoPresentationFormatter.pinSubtitle(pin),
+                                previewAccessibilityLabel = PhotoPresentationFormatter.pinPreviewLabel(pin)
+                            )
+                        }
+                        val existingSelection = trailPhotosOverlayState.claimFor(routeKey)?.overlay?.selectedPinId
+                        val retainedSelection = existingSelection?.takeIf { id -> pins.any { item -> item.id == id } }
+                        trailPhotosOverlayState.setClaim(
+                            TrailPhotosClaim(
+                                routeKey = routeKey,
+                                overlay = MapTrailPhotosOverlay(
+                                    pins = pins,
+                                    selectedPinId = retainedSelection
+                                ),
+                                handler = photosInteractionHandler
+                            )
+                        )
+                    }
+                }
+        }
+    }
+
+    private fun resolvePhotoAnchorCoordinate(): GeoCoordinate? {
+        val profile = latestProfile
+        val progress = trailWalkController.progressState.value
+        val liveAnchor = if (progress.hikeId == hikeId && progress.isOnRoute) {
+            progress.lastMatchedDistanceMeters?.let { dist ->
+                profile?.coordinateAt(dist)?.let { coord -> LiveTrailAnchor(dist, coord) }
+            }
+        } else {
+            null
+        }
+        return PhotoTrailAnchor.coordinate(
+            profile = profile,
+            live = liveAnchor,
+            scrubbedMeters = scrubDistanceState.value.takeIf { it > 0.0 }
+        )
     }
 
     private val placesInteractionHandler = object : TrailPlacesMapInteractionHandler {
@@ -631,7 +795,14 @@ class HikeDetailViewModel @AssistedInject constructor(
         val showDeleteDialog: Boolean,
         val actionError: HikeDetailError?,
         val pendingExport: ExportedGpx?,
+        val pendingArchiveExport: ExportedHikeArchive?,
         val exportSuccess: Boolean
+    )
+
+    private data class PhotosSectionBundle(
+        val orderedPhotos: List<HikePhoto> = emptyList(),
+        val anchoredCount: Int = 0,
+        val canMatchPhotos: Boolean = false
     )
 
     private enum class PendingWalkPermissionAction {
@@ -652,7 +823,9 @@ class HikeDetailViewModel @AssistedInject constructor(
     private data class PlacesSectionBundle(
         val rows: List<TrailPlaceRow>,
         val pendingOpenPlaceId: String?,
-        val pendingAddPlaceCoordinate: GeoCoordinate?
+        val pendingAddPlaceCoordinate: GeoCoordinate?,
+        val photosSummary: PhotosSectionBundle = PhotosSectionBundle(),
+        val pendingOpenPhotoId: String? = null
     )
 
     private data class OfflineAndWalkBundle(

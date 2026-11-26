@@ -22,13 +22,19 @@ import app.openhikes.core.map.MapRouteHighlight
 import app.openhikes.core.map.MapRouteOverlay
 import app.openhikes.core.map.MapSearchAreaPillState
 import app.openhikes.core.map.MapTrailDraftOverlay
+import app.openhikes.core.map.MapTrailPhotosOverlay
 import app.openhikes.core.map.MapTrailPlacesOverlay
 import app.openhikes.core.map.MapWalkCoverageOverlay
+import app.openhikes.core.map.PhotoCaptureAlert
+import app.openhikes.core.map.PhotoCaptureController
+import app.openhikes.core.map.PhotoCaptureRequest
 import app.openhikes.core.map.RouteEditMapInteractionHandler
 import app.openhikes.core.map.RouteEditOverlayState
 import app.openhikes.core.map.RouteHighlightState
 import app.openhikes.core.map.TrailDraftMapInteractionHandler
 import app.openhikes.core.map.TrailDraftOverlayState
+import app.openhikes.core.map.TrailPhotosMapInteractionHandler
+import app.openhikes.core.map.TrailPhotosOverlayState
 import app.openhikes.core.map.TrailPlacesMapInteractionHandler
 import app.openhikes.core.map.TrailPlacesOverlayState
 import app.openhikes.core.map.WalkOverlayState
@@ -57,6 +63,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -76,10 +83,10 @@ data class MapChromeUiState(
  * Root ViewModel coordinating map chrome, route overlays, search query, trail-following chrome,
  * and route-owned map claims.
  */
-@Suppress("LongParameterList", "TooManyFunctions")
+@Suppress("LongParameterList", "TooManyFunctions", "LargeClass")
 @HiltViewModel
 class MapShellViewModel @Inject constructor(
-    userSettingsRepository: UserSettingsRepository,
+    private val userSettingsRepository: UserSettingsRepository,
     private val hikeRepository: HikeRepository,
     private val offlineCountryRepository: OfflineCountryRepository,
     private val mapClaimCoordinator: MapClaimCoordinator,
@@ -91,6 +98,8 @@ class MapShellViewModel @Inject constructor(
     private val trailDraftOverlayState: TrailDraftOverlayState,
     private val mapCameraTracker: MapCameraTracker,
     private val trailPlacesOverlayState: TrailPlacesOverlayState,
+    private val trailPhotosOverlayState: TrailPhotosOverlayState,
+    private val photoCaptureController: PhotoCaptureController,
     private val mapProviderKeys: MapProviderKeys,
     launchConfigHolder: LaunchConfigHolder,
     @DefaultDispatcher defaultDispatcher: CoroutineDispatcher
@@ -144,6 +153,20 @@ class MapShellViewModel @Inject constructor(
         started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
         initialValue = null
     )
+    val trailPhotosOverlay: StateFlow<MapTrailPhotosOverlay?> = combine(
+        trailPhotosOverlayState.claims,
+        mapClaimCoordinator.activeClaim
+    ) { claims, activeClaim ->
+        activeClaim?.routeKey?.let { claims[it]?.overlay }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = null
+    )
+    val showPhotoButtons: StateFlow<Boolean> = photoCaptureController.showFloatingButtons
+    val isPhotoBusy: StateFlow<Boolean> = photoCaptureController.isBusy
+    val pendingPhotoRequest: StateFlow<PhotoCaptureRequest?> = photoCaptureController.pendingRequest
+    val photoAlert: StateFlow<PhotoCaptureAlert?> = photoCaptureController.alert
     val searchAreaPillState: StateFlow<MapSearchAreaPillState?> = combine(
         trailPlacesOverlayState.claims,
         mapClaimCoordinator.activeClaim
@@ -195,6 +218,7 @@ class MapShellViewModel @Inject constructor(
         mapCameraTracker.update(initialCameraState)
         viewModelScope.launch {
             hikeRepository.seedFixtureIfConfigured()
+            hikeRepository.reclaimOrphanedPhotos()
             if (!launchConfigHolder.current.value.disableAutomaticRecovery) {
                 recordingController.recoverOpenSession()
             }
@@ -278,6 +302,9 @@ class MapShellViewModel @Inject constructor(
     fun trailPlacesHandler(): TrailPlacesMapInteractionHandler? =
         trailPlacesOverlayState.claimFor(mapClaimCoordinator.activeClaim.value?.routeKey)?.handler
 
+    fun trailPhotosHandler(): TrailPhotosMapInteractionHandler? =
+        trailPhotosOverlayState.claimFor(mapClaimCoordinator.activeClaim.value?.routeKey)?.handler
+
     fun defaultAddPlaceCoordinate(hikeId: HikeId): GeoCoordinate {
         val highlight = routeHighlight.value
         return when {
@@ -298,7 +325,9 @@ class MapShellViewModel @Inject constructor(
             trailDraftOverlayState = trailDraftOverlay,
             trailDraftHandlerProvider = ::trailDraftHandler,
             trailPlacesOverlayState = trailPlacesOverlay,
-            trailPlacesHandlerProvider = ::trailPlacesHandler
+            trailPlacesHandlerProvider = ::trailPlacesHandler,
+            trailPhotosOverlayState = trailPhotosOverlay,
+            trailPhotosHandlerProvider = ::trailPhotosHandler
         )
     }
 
@@ -324,6 +353,83 @@ class MapShellViewModel @Inject constructor(
 
     fun syncBackStack(keysInOrder: List<Any>) {
         mapClaimCoordinator.syncBackStack(keysInOrder)
+        photoCaptureController.syncBackStack(keysInOrder)
+    }
+
+    fun onRequestCameraPhoto() {
+        photoCaptureController.requestCamera()
+    }
+
+    fun onRequestLibraryPhotos() {
+        photoCaptureController.requestLibrary()
+    }
+
+    fun onConsumePhotoRequest(token: Long) {
+        photoCaptureController.consumeRequest(token)
+    }
+
+    fun onDismissPhotoAlert() {
+        photoCaptureController.dismissAlert()
+    }
+
+    fun onCameraCaptureFailed(alert: PhotoCaptureAlert) {
+        photoCaptureController.showAlert(alert)
+    }
+
+    fun onCameraPhotoCaptured(request: PhotoCaptureRequest, bytes: ByteArray, shutterEpochMillis: Long) {
+        viewModelScope.launch {
+            photoCaptureController.setBusy(true)
+            try {
+                val saveToLibrary = try {
+                    userSettingsRepository.userSettings.first().savePhotosToLibrary
+                } catch (_: IOException) {
+                    false
+                }
+                val subject = request.subject
+                val coordinate = subject.anchorProvider(shutterEpochMillis)
+                val result = hikeRepository.addCameraPhoto(
+                    hikeId = subject.hikeId,
+                    rawBytes = bytes,
+                    capturedAtEpochMillis = shutterEpochMillis,
+                    coordinate = coordinate,
+                    placeId = subject.placeId,
+                    saveToSystemLibrary = saveToLibrary
+                )
+                if (result.isFailure) {
+                    photoCaptureController.showAlert(PhotoCaptureAlert.CAMERA_SAVE_FAILED)
+                }
+            } finally {
+                photoCaptureController.setBusy(false)
+            }
+        }
+    }
+
+    fun onLibraryPhotosPicked(request: PhotoCaptureRequest, uriStrings: List<String>) {
+        if (uriStrings.isEmpty()) return
+        val startEpoch = photoCaptureController.importCancellationEpoch.value
+        val subject = request.subject
+        viewModelScope.launch {
+            photoCaptureController.setBusy(true)
+            var anyFailed = false
+            try {
+                for (uriString in uriStrings) {
+                    if (photoCaptureController.importCancellationEpoch.value != startEpoch) break
+                    val fallbackCoord = subject.anchorProvider(null)
+                    val result = hikeRepository.addPickedPhotoUri(
+                        hikeId = subject.hikeId,
+                        uriString = uriString,
+                        fallbackCoordinate = fallbackCoord,
+                        placeId = subject.placeId
+                    )
+                    if (result.isFailure) anyFailed = true
+                }
+                if (anyFailed && photoCaptureController.importCancellationEpoch.value == startEpoch) {
+                    photoCaptureController.showAlert(PhotoCaptureAlert.LIBRARY_IMPORT_FAILED)
+                }
+            } finally {
+                photoCaptureController.setBusy(false)
+            }
+        }
     }
 
     fun onToggleJunctionWarnings() {
@@ -417,6 +523,21 @@ class MapShellViewModel @Inject constructor(
     fun onDismissAttributionDialog() {
         showAttributionDialog.value = false
     }
+
+    fun createPhotosChrome(showPhotoButtons: Boolean, isBusy: Boolean): MapPhotosChromeState = MapPhotosChromeState(
+        showPhotoButtons = showPhotoButtons,
+        isBusy = isBusy,
+        onTakePhoto = ::onRequestCameraPhoto,
+        onAddFromLibrary = ::onRequestLibraryPhotos
+    )
+
+    internal fun createPhotoCaptureCallbacks(): PhotoCaptureHostCallbacks = PhotoCaptureHostCallbacks(
+        onConsumeRequest = ::onConsumePhotoRequest,
+        onCameraPhotoCaptured = ::onCameraPhotoCaptured,
+        onCameraCaptureFailed = ::onCameraCaptureFailed,
+        onLibraryPhotosPicked = ::onLibraryPhotosPicked,
+        onDismissAlert = ::onDismissPhotoAlert
+    )
 
     fun onAppBackgrounded() {
         viewModelScope.launch {
