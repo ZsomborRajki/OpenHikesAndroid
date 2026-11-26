@@ -8,7 +8,9 @@ import app.openhikes.core.database.OpenHikesLocalDatabase
 import app.openhikes.core.database.dao.HikeDao
 import app.openhikes.core.database.dao.HikeLocalStateDao
 import app.openhikes.core.database.dao.HikeWalkDao
+import app.openhikes.core.database.dao.TrailDraftDao
 import app.openhikes.core.database.dao.TrailPointDao
+import app.openhikes.core.database.dao.TrailStopRecentDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -69,4 +71,10 @@ object DatabaseModule {
 
     @Provides
     fun provideHikeLocalStateDao(database: OpenHikesLocalDatabase): HikeLocalStateDao = database.hikeLocalStateDao()
+
+    @Provides
+    fun provideTrailDraftDao(database: OpenHikesLocalDatabase): TrailDraftDao = database.trailDraftDao()
+
+    @Provides
+    fun provideTrailStopRecentDao(database: OpenHikesLocalDatabase): TrailStopRecentDao = database.trailStopRecentDao()
 }

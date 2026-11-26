@@ -58,7 +58,8 @@ class LaunchConfigReaderTest {
                 LaunchConfigReader.EXTRA_ENABLE_LOCATION to "true",
                 LaunchConfigReader.EXTRA_AUTO_PAUSE_SECONDS to "5.0",
                 LaunchConfigReader.EXTRA_DISABLE_AUTO_RECOVERY to "true",
-                LaunchConfigReader.EXTRA_SEED_WALKS to "HalfLoop"
+                LaunchConfigReader.EXTRA_SEED_WALKS to "HalfLoop",
+                LaunchConfigReader.EXTRA_TRAIL_GRAPH to "ThumseeRidgePath"
             )
         )
 
@@ -66,6 +67,7 @@ class LaunchConfigReaderTest {
         assertThat(config.autoPauseSecondsOverride).isEqualTo(5.0)
         assertThat(config.disableAutomaticRecovery).isTrue()
         assertThat(config.seedWalkPresetName).isEqualTo("HalfLoop")
+        assertThat(config.trailGraphFixtureName).isEqualTo("ThumseeRidgePath")
 
         val invalidPause = LaunchConfigReader.fromArguments(
             mapOf(

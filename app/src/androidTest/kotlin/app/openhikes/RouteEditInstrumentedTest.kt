@@ -51,6 +51,7 @@ class RouteEditInstrumentedTest {
             putExtra(LaunchConfigReader.EXTRA_ISOLATED_DATASTORE, "true")
             putExtra(LaunchConfigReader.EXTRA_OFFLINE, "true")
             putExtra(LaunchConfigReader.EXTRA_IMPORT_GPX, TestFixtures.THUMSEE_WALK_THEN_DRIVE_NAME)
+            putExtra(LaunchConfigReader.EXTRA_TRAIL_GRAPH, TestFixtures.THUMSEE_RIDGE_PATH_GRAPH_NAME)
         }
 
         ActivityScenario.launch<MainActivity>(intent).use { _ ->

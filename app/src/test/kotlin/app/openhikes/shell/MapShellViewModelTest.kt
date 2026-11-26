@@ -5,9 +5,12 @@ import app.openhikes.core.common.LaunchConfigHolder
 import app.openhikes.core.map.MapClaim
 import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.map.MapRouteEditOverlay
+import app.openhikes.core.map.MapTrailDraftOverlay
 import app.openhikes.core.map.RouteEditMapInteractionHandler
 import app.openhikes.core.map.RouteEditOverlayState
 import app.openhikes.core.map.RouteHighlightState
+import app.openhikes.core.map.TrailDraftMapInteractionHandler
+import app.openhikes.core.map.TrailDraftOverlayState
 import app.openhikes.core.map.WalkOverlayState
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.Hike
@@ -17,6 +20,7 @@ import app.openhikes.core.model.OfflineCountriesState
 import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteTint
 import app.openhikes.core.model.RouteTrimHandle
+import app.openhikes.core.model.TrailLegEnds
 import app.openhikes.core.testing.MainDispatcherRule
 import app.openhikes.core.testing.android.FakeHikeRepository
 import app.openhikes.core.testing.android.FakeOfflineCountryRepository
@@ -26,6 +30,7 @@ import app.openhikes.core.testing.android.FakeUserSettingsRepository
 import app.openhikes.core.ui.navigation.MapHomeRoute
 import app.openhikes.core.ui.navigation.RecordingRoute
 import app.openhikes.core.ui.navigation.RouteEditRoute
+import app.openhikes.core.ui.navigation.TrailMakerRoute
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -60,6 +65,7 @@ class MapShellViewModelTest {
             routeHighlightState = RouteHighlightState(),
             walkOverlayState = WalkOverlayState(),
             routeEditOverlayState = RouteEditOverlayState(),
+            trailDraftOverlayState = TrailDraftOverlayState(),
             mapProviderKeys = MapProviderKeys.Empty,
             launchConfigHolder = LaunchConfigHolder(LaunchConfig.Production),
             defaultDispatcher = mainDispatcherRule.testDispatcher
@@ -133,6 +139,45 @@ class MapShellViewModelTest {
         editJob.cancel()
     }
 
+    @Test
+    fun trailDraftOverlayAndHandlerHideWhenRecordingClaimsMapAndRestoreWhenPopped() = runTest {
+        val claimCoordinator = MapClaimCoordinator()
+        val draftOverlayState = TrailDraftOverlayState()
+        val draftOverlay = MapTrailDraftOverlay(snapsToPaths = true)
+        val handler = noOpTrailDraftHandler()
+        draftOverlayState.show(draftOverlay)
+        draftOverlayState.bindHandler(handler)
+        val shellVm = createShellViewModel(
+            hikes = emptyList(),
+            claimCoordinator = claimCoordinator,
+            editOverlayState = RouteEditOverlayState(),
+            draftOverlayState = draftOverlayState
+        )
+
+        val draftJob = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            shellVm.trailDraftOverlay.collect {}
+        }
+
+        shellVm.syncBackStack(listOf(MapHomeRoute, TrailMakerRoute))
+        claimCoordinator.registerClaim(MapClaim(routeKey = TrailMakerRoute, depth = 1, selectedHikeId = null))
+        advanceUntilIdle()
+        assertThat(shellVm.trailDraftOverlay.value).isEqualTo(draftOverlay)
+        assertThat(shellVm.trailDraftHandler()).isSameInstanceAs(handler)
+
+        shellVm.syncBackStack(listOf(MapHomeRoute, TrailMakerRoute, RecordingRoute))
+        claimCoordinator.registerClaim(MapClaim(routeKey = RecordingRoute, depth = 2))
+        advanceUntilIdle()
+        assertThat(shellVm.trailDraftOverlay.value).isNull()
+        assertThat(shellVm.trailDraftHandler()).isNull()
+
+        shellVm.syncBackStack(listOf(MapHomeRoute, TrailMakerRoute))
+        advanceUntilIdle()
+        assertThat(shellVm.trailDraftOverlay.value).isEqualTo(draftOverlay)
+        assertThat(shellVm.trailDraftHandler()).isSameInstanceAs(handler)
+
+        draftJob.cancel()
+    }
+
     private fun sampleHike(hikeId: HikeId, a: GeoCoordinate, b: GeoCoordinate): Hike = Hike(
         id = hikeId,
         title = "Edited Trail",
@@ -144,7 +189,8 @@ class MapShellViewModelTest {
     private fun createShellViewModel(
         hikes: List<Hike>,
         claimCoordinator: MapClaimCoordinator,
-        editOverlayState: RouteEditOverlayState
+        editOverlayState: RouteEditOverlayState,
+        draftOverlayState: TrailDraftOverlayState = TrailDraftOverlayState()
     ): MapShellViewModel = MapShellViewModel(
         userSettingsRepository = FakeUserSettingsRepository(),
         hikeRepository = FakeHikeRepository(hikes),
@@ -155,10 +201,22 @@ class MapShellViewModelTest {
         routeHighlightState = RouteHighlightState(),
         walkOverlayState = WalkOverlayState(),
         routeEditOverlayState = editOverlayState,
+        trailDraftOverlayState = draftOverlayState,
         mapProviderKeys = MapProviderKeys.Empty,
         launchConfigHolder = LaunchConfigHolder(LaunchConfig.Production),
         defaultDispatcher = mainDispatcherRule.testDispatcher
     )
+
+    private fun noOpTrailDraftHandler(): TrailDraftMapInteractionHandler = object : TrailDraftMapInteractionHandler {
+        override fun onDropPin(coordinate: GeoCoordinate, legEnds: TrailLegEnds?) = Unit
+        override fun onTapStopPin(waypointId: String) = Unit
+        override fun onTapDroppedPin() = Unit
+        override fun onChooseAlternative(legIndex: Int, alternativeIndex: Int) = Unit
+        override fun onBeginPinDrag(index: Int): Boolean = false
+        override fun onMovePinDrag(coordinate: GeoCoordinate) = Unit
+        override fun onEndPinDrag() = Unit
+        override fun onCancelPinDrag() = Unit
+    }
 
     private fun noOpRouteEditHandler(): RouteEditMapInteractionHandler = object : RouteEditMapInteractionHandler {
         override fun onDragHandle(handle: RouteTrimHandle, towards: GeoCoordinate) = Unit

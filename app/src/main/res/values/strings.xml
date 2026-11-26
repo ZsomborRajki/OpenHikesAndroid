@@ -11,6 +11,7 @@
     <string name="map_sheet_expand_action">Expand sheet</string>
     <string name="map_sheet_collapse_action">Collapse sheet</string>
     <string name="action_record_hike">Record hike</string>
+    <string name="action_make_trail">Make a trail</string>
     <string name="action_open_active_recording">Open active recording</string>
     <string name="walk_started_pill_label">Hike started on %1$s</string>
     <string name="walk_started_pill_dismiss_description">Dismiss hike started notice</string>

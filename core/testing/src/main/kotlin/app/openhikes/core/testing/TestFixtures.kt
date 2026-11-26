@@ -15,6 +15,9 @@ object TestFixtures {
     const val THUMSEE_LOOP_FAST_TITLE = "Thumsee Loop (fast, simulated)"
     const val THUMSEE_WALK_THEN_DRIVE_NAME = "ThumseeWalkThenDrive"
     const val THUMSEE_WALK_THEN_DRIVE_TITLE = "Thumsee Walk Then Drive (simulated)"
+    const val THUMSEE_RIDGE_PATH_GRAPH_NAME = "ThumseeRidgePath"
+    const val THUMSEE_TWIN_PATHS_GRAPH_NAME = "ThumseeTwinPaths"
+    const val THUMSEE_LOOP_TRAILS_GRAPH_NAME = "ThumseeLoopTrails"
     const val SEED_WALK_HALF_LOOP = "HalfLoop"
 
     val TRAILHEAD = GeoCoordinate(latitude = 47.718420, longitude = 12.831774)
@@ -36,6 +39,9 @@ object TestFixtures {
     private const val THUMSEE_LOOP_FAST_RESOURCE = "/fixtures/ThumseeLoopFast.gpx"
     private const val THUMSEE_WALK_THEN_DRIVE_RESOURCE = "/fixtures/ThumseeWalkThenDrive.gpx"
     private const val OFFLINE_COUNTRIES_SEED_RESOURCE = "/fixtures/OfflineCountriesSeed.json"
+    private const val THUMSEE_RIDGE_PATH_RESOURCE = "/fixtures/ThumseeRidgePath.json"
+    private const val THUMSEE_TWIN_PATHS_RESOURCE = "/fixtures/ThumseeTwinPaths.json"
+    private const val THUMSEE_LOOP_TRAILS_RESOURCE = "/fixtures/ThumseeLoopTrails.json"
 
     fun thumseeLoopFastGpxBytes(): ByteArray {
         val stream = requireNotNull(TestFixtures::class.java.getResourceAsStream(THUMSEE_LOOP_FAST_RESOURCE)) {
@@ -54,6 +60,19 @@ object TestFixtures {
     fun offlineCountriesSeedJson(): String {
         val stream = requireNotNull(TestFixtures::class.java.getResourceAsStream(OFFLINE_COUNTRIES_SEED_RESOURCE)) {
             "Missing bundled offline countries seed fixture: $OFFLINE_COUNTRIES_SEED_RESOURCE"
+        }
+        return stream.use { it.readBytes().decodeToString() }
+    }
+
+    fun thumseeRidgePathGraphJson(): String = readTextResource(THUMSEE_RIDGE_PATH_RESOURCE)
+
+    fun thumseeTwinPathsGraphJson(): String = readTextResource(THUMSEE_TWIN_PATHS_RESOURCE)
+
+    fun thumseeLoopTrailsGraphJson(): String = readTextResource(THUMSEE_LOOP_TRAILS_RESOURCE)
+
+    private fun readTextResource(path: String): String {
+        val stream = requireNotNull(TestFixtures::class.java.getResourceAsStream(path)) {
+            "Missing bundled fixture: $path"
         }
         return stream.use { it.readBytes().decodeToString() }
     }

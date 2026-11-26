@@ -6,4 +6,5 @@
     <string name="route_edit_stretch_end_handle_description">End of stretch</string>
     <string name="route_edit_handle_move_forward">Move forward along route</string>
     <string name="route_edit_handle_move_backward">Move backward along route</string>
+    <string name="trail_draft_dropped_pin_description">Dropped Pin</string>
 </resources>

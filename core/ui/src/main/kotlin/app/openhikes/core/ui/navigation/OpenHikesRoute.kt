@@ -61,6 +61,12 @@ data object SettingsRoute : OpenHikesRoute
 data object RecordingRoute : OpenHikesRoute
 
 /**
+ * Trail Maker destination pushed from the home map toolbar to draw a new trail on the live map.
+ */
+@Serializable
+data object TrailMakerRoute : OpenHikesRoute
+
+/**
  * Map Modes destination pushed from the floating map controls to pick base map style, toggle
  * the hiking routes overlay, and jump to Offline Maps while keeping the live map visible.
  */

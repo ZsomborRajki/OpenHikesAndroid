@@ -17,18 +17,22 @@ Supporting reference docs:
   pyramid, porting `OpenHikesUITests` fixtures/tags, static analysis wiring, and
   Phase 0–4 bootstrap roadmap.
 
-> **Repository status:** Phase 7 complete (Route Editing: pure-JVM `RouteShape`,
-> `RouteCarriedEnds`, `RouteTrim`, `RouteStep`/`RouteSteps`, `RouteEdit`,
-> `RouteTrimLine`, `EditedLine`, and `RouteStretchRouter` in `:core:model`; Room
-> v3 `hike_original_route_chunks` & `route_edit_json` with atomic
-> `RouteEditStore` and active-walk `ROUTE_CHANGED` invalidation across
-> `:core:database`, `:core:data`, and `:core:location`; isolated
-> `RouteEditOverlayState`, cut/kept/stretch/pull MapLibre layers, and interactive
-> map handles & long-press line pull in `:core:map`; new `:feature:routeedit`
-> module with Material 3 Expressive trimmer chart, live figures, Not on Foot
-> one-tap offers, Stretch & Whole Route actions, Undo, and Revert to Original;
-> `:feature:hikes` Edit Route entry point, `:app` shell wiring, and ported Tier
-> 1/2/3 + screenshot tests). Phases 0–7 are complete.
+> **Repository status:** Phase 8 complete (Trail Maker: pure-JVM `TrailGraph`,
+> `TrailGraphIndex`, `TrailDraftEngine`, `TrailMakerModels`, `OHGS` v1 binary
+> `TrailGraphSquareFile` codec, `HikeTitle.drawn`, and bundled iOS OSM graph
+> fixtures in `:core:model`, `:core:common`, and `:core:testing`; Room v3
+> device-local `trail_draft` & `trail_stop_recents` in `noBackupFilesDir`,
+> cached `HttpRoutingGraphSquareDataSource` with manifest refresh,
+> `OfflineFirstTrailDraftRepository`, `OsmTrailLegRouter`,
+> `AndroidStopPlaceSearchSource`, `HikeRepository.saveDrawnTrail`, and
+> production `TrailGraphRouteStretchRouter` wiring across `:core:database`,
+> `:core:network`, and `:core:data`; `TrailDraftOverlayState` and interactive
+> MapLibre + fake draft layers in `:core:map` and `:core:testing-android`; new
+> `:feature:trailmaker` module with Material 3 Expressive stop list, travel
+> modes, Follow Paths / Straight toggle, route alternatives, place card, search
+> & recents overlay, and Save Trail flow; `:app` floating toolbar & adaptive
+> shell integration, plus Tier 1/2/3 & screenshot tests). Phases 0–8 are
+> complete.
 
 ---
 

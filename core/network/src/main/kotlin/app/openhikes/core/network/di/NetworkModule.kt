@@ -5,12 +5,15 @@ import app.openhikes.core.model.AppBuildInfo
 import app.openhikes.core.model.VectorTileArchiveManifest
 import app.openhikes.core.network.AndroidTileNetworkPolicy
 import app.openhikes.core.network.DownloadOkHttpClient
+import app.openhikes.core.network.HttpRoutingGraphSquareDataSource
 import app.openhikes.core.network.HttpVectorTileManifestDataSource
 import app.openhikes.core.network.LaunchAwareOfflineCountryServer
 import app.openhikes.core.network.ManifestOkHttpClient
 import app.openhikes.core.network.OfflineCountryServer
 import app.openhikes.core.network.OpenHikesUserAgent
 import app.openhikes.core.network.PreviewTileOkHttpClient
+import app.openhikes.core.network.RoutingGraphSquareDataSource
+import app.openhikes.core.network.RoutingSquaresDir
 import app.openhikes.core.network.TileNetworkPolicy
 import app.openhikes.core.network.TileOkHttpClient
 import app.openhikes.core.network.TileServerBaseUrl
@@ -49,6 +52,12 @@ abstract class NetworkBindingsModule {
     @Binds
     @Singleton
     internal abstract fun bindOfflineCountryServer(impl: LaunchAwareOfflineCountryServer): OfflineCountryServer
+
+    @Binds
+    @Singleton
+    internal abstract fun bindRoutingGraphSquareDataSource(
+        impl: HttpRoutingGraphSquareDataSource
+    ): RoutingGraphSquareDataSource
 }
 
 @Module
@@ -72,6 +81,12 @@ object NetworkProvidesModule {
     @VectorArchivesFile
     fun provideVectorArchivesFile(@ApplicationContext context: Context): File =
         File(context.noBackupFilesDir, VectorTileArchivesManager.STATE_FILE_NAME)
+
+    @Provides
+    @Singleton
+    @RoutingSquaresDir
+    fun provideRoutingSquaresDir(@ApplicationContext context: Context): File =
+        File(context.noBackupFilesDir, HttpRoutingGraphSquareDataSource.CACHE_DIR_NAME)
 
     @Provides
     @Singleton
