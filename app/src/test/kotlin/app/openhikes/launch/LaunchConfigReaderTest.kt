@@ -105,4 +105,27 @@ class LaunchConfigReaderTest {
         assertThat(negative.seedPhotoCount).isEqualTo(0)
         assertThat(negative.stubPhotoLibraryCount).isNull()
     }
+
+    @Test
+    fun parsesLibrarySeedHikesAndNearbyTrailsOverrides() {
+        val config = LaunchConfigReader.fromArguments(
+            mapOf(
+                LaunchConfigReader.EXTRA_UI_TESTING to "true",
+                LaunchConfigReader.EXTRA_SEED_HIKES to "4",
+                LaunchConfigReader.EXTRA_SEED_NEARBY_TRAILS to "true"
+            )
+        )
+
+        assertThat(config.seedHikeCount).isEqualTo(4)
+        assertThat(config.seedNearbyTrails).isTrue()
+
+        val negative = LaunchConfigReader.fromArguments(
+            mapOf(
+                LaunchConfigReader.EXTRA_UI_TESTING to "true",
+                LaunchConfigReader.EXTRA_SEED_HIKES to "-2"
+            )
+        )
+        assertThat(negative.seedHikeCount).isEqualTo(0)
+        assertThat(negative.seedNearbyTrails).isFalse()
+    }
 }

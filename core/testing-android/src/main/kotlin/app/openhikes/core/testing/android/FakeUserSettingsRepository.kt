@@ -2,6 +2,7 @@ package app.openhikes.core.testing.android
 
 import app.openhikes.core.data.UserSettingsRepository
 import app.openhikes.core.model.DistanceUnit
+import app.openhikes.core.model.HikeListSort
 import app.openhikes.core.model.TrailPlaceSymbol
 import app.openhikes.core.model.UserSettings
 import java.io.IOException
@@ -105,5 +106,10 @@ class FakeUserSettingsRepository(
             }
             current.copy(hiddenPlaceSymbols = nextHidden)
         }
+    }
+
+    override suspend fun setHikeListSort(sort: HikeListSort) {
+        consumeWriteFailureIfPresent()
+        settingsState.update { it.copy(hikeListSort = sort) }
     }
 }

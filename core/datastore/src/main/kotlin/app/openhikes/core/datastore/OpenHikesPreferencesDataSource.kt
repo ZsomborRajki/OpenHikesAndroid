@@ -2,6 +2,7 @@ package app.openhikes.core.datastore
 
 import androidx.datastore.core.DataStore
 import app.openhikes.core.model.DistanceUnit
+import app.openhikes.core.model.HikeListSort
 import app.openhikes.core.model.MapStyleId
 import app.openhikes.core.model.TrailPlaceSymbol
 import app.openhikes.core.model.UserSettings
@@ -119,6 +120,12 @@ class OpenHikesPreferencesDataSource @Inject constructor(private val userPrefere
             }
         }
     }
+
+    suspend fun setHikeListSort(sort: HikeListSort) {
+        userPreferences.updateData { prefs ->
+            prefs.copy { hikeListSort = sort.rawValue }
+        }
+    }
 }
 
 private fun UserPreferences.toUserSettings(): UserSettings {
@@ -168,6 +175,7 @@ private fun UserPreferences.toUserSettings(): UserSettings {
         },
         hiddenPlaceSymbols = hiddenPlaceSymbolsList
             .mapNotNull(TrailPlaceSymbol::fromStoredId)
-            .toSet()
+            .toSet(),
+        hikeListSort = HikeListSort.fromStoredId(hikeListSort)
     )
 }

@@ -6,6 +6,11 @@ import androidx.room.Relation
 import app.openhikes.core.database.entity.HikeEntity
 import app.openhikes.core.database.entity.HikeRouteChunkEntity
 
+data class HikeWalkCountRow(
+    @ColumnInfo(name = "hike_id") val hikeId: String,
+    @ColumnInfo(name = "walk_count") val walkCount: Int
+)
+
 data class HikeWithRouteRow(
     @Embedded val hike: HikeEntity,
     @Relation(parentColumn = "id", entityColumn = "hike_id")

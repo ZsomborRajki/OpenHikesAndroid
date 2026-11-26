@@ -8,6 +8,7 @@ import app.openhikes.core.database.dao.HikeDao
 import app.openhikes.core.database.dao.HikeLocalStateDao
 import app.openhikes.core.database.dao.HikeWalkDao
 import app.openhikes.core.database.entity.HikeEntity
+import app.openhikes.core.database.entity.HikeLocalStateEntity
 import app.openhikes.core.database.entity.HikeOriginalRouteChunkEntity
 import app.openhikes.core.database.entity.HikeRouteChunkEntity
 import app.openhikes.core.database.entity.HikeWalkEntity
@@ -19,6 +20,7 @@ import app.openhikes.core.model.RouteEdit
 import app.openhikes.core.model.RouteEditOutcome
 import app.openhikes.core.model.RouteEditRefusal
 import app.openhikes.core.model.RouteEditSources
+import app.openhikes.core.model.RouteElevationRevision
 import app.openhikes.core.model.TrailWalkEndReason
 import app.openhikes.core.model.TrailWalkRecord
 import java.io.IOException
@@ -93,7 +95,12 @@ internal class RouteEditStore(
                 )
             }
             if (outcome is RouteEditOutcome.Saved) {
-                invalidateLocalElevationCache(hikeId.value, newStats.elevationGainMeters, newStats.elevationLossMeters)
+                invalidateLocalElevationCache(
+                    hikeId = hikeId.value,
+                    climbMeters = newStats.elevationGainMeters,
+                    descentMeters = newStats.elevationLossMeters,
+                    elevationRevision = RouteElevationRevision.of(edited.route)
+                )
             }
             outcome
         }
@@ -174,9 +181,10 @@ internal class RouteEditStore(
                 }
                 if (outcome is RouteEditOutcome.Saved && restoredStats != null) {
                     invalidateLocalElevationCache(
-                        hikeId.value,
-                        restoredStats.elevationGainMeters,
-                        restoredStats.elevationLossMeters
+                        hikeId = hikeId.value,
+                        climbMeters = restoredStats.elevationGainMeters,
+                        descentMeters = restoredStats.elevationLossMeters,
+                        elevationRevision = RouteElevationRevision.of(outcome.route)
                     )
                 }
                 outcome
@@ -265,15 +273,33 @@ internal class RouteEditStore(
         )
     }
 
-    private suspend fun invalidateLocalElevationCache(hikeId: String, climbMeters: Double?, descentMeters: Double?) {
-        val existing = hikeLocalStateDao.getByHikeId(hikeId) ?: return
-        localStateRepairer.upsertBestEffort(
-            existing.copy(
+    private suspend fun invalidateLocalElevationCache(
+        hikeId: String,
+        climbMeters: Double?,
+        descentMeters: Double?,
+        elevationRevision: String?
+    ) {
+        val existing = hikeLocalStateDao.getByHikeId(hikeId)
+        val updated = existing?.copy(
+            climbMeters = climbMeters,
+            descentMeters = descentMeters,
+            elevationRouteRevision = elevationRevision
+        ) ?: if (climbMeters != null || descentMeters != null) {
+            HikeLocalStateEntity(
+                hikeId = hikeId,
+                listOrder = null,
                 climbMeters = climbMeters,
                 descentMeters = descentMeters,
-                elevationRouteRevision = null
+                elevationRouteRevision = elevationRevision,
+                ownsRecordingDraft = false,
+                autoSavedTileKeysJson = "[]"
             )
-        )
+        } else {
+            null
+        }
+        if (updated != null) {
+            localStateRepairer.upsertBestEffort(updated)
+        }
     }
 
     private fun encodeRouteChunks(hikeId: String, route: List<RouteCoordinate>): List<HikeRouteChunkEntity> =

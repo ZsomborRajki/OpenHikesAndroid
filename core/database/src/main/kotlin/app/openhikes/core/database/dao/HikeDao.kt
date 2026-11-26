@@ -17,6 +17,9 @@ interface HikeDao {
     @Query("SELECT * FROM hikes WHERE is_recording = 0 ORDER BY date_epoch_millis DESC, id ASC")
     fun observeAllHikes(): Flow<List<HikeEntity>>
 
+    @Query("SELECT * FROM hikes WHERE is_recording = 0 ORDER BY date_epoch_millis DESC, id ASC")
+    suspend fun getAllFinishedHikes(): List<HikeEntity>
+
     @Query("SELECT id FROM hikes WHERE is_recording = 1")
     suspend fun getRecordingHikeIds(): List<String>
 

@@ -17,6 +17,7 @@ import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapCameraState
 import app.openhikes.core.map.MapCameraTracker
 import app.openhikes.core.map.MapClaimCoordinator
+import app.openhikes.core.map.MapLibraryLineOverlay
 import app.openhikes.core.map.MapOverlayState
 import app.openhikes.core.map.MapRouteEditOverlay
 import app.openhikes.core.map.MapRouteHighlight
@@ -39,10 +40,13 @@ import app.openhikes.core.map.TrailPhotosOverlayState
 import app.openhikes.core.map.TrailPlacesMapInteractionHandler
 import app.openhikes.core.map.TrailPlacesOverlayState
 import app.openhikes.core.map.WalkOverlayState
+import app.openhikes.core.map.toMapLibraryLineOverlay
 import app.openhikes.core.map.toMapRouteOverlay
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeSummary
+import app.openhikes.core.model.LibraryLine
+import app.openhikes.core.model.LibraryLineHitTest
 import app.openhikes.core.model.MapAttribution
 import app.openhikes.core.model.MapProviderKeys
 import app.openhikes.core.model.MapStyleCatalog
@@ -52,6 +56,9 @@ import app.openhikes.core.model.RouteLinePattern
 import app.openhikes.core.model.UserSettings
 import app.openhikes.core.model.WalkTimeLeftMark
 import app.openhikes.core.model.toTrailRuns
+import app.openhikes.core.ui.navigation.HikeDetailRoute
+import app.openhikes.core.ui.navigation.LibraryTotalsRoute
+import app.openhikes.core.ui.navigation.MapModesRoute
 import app.openhikes.core.ui.navigation.TrailMakerRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.IOException
@@ -109,6 +116,7 @@ class MapShellViewModel @Inject constructor(
     private val showAttributionDialog = MutableStateFlow(false)
     private val showEndWalkForRecordingDialogState = MutableStateFlow(false)
     private val searchQueryState = MutableStateFlow("")
+    private val openHikeFromMapRequestState = MutableStateFlow<Pair<Int, HikeId>?>(null)
     private val cameraStateFlow = MutableStateFlow(
         MapCameraState(center = launchConfigHolder.current.value.mapStart ?: MapCameraState.DEFAULT_CENTER)
     )
@@ -119,9 +127,16 @@ class MapShellViewModel @Inject constructor(
     @Volatile
     private var latestRouteMidpoints: Map<HikeId, GeoCoordinate> = emptyMap()
 
+    @Volatile
+    private var latestVisibleLibraryLines: List<LibraryLine> = emptyList()
+
+    @Volatile
+    private var latestSelectedRouteLines: List<LibraryLine> = emptyList()
+
     val initialCameraState: MapCameraState = cameraStateFlow.value
     val latestCameraState: StateFlow<MapCameraState> = cameraStateFlow.asStateFlow()
     val searchQuery: StateFlow<String> = searchQueryState.asStateFlow()
+    val openHikeFromMapRequest: StateFlow<Pair<Int, HikeId>?> = openHikeFromMapRequestState.asStateFlow()
     val pendingCameraCommand: StateFlow<MapCameraCommand?> = mapClaimCoordinator.pendingCameraCommand
     val routeHighlight: StateFlow<MapRouteHighlight?> = routeHighlightState.highlight
     val walkCoverageOverlay: StateFlow<MapWalkCoverageOverlay?> = walkOverlayState.coverageOverlay
@@ -231,21 +246,45 @@ class MapShellViewModel @Inject constructor(
         }
     }
 
+    private data class ResolvedRouteLayers(
+        val selectedRoutes: List<MapRouteOverlay>,
+        val libraryLines: List<MapLibraryLineOverlay>
+    )
+
     private val routeOverlaysFlow = combine(
         hikeRepository.mapRoutes,
+        hikeRepository.libraryLines,
         mapClaimCoordinator.activeClaim
-    ) { routes, activeClaim ->
+    ) { routes, libraryLines, activeClaim ->
         latestRouteMidpoints = routes.mapNotNull { mapRoute ->
             val mid = mapRoute.route.getOrNull(mapRoute.route.size / 2)?.coordinate
             mid?.let { mapRoute.hikeId to it }
         }.toMap()
+        val isDrawingTrail = activeClaim?.routeKey == TrailMakerRoute
         val selectedHikeId = activeClaim?.selectedHikeId
         val hiddenHikeId = activeClaim?.hiddenRouteHikeId
-        routes
-            .filterNot { it.hikeId == hiddenHikeId }
-            .map { route ->
-                route.toMapRouteOverlay(isSelected = route.hikeId == selectedHikeId)
-            }
+        val selectedOverlays = if (isDrawingTrail || selectedHikeId == null || selectedHikeId == hiddenHikeId) {
+            emptyList()
+        } else {
+            routes
+                .filter { it.hikeId == selectedHikeId }
+                .map { route -> route.toMapRouteOverlay(isSelected = true) }
+        }
+        val visibleLibraryLines = if (isDrawingTrail) {
+            emptyList()
+        } else {
+            libraryLines.filterNot { it.hikeId == selectedHikeId || it.hikeId == hiddenHikeId }
+        }
+        latestVisibleLibraryLines = visibleLibraryLines
+        latestSelectedRouteLines = if (selectedOverlays.isEmpty()) {
+            emptyList()
+        } else {
+            libraryLines.filter { it.hikeId == selectedHikeId }
+        }
+        ResolvedRouteLayers(
+            selectedRoutes = selectedOverlays,
+            libraryLines = visibleLibraryLines.map { it.toMapLibraryLineOverlay() }
+        )
     }.flowOn(defaultDispatcher)
 
     val chromeUiState: StateFlow<MapChromeUiState> = combine(
@@ -259,19 +298,14 @@ class MapShellViewModel @Inject constructor(
         mapClaimCoordinator.activeClaim,
         routeOverlaysFlow,
         showAttributionDialog
-    ) { settings, activeClaim, routeOverlays, attributionDialogOpen ->
+    ) { settings, activeClaim, routeLayers, attributionDialogOpen ->
         val resolvedStyleId = MapStyleCatalog.renderable(settings.mapStyleId, mapProviderKeys).id
-        val hiddenHikeId = activeClaim?.hiddenRouteHikeId
-        val visibleRoutes = if (hiddenHikeId != null) {
-            routeOverlays.filterNot { it.hikeId == hiddenHikeId }
-        } else {
-            routeOverlays
-        }
         val defaultOverlay = MapOverlayState(
             mapStyleId = resolvedStyleId,
             showsHikingRoutes = settings.showsHikingRoutes,
             attribution = MapAttribution.forStyle(resolvedStyleId, settings.showsHikingRoutes),
-            routes = visibleRoutes,
+            routes = routeLayers.selectedRoutes,
+            libraryLines = routeLayers.libraryLines,
             countryOutlines = activeClaim?.countryOutlines.orEmpty()
         )
         MapChromeUiState(
@@ -531,6 +565,30 @@ class MapShellViewModel @Inject constructor(
 
     fun onMapTap(coordinate: GeoCoordinate) {
         mapClaimCoordinator.dispatchMapTap(coordinate)
+        val hitHikeId = hitLibraryLineOnTap(coordinate) ?: return
+        val nextCount = (openHikeFromMapRequestState.value?.first ?: 0) + 1
+        openHikeFromMapRequestState.value = nextCount to hitHikeId
+    }
+
+    private fun hitLibraryLineOnTap(coordinate: GeoCoordinate): HikeId? {
+        if (recordingController.state.value.isActive) return null
+        val activeClaim = mapClaimCoordinator.activeClaim.value
+        val hasOpenPhotoCallout = trailPhotosOverlay.value?.selectedPin != null
+        val canTapLines = !hasOpenPhotoCallout &&
+            activeClaim?.hiddenRouteHikeId == null &&
+            isLibraryLineTapRoute(activeClaim?.routeKey)
+        val zoom = cameraStateFlow.value.zoom
+        val hitSelected = LibraryLineHitTest.nearestHikeId(coordinate, zoom, latestSelectedRouteLines) != null
+        return if (canTapLines && !hitSelected) {
+            LibraryLineHitTest.nearestHikeId(coordinate, zoom, latestVisibleLibraryLines)
+        } else {
+            null
+        }
+    }
+
+    private fun isLibraryLineTapRoute(routeKey: Any?): Boolean = when (routeKey) {
+        null, is HikeDetailRoute, MapModesRoute, LibraryTotalsRoute -> true
+        else -> false
     }
 
     fun onSearchQueryChange(query: String) {

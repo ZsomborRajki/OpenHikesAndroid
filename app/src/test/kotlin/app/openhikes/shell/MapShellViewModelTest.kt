@@ -2,6 +2,8 @@ package app.openhikes.shell
 
 import app.openhikes.core.common.LaunchConfig
 import app.openhikes.core.common.LaunchConfigHolder
+import app.openhikes.core.location.RecordingSessionState
+import app.openhikes.core.map.MapCameraState
 import app.openhikes.core.map.MapCameraTracker
 import app.openhikes.core.map.MapClaim
 import app.openhikes.core.map.MapClaimCoordinator
@@ -21,6 +23,7 @@ import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.MapProviderKeys
 import app.openhikes.core.model.OfflineCountriesState
+import app.openhikes.core.model.RecordingPhase
 import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteTint
 import app.openhikes.core.model.RouteTrimHandle
@@ -31,6 +34,7 @@ import app.openhikes.core.testing.android.FakeOfflineCountryRepository
 import app.openhikes.core.testing.android.FakeRecordingController
 import app.openhikes.core.testing.android.FakeTrailWalkController
 import app.openhikes.core.testing.android.FakeUserSettingsRepository
+import app.openhikes.core.ui.navigation.HikeDetailRoute
 import app.openhikes.core.ui.navigation.MapHomeRoute
 import app.openhikes.core.ui.navigation.RecordingRoute
 import app.openhikes.core.ui.navigation.RouteEditRoute
@@ -133,7 +137,8 @@ class MapShellViewModelTest {
         shellVm.syncBackStack(listOf(MapHomeRoute, editRoute, RecordingRoute))
         claimCoordinator.registerClaim(MapClaim(routeKey = RecordingRoute, depth = 2))
         advanceUntilIdle()
-        assertThat(shellVm.chromeUiState.value.overlayState.routes.map { it.hikeId }).contains(hikeId)
+        assertThat(shellVm.chromeUiState.value.overlayState.routes).isEmpty()
+        assertThat(shellVm.chromeUiState.value.overlayState.libraryLines.map { it.hikeId }).contains(hikeId)
         assertThat(shellVm.routeEditOverlay.value).isNull()
         assertThat(shellVm.routeEditHandler()).isNull()
 
@@ -186,6 +191,71 @@ class MapShellViewModelTest {
         draftJob.cancel()
     }
 
+    @Test
+    fun libraryLinesExcludeSelectedAndHideDuringTrailMakerAndOpenOnMapTapUnlessRecording() = runTest {
+        val firstId = HikeId("h-first")
+        val secondId = HikeId("h-second")
+        val firstA = GeoCoordinate(47.700, 12.800)
+        val firstB = GeoCoordinate(47.705, 12.805)
+        val secondA = GeoCoordinate(47.750, 12.850)
+        val secondB = GeoCoordinate(47.755, 12.855)
+        val claimCoordinator = MapClaimCoordinator()
+        val recordingController = FakeRecordingController()
+        val shellVm = createShellViewModel(
+            hikes = listOf(sampleHike(firstId, firstA, firstB), sampleHike(secondId, secondA, secondB)),
+            claimCoordinator = claimCoordinator,
+            editOverlayState = RouteEditOverlayState(),
+            recordingController = recordingController
+        )
+
+        val chromeJob = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            shellVm.chromeUiState.collect {}
+        }
+        advanceUntilIdle()
+
+        // Home: both finished trails render as faint library lines, none as selected full routes.
+        assertThat(shellVm.chromeUiState.value.overlayState.routes).isEmpty()
+        assertThat(shellVm.chromeUiState.value.overlayState.libraryLines.map { it.hikeId })
+            .containsExactly(firstId, secondId)
+
+        // Tapping near first trail requests opening it.
+        shellVm.onCameraChanged(MapCameraState(center = firstA, zoom = 14.0))
+        shellVm.onMapTap(GeoCoordinate(47.7025, 12.8025))
+        assertThat(shellVm.openHikeFromMapRequest.value?.second).isEqualTo(firstId)
+
+        // Selecting first trail promotes it to routes and removes it from libraryLines.
+        val detailRoute = HikeDetailRoute(firstId)
+        shellVm.syncBackStack(listOf(MapHomeRoute, detailRoute))
+        claimCoordinator.registerClaim(MapClaim(routeKey = detailRoute, depth = 1, selectedHikeId = firstId))
+        advanceUntilIdle()
+        assertThat(shellVm.chromeUiState.value.overlayState.routes.map { it.hikeId }).containsExactly(firstId)
+        assertThat(shellVm.chromeUiState.value.overlayState.libraryLines.map { it.hikeId }).containsExactly(secondId)
+
+        // Tapping selected trail does not fire another library-line open request.
+        val countBeforeSelectedTap = shellVm.openHikeFromMapRequest.value?.first
+        shellVm.onMapTap(GeoCoordinate(47.7025, 12.8025))
+        assertThat(shellVm.openHikeFromMapRequest.value?.first).isEqualTo(countBeforeSelectedTap)
+
+        // Tapping the unselected second trail opens it.
+        shellVm.onMapTap(GeoCoordinate(47.7525, 12.8525))
+        assertThat(shellVm.openHikeFromMapRequest.value?.second).isEqualTo(secondId)
+
+        // Recording suppresses tapping library lines.
+        val countBeforeRecordingTap = shellVm.openHikeFromMapRequest.value?.first
+        recordingController.setSessionState(RecordingSessionState(sessionId = "rec", phase = RecordingPhase.RECORDING))
+        shellVm.onMapTap(GeoCoordinate(47.7525, 12.8525))
+        assertThat(shellVm.openHikeFromMapRequest.value?.first).isEqualTo(countBeforeRecordingTap)
+
+        // Trail Maker hides all library lines and routes.
+        shellVm.syncBackStack(listOf(MapHomeRoute, TrailMakerRoute))
+        claimCoordinator.registerClaim(MapClaim(routeKey = TrailMakerRoute, depth = 1, selectedHikeId = null))
+        advanceUntilIdle()
+        assertThat(shellVm.chromeUiState.value.overlayState.routes).isEmpty()
+        assertThat(shellVm.chromeUiState.value.overlayState.libraryLines).isEmpty()
+
+        chromeJob.cancel()
+    }
+
     private fun sampleHike(hikeId: HikeId, a: GeoCoordinate, b: GeoCoordinate): Hike = Hike(
         id = hikeId,
         title = "Edited Trail",
@@ -198,13 +268,14 @@ class MapShellViewModelTest {
         hikes: List<Hike>,
         claimCoordinator: MapClaimCoordinator,
         editOverlayState: RouteEditOverlayState,
-        draftOverlayState: TrailDraftOverlayState = TrailDraftOverlayState()
+        draftOverlayState: TrailDraftOverlayState = TrailDraftOverlayState(),
+        recordingController: FakeRecordingController = FakeRecordingController()
     ): MapShellViewModel = MapShellViewModel(
         userSettingsRepository = FakeUserSettingsRepository(),
         hikeRepository = FakeHikeRepository(hikes),
         offlineCountryRepository = FakeOfflineCountryRepository(),
         mapClaimCoordinator = claimCoordinator,
-        recordingController = FakeRecordingController(),
+        recordingController = recordingController,
         trailWalkController = FakeTrailWalkController(),
         routeHighlightState = RouteHighlightState(),
         walkOverlayState = WalkOverlayState(),

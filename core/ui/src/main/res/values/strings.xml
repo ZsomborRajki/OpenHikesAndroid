@@ -11,6 +11,10 @@
     <string name="hike_segment_climb_description">Elevation gain %1$s</string>
     <string name="hike_row_walk_active">Active</string>
     <string name="hike_row_walk_paused">Paused</string>
+    <string name="hike_row_recording">Recording</string>
+    <string name="hike_row_move_up_description">Move %1$s up</string>
+    <string name="hike_row_move_down_description">Move %1$s down</string>
+    <string name="hike_row_reorder_action">Reorder Hikes</string>
     <string name="map_style_openhikes_name">OpenHikes</string>
     <string name="map_style_openfreemap_name">OpenFreeMap</string>
     <string name="map_style_osm_raster_name">OpenStreetMap</string>

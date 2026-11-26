@@ -37,6 +37,19 @@ fun HikeLibraryPopulatedLargeFontPreview() {
     HikeLibraryPreviewSurface(uiState = samplePopulatedLibraryState(), darkTheme = false)
 }
 
+@PreviewTest
+@Preview(name = "Hike Library Reordering Light", showBackground = true, widthDp = 411, heightDp = 640)
+@Composable
+fun HikeLibraryReorderingLightPreview() {
+    HikeLibraryPreviewSurface(
+        uiState = samplePopulatedLibraryState().copy(
+            isCustomOrder = true,
+            isReordering = true
+        ),
+        darkTheme = false
+    )
+}
+
 @Composable
 private fun HikeLibraryPreviewSurface(uiState: HikeLibraryUiState, darkTheme: Boolean) {
     OpenHikesTheme(darkTheme = darkTheme, dynamicColor = false) {

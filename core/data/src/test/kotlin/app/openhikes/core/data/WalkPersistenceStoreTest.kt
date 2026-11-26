@@ -190,6 +190,8 @@ class WalkPersistenceStoreTest {
 
         override fun observeAll(): Flow<List<HikeLocalStateEntity>> = delegate.observeAll()
 
+        override suspend fun getAll(): List<HikeLocalStateEntity> = delegate.getAll()
+
         override fun observeByHikeId(hikeId: String): Flow<HikeLocalStateEntity?> = delegate.observeByHikeId(hikeId)
 
         override suspend fun getByHikeId(hikeId: String): HikeLocalStateEntity? = delegate.getByHikeId(hikeId)
@@ -202,6 +204,13 @@ class WalkPersistenceStoreTest {
             if (failUpsert) throw SQLiteException("Simulated local DB refusal")
             delegate.upsert(entity)
         }
+
+        override suspend fun upsertAll(entities: List<HikeLocalStateEntity>) {
+            if (failUpsert) throw SQLiteException("Simulated local DB refusal")
+            delegate.upsertAll(entities)
+        }
+
+        override suspend fun clearAllListOrders(): Int = delegate.clearAllListOrders()
 
         override suspend fun deleteByHikeId(hikeId: String): Int = delegate.deleteByHikeId(hikeId)
     }

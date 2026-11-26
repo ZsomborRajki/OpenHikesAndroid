@@ -28,6 +28,8 @@ object LaunchConfigReader {
     const val EXTRA_OMIT_SEEDED_PHOTO_FILES = "ui_test_omit_seeded_photo_files"
     const val EXTRA_STUB_PHOTO_LIBRARY_COUNT = "ui_test_stub_photo_library_count"
     const val EXTRA_STUB_PHOTO_LIBRARY_ACCESS = "ui_test_stub_photo_library_access"
+    const val EXTRA_SEED_HIKES = "ui_test_seed_hikes"
+    const val EXTRA_SEED_NEARBY_TRAILS = "ui_test_seed_nearby_trails"
 
     fun fromIntent(intent: Intent?): LaunchConfig {
         val extras = intent?.extras ?: return LaunchConfig.Production
@@ -63,7 +65,9 @@ object LaunchConfigReader {
             seedPhotoCount = parseNonNegativeInt(arguments[EXTRA_SEED_PHOTO_COUNT]) ?: 0,
             omitSeededPhotoFiles = arguments.boolFlag(EXTRA_OMIT_SEEDED_PHOTO_FILES),
             stubPhotoLibraryCount = parseNonNegativeInt(arguments[EXTRA_STUB_PHOTO_LIBRARY_COUNT]),
-            stubPhotoLibraryAccess = sanitizeFixtureName(arguments[EXTRA_STUB_PHOTO_LIBRARY_ACCESS])
+            stubPhotoLibraryAccess = sanitizeFixtureName(arguments[EXTRA_STUB_PHOTO_LIBRARY_ACCESS]),
+            seedHikeCount = parseNonNegativeInt(arguments[EXTRA_SEED_HIKES]) ?: 0,
+            seedNearbyTrails = arguments.boolFlag(EXTRA_SEED_NEARBY_TRAILS)
         )
     }
 
@@ -83,7 +87,8 @@ object LaunchConfigReader {
         refusesHikeDeletion = base.refusesHikeDeletion || override.refusesHikeDeletion,
         enableSimulatedLocation = base.enableSimulatedLocation || override.enableSimulatedLocation,
         disableAutomaticRecovery = base.disableAutomaticRecovery || override.disableAutomaticRecovery,
-        omitSeededPhotoFiles = base.omitSeededPhotoFiles || override.omitSeededPhotoFiles
+        omitSeededPhotoFiles = base.omitSeededPhotoFiles || override.omitSeededPhotoFiles,
+        seedNearbyTrails = base.seedNearbyTrails || override.seedNearbyTrails
     )
 
     private fun mergeFixtureOverrides(base: LaunchConfig, override: LaunchConfig): LaunchConfig = base.copy(
@@ -96,7 +101,8 @@ object LaunchConfigReader {
         trailPointsScenarioName = override.trailPointsScenarioName ?: base.trailPointsScenarioName,
         seedPhotoCount = override.seedPhotoCount.takeIf { it > 0 } ?: base.seedPhotoCount,
         stubPhotoLibraryCount = override.stubPhotoLibraryCount ?: base.stubPhotoLibraryCount,
-        stubPhotoLibraryAccess = override.stubPhotoLibraryAccess ?: base.stubPhotoLibraryAccess
+        stubPhotoLibraryAccess = override.stubPhotoLibraryAccess ?: base.stubPhotoLibraryAccess,
+        seedHikeCount = override.seedHikeCount.takeIf { it > 0 } ?: base.seedHikeCount
     )
 
     private fun parseNonNegativeInt(raw: String?): Int? = raw?.trim()?.toIntOrNull()?.takeIf { it >= 0 }

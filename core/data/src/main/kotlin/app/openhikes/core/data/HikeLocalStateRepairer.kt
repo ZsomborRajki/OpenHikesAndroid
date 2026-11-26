@@ -7,6 +7,7 @@ import app.openhikes.core.database.entity.HikeEntity
 import app.openhikes.core.database.entity.HikeLocalStateEntity
 import app.openhikes.core.database.entity.HikeRouteChunkEntity
 import app.openhikes.core.model.HikeRouteStatistics
+import app.openhikes.core.model.RouteElevationRevision
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.first
@@ -96,19 +97,17 @@ internal class HikeLocalStateRepairer(
     private suspend fun buildDerivedState(
         entity: HikeEntity,
         chunks: List<HikeRouteChunkEntity>
-    ): HikeLocalStateEntity {
-        val stats = withContext(defaultDispatcher) {
-            val route = RouteBlobCodec.decodeChunksOrEmpty(
-                chunks.sortedBy { it.chunkIndex }.map { it.chunkBlob }
-            )
-            HikeRouteStatistics.from(entity.distanceMeters, route)
-        }
-        return HikeLocalStateEntity(
+    ): HikeLocalStateEntity = withContext(defaultDispatcher) {
+        val route = RouteBlobCodec.decodeChunksOrEmpty(
+            chunks.sortedBy { it.chunkIndex }.map { it.chunkBlob }
+        )
+        val stats = HikeRouteStatistics.from(entity.distanceMeters, route)
+        HikeLocalStateEntity(
             hikeId = entity.id,
             listOrder = null,
             climbMeters = stats.elevationGainMeters,
             descentMeters = stats.elevationLossMeters,
-            elevationRouteRevision = null,
+            elevationRouteRevision = RouteElevationRevision.of(route),
             ownsRecordingDraft = false,
             autoSavedTileKeysJson = "[]"
         )

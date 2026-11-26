@@ -1,6 +1,7 @@
 package app.openhikes.feature.hikes
 
 import app.cash.turbine.test
+import app.openhikes.core.location.RecordingSessionState
 import app.openhikes.core.map.MapClaim
 import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.map.MapRouteHighlight
@@ -9,10 +10,13 @@ import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.GpxImportFailure
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.HikeListSort
+import app.openhikes.core.model.RecordingPhase
 import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.testing.MainDispatcherRule
 import app.openhikes.core.testing.TestFixtures
 import app.openhikes.core.testing.android.FakeHikeRepository
+import app.openhikes.core.testing.android.FakeRecordingController
 import app.openhikes.core.testing.android.FakeTrailWalkController
 import app.openhikes.core.testing.android.FakeUserSettingsRepository
 import com.google.common.truth.Truth.assertThat
@@ -40,6 +44,7 @@ class HikeLibraryViewModelTest {
         val viewModel = HikeLibraryViewModel(
             hikeRepository = repo,
             userSettingsRepository = FakeUserSettingsRepository(),
+            recordingController = FakeRecordingController(),
             trailWalkController = FakeTrailWalkController(),
             mapClaimCoordinator = coordinator,
             routeHighlightState = RouteHighlightState()
@@ -89,6 +94,7 @@ class HikeLibraryViewModelTest {
         val viewModel = HikeLibraryViewModel(
             hikeRepository = repo,
             userSettingsRepository = FakeUserSettingsRepository(),
+            recordingController = FakeRecordingController(),
             trailWalkController = FakeTrailWalkController(),
             mapClaimCoordinator = MapClaimCoordinator(),
             routeHighlightState = highlightState
@@ -127,4 +133,125 @@ class HikeLibraryViewModelTest {
             cancelAndIgnoreRemainingEvents()
         }
     }
+
+    @Test
+    fun switchesSortsAndValidatesElevationForHilliest() = runTest {
+        val (alpha, beta, gamma) = sampleSortTestHikes()
+        val repo = FakeHikeRepository(listOf(alpha, beta, gamma))
+        val viewModel = createSortViewModel(repo, FakeRecordingController())
+
+        viewModel.uiState.test {
+            advanceUntilIdle()
+            assertThat(expectMostRecentItem().hikes.map { it.id })
+                .containsExactly(gamma.id, beta.id, alpha.id)
+                .inOrder()
+            assertThat(repo.validateElevationCalls).isEqualTo(0)
+
+            viewModel.onSelectSort(HikeListSort.LONGEST)
+            advanceUntilIdle()
+            assertThat(expectMostRecentItem().hikes.map { it.id })
+                .containsExactly(alpha.id, gamma.id, beta.id)
+                .inOrder()
+
+            viewModel.onSelectSort(HikeListSort.HILLIEST)
+            advanceUntilIdle()
+            assertThat(repo.validateElevationCalls).isGreaterThan(0)
+            assertThat(expectMostRecentItem().hikes.map { it.id })
+                .containsExactly(beta.id, gamma.id, alpha.id)
+                .inOrder()
+
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun supportsCustomReorderingWithActivePinningAndResetOnSort() = runTest {
+        val (alpha, beta, gamma) = sampleSortTestHikes()
+        val repo = FakeHikeRepository(listOf(alpha, beta, gamma))
+        val recordingController = FakeRecordingController()
+        val viewModel = createSortViewModel(repo, recordingController)
+
+        viewModel.uiState.test {
+            advanceUntilIdle()
+            recordingController.setSessionState(
+                RecordingSessionState(sessionId = alpha.id.value, phase = RecordingPhase.RECORDING)
+            )
+            advanceUntilIdle()
+            val pinned = expectMostRecentItem()
+            assertThat(pinned.activeHikeId).isEqualTo(alpha.id)
+            assertThat(pinned.hikes.map { it.id }).containsExactly(alpha.id, gamma.id, beta.id).inOrder()
+
+            viewModel.onEnterReorderMode()
+            advanceUntilIdle()
+            assertThat(expectMostRecentItem().isReordering).isTrue()
+
+            viewModel.onMoveHike(0, 1)
+            advanceUntilIdle()
+            expectNoEvents()
+            assertThat(viewModel.uiState.value.isCustomOrder).isFalse()
+
+            viewModel.onMoveHike(2, 1)
+            advanceUntilIdle()
+            val reordered = expectMostRecentItem()
+            assertThat(reordered.isCustomOrder).isTrue()
+            assertThat(reordered.hikes.map { it.id }).containsExactly(alpha.id, beta.id, gamma.id).inOrder()
+
+            viewModel.onExitReorderMode()
+            advanceUntilIdle()
+            assertThat(expectMostRecentItem().isReordering).isFalse()
+
+            viewModel.onSelectSort(HikeListSort.ALPHABETICAL)
+            advanceUntilIdle()
+            val sortedAlpha = expectMostRecentItem()
+            assertThat(sortedAlpha.isCustomOrder).isFalse()
+            assertThat(sortedAlpha.hikes.map { it.id }).containsExactly(alpha.id, beta.id, gamma.id).inOrder()
+
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    private fun createSortViewModel(
+        repo: FakeHikeRepository,
+        recordingController: FakeRecordingController
+    ): HikeLibraryViewModel = HikeLibraryViewModel(
+        hikeRepository = repo,
+        userSettingsRepository = FakeUserSettingsRepository(),
+        recordingController = recordingController,
+        trailWalkController = FakeTrailWalkController(),
+        mapClaimCoordinator = MapClaimCoordinator(),
+        routeHighlightState = RouteHighlightState()
+    )
+
+    private fun sampleSortTestHikes(): Triple<Hike, Hike, Hike> = Triple(
+        Hike(
+            id = HikeId("alpha"),
+            title = "Alpha Flat",
+            distanceMeters = 8_000.0,
+            dateEpochMillis = 10_000L,
+            route = listOf(
+                RouteCoordinate(47.70, 12.80, elevationMeters = 500.0),
+                RouteCoordinate(47.71, 12.81, elevationMeters = 510.0)
+            )
+        ),
+        Hike(
+            id = HikeId("beta"),
+            title = "Beta Steep",
+            distanceMeters = 3_000.0,
+            dateEpochMillis = 20_000L,
+            route = listOf(
+                RouteCoordinate(47.72, 12.82, elevationMeters = 500.0),
+                RouteCoordinate(47.73, 12.83, elevationMeters = 1_100.0)
+            )
+        ),
+        Hike(
+            id = HikeId("gamma"),
+            title = "Gamma Newest",
+            distanceMeters = 5_000.0,
+            dateEpochMillis = 30_000L,
+            route = listOf(
+                RouteCoordinate(47.74, 12.84, elevationMeters = 600.0),
+                RouteCoordinate(47.75, 12.85, elevationMeters = 750.0)
+            )
+        )
+    )
 }

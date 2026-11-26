@@ -489,6 +489,8 @@ class DefaultTrailWalkControllerTest {
             kotlinx.coroutines.flow.MutableStateFlow(emptyList())
         override val mapRoutes: kotlinx.coroutines.flow.Flow<List<app.openhikes.core.model.HikeMapRoute>> =
             kotlinx.coroutines.flow.MutableStateFlow(emptyList())
+        override val libraryLines: kotlinx.coroutines.flow.Flow<List<app.openhikes.core.model.LibraryLine>> =
+            kotlinx.coroutines.flow.MutableStateFlow(emptyList())
 
         override fun observeHike(hikeId: HikeId) = kotlinx.coroutines.flow.flowOf(
             hikesFlow.value.firstOrNull { it.id == hikeId }
@@ -594,6 +596,13 @@ class DefaultTrailWalkControllerTest {
             note: String
         ) = Result.success(true)
         override suspend fun removePlace(hikeId: HikeId, placeId: String) = Result.success(Unit)
+        override suspend fun saveCustomHikeOrder(orderedIds: List<HikeId>): Result<Unit> = Result.success(Unit)
+        override suspend fun clearCustomHikeOrder(): Result<Unit> = Result.success(Unit)
+        override suspend fun validateElevationMetrics(hikeIds: List<HikeId>): Result<Boolean> = Result.success(false)
+        override suspend fun computeLibraryTotals(
+            asOfEpochMillis: Long,
+            zoneId: java.time.ZoneId
+        ): Result<app.openhikes.core.model.LibraryTotals> = error("Unused")
         override suspend fun addCameraPhoto(
             hikeId: HikeId,
             rawBytes: ByteArray,

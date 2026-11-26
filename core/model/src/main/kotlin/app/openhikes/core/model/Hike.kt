@@ -78,10 +78,19 @@ data class HikeSummary(
     val author: String? = null,
     val keywords: String? = null,
     val climbMeters: Double? = null,
-    val descentMeters: Double? = null
+    val descentMeters: Double? = null,
+    val listOrder: Int? = null,
+    val walkCount: Int = 0
 ) {
     val displayTitle: String
         get() = customName?.takeIf { it.isNotEmpty() } ?: title
+
+    /**
+     * Combined ascent and descent in meters; `null` until both halves are measured so
+     * half-measured routes never sort as smaller relief figures.
+     */
+    val verticalMeters: Double?
+        get() = if (climbMeters != null && descentMeters != null) climbMeters + descentMeters else null
 
     companion object {
         const val DEFAULT_ROUTE_WIDTH_DP = 3.0
@@ -128,7 +137,12 @@ data class Hike(
 
     fun photosOfPlace(placeId: String): List<HikePhoto> = orderedPhotos.filter { it.placeId == placeId }
 
-    fun toSummary(climbMeters: Double? = null, descentMeters: Double? = null): HikeSummary = HikeSummary(
+    fun toSummary(
+        climbMeters: Double? = null,
+        descentMeters: Double? = null,
+        listOrder: Int? = null,
+        walkCount: Int = 0
+    ): HikeSummary = HikeSummary(
         id = id,
         title = title,
         customName = customName,
@@ -145,7 +159,9 @@ data class Hike(
         author = author,
         keywords = keywords,
         climbMeters = climbMeters,
-        descentMeters = descentMeters
+        descentMeters = descentMeters,
+        listOrder = listOrder,
+        walkCount = walkCount
     )
 }
 
@@ -160,7 +176,10 @@ data class HikeLocalState(
     val elevationRouteRevision: String? = null,
     val ownsRecordingDraft: Boolean = false,
     val autoSavedTileKeys: List<String> = emptyList()
-)
+) {
+    val verticalMeters: Double?
+        get() = if (climbMeters != null && descentMeters != null) climbMeters + descentMeters else null
+}
 
 /**
  * Lightweight route projection fed to `:core:map` for rendering polylines.

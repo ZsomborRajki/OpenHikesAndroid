@@ -5,6 +5,7 @@ import app.openhikes.core.ui.navigation.EntryProviderInstaller
 import app.openhikes.core.ui.navigation.HikeDetailRoute
 import app.openhikes.core.ui.navigation.HikePhotoViewerRoute
 import app.openhikes.core.ui.navigation.HikePlaceDetailRoute
+import app.openhikes.core.ui.navigation.LibraryTotalsRoute
 import app.openhikes.core.ui.navigation.PhotoDiscoveryRoute
 import app.openhikes.core.ui.navigation.PlacesAroundRoute
 import app.openhikes.core.ui.navigation.RouteEditRoute
@@ -53,6 +54,12 @@ object HikesNavigationModule {
             RouteStyleRoute(
                 hikeId = route.hikeId,
                 onBack = { navigator.pop() }
+            )
+        }
+        entry<LibraryTotalsRoute> {
+            LibraryTotalsRoute(
+                onBack = { navigator.pop() },
+                onOpenHike = { hikeId -> navigator.navigate(HikeDetailRoute(hikeId)) }
             )
         }
     }

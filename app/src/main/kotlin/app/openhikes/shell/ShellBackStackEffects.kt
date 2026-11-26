@@ -15,6 +15,7 @@ internal fun HandleExternalNavigationRequests(
     controllers: ShellNavControllers,
     openRecordingRequestCount: Int,
     openWalkHikeRequest: Pair<Int, HikeId>?,
+    openLibraryLineHikeRequest: Pair<Int, HikeId>? = null,
     onExitSearch: () -> Unit
 ) {
     LaunchedEffect(openRecordingRequestCount) {
@@ -28,12 +29,24 @@ internal fun HandleExternalNavigationRequests(
     }
     LaunchedEffect(openWalkHikeRequest) {
         val targetHikeId = openWalkHikeRequest?.second ?: return@LaunchedEffect
-        if (controllers.isSearchActive) onExitSearch()
-        if (controllers.sheetDetent == SheetDetent.PEEK) controllers.sheetDetent = SheetDetent.HALF
-        val targetRoute = HikeDetailRoute(targetHikeId)
-        if (controllers.backStack.lastOrNull() != targetRoute) {
-            controllers.navigator.navigate(targetRoute)
-        }
+        openHikeFromExternalRequest(controllers, targetHikeId, onExitSearch)
+    }
+    LaunchedEffect(openLibraryLineHikeRequest) {
+        val targetHikeId = openLibraryLineHikeRequest?.second ?: return@LaunchedEffect
+        openHikeFromExternalRequest(controllers, targetHikeId, onExitSearch)
+    }
+}
+
+private fun openHikeFromExternalRequest(
+    controllers: ShellNavControllers,
+    targetHikeId: HikeId,
+    onExitSearch: () -> Unit
+) {
+    if (controllers.isSearchActive) onExitSearch()
+    if (controllers.sheetDetent == SheetDetent.PEEK) controllers.sheetDetent = SheetDetent.HALF
+    val targetRoute = HikeDetailRoute(targetHikeId)
+    if (controllers.backStack.lastOrNull() != targetRoute) {
+        controllers.navigator.navigate(targetRoute)
     }
 }
 

@@ -19,6 +19,7 @@ import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeSummary
 import app.openhikes.core.model.PreparedRecording
 import app.openhikes.core.model.RouteBorder
+import app.openhikes.core.model.RouteElevationRevision
 import app.openhikes.core.model.RouteLinePattern
 import app.openhikes.core.model.RouteTint
 import app.openhikes.core.model.TrailWalkEndReason
@@ -187,7 +188,7 @@ internal class RecordingDraftStore(
                 listOrder = currentLocal?.listOrder,
                 climbMeters = prepared.elevationGainMeters,
                 descentMeters = prepared.elevationLossMeters,
-                elevationRouteRevision = currentLocal?.elevationRouteRevision,
+                elevationRouteRevision = RouteElevationRevision.of(prepared.route),
                 ownsRecordingDraft = false,
                 autoSavedTileKeysJson = currentLocal?.autoSavedTileKeysJson ?: "[]",
                 walkInProgressJson = currentLocal?.walkInProgressJson

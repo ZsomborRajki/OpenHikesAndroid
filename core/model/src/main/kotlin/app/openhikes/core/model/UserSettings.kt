@@ -19,7 +19,8 @@ data class UserSettings(
     val offlineCountriesExtraDetail: Boolean = DEFAULT_OFFLINE_COUNTRIES_EXTRA_DETAIL,
     val junctionWarningsEnabled: Boolean = DEFAULT_JUNCTION_WARNINGS_ENABLED,
     val showsPlacePins: Boolean = DEFAULT_SHOWS_PLACE_PINS,
-    val hiddenPlaceSymbols: Set<TrailPlaceSymbol> = emptySet()
+    val hiddenPlaceSymbols: Set<TrailPlaceSymbol> = emptySet(),
+    val hikeListSort: HikeListSort = HikeListSort.Default
 ) {
     val shownSearchPlaceSymbols: Set<TrailPlaceSymbol>
         get() = TrailPointQuery.searchableSymbols.toSet() - hiddenPlaceSymbols

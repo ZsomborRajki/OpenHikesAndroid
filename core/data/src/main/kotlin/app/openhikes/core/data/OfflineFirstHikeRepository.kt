@@ -28,7 +28,9 @@ import app.openhikes.core.model.HikeMapRoute
 import app.openhikes.core.model.HikePhoto
 import app.openhikes.core.model.HikeSummary
 import app.openhikes.core.model.HikeWalk
+import app.openhikes.core.model.LibraryLine
 import app.openhikes.core.model.LibraryPhotoMatch
+import app.openhikes.core.model.LibraryTotals
 import app.openhikes.core.model.PreparedRecording
 import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteEditOutcome
@@ -40,6 +42,7 @@ import app.openhikes.core.model.TrailWalkEndReason
 import app.openhikes.core.model.TrailWalkRecord
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.IOException
+import java.time.ZoneId
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -159,18 +162,42 @@ internal class OfflineFirstHikeRepository @Inject constructor(
         ioDispatcher = ioDispatcher,
         defaultDispatcher = defaultDispatcher
     )
+    private val libraryMetricsStore = LibraryMetricsStore(
+        hikeDao = hikeDao,
+        hikeWalkDao = hikeWalkDao,
+        hikeLocalStateDao = hikeLocalStateDao,
+        gpxImportStore = gpxImportStore,
+        bundledGpxFixtureSource = bundledGpxFixtureSource,
+        clock = clock,
+        shouldFailFirstSave = {
+            launchConfigHolder.current.value.failsFirstSave && !hasConsumedFirstSaveFailure.getAndSet(true)
+        },
+        ioDispatcher = ioDispatcher,
+        defaultDispatcher = defaultDispatcher
+    )
 
     override val hikes: Flow<List<HikeSummary>> = combine(
         hikeDao.observeAllHikes(),
-        hikeLocalStateDao.observeAll()
-    ) { entities, localStates ->
+        hikeLocalStateDao.observeAll(),
+        hikeWalkDao.observeWalkCounts()
+    ) { entities, localStates, walkCounts ->
         val existingByHikeId = localStates.associateBy { it.hikeId }
         val resolvedByHikeId = localStateRepairer.repairMissingForHikes(entities, existingByHikeId)
-        entities.map { entity -> entity.toSummary(resolvedByHikeId[entity.id]) }
+        val walkCountsByHikeId = walkCounts.associate { it.hikeId to it.walkCount }
+        entities.map { entity ->
+            entity.toSummary(
+                localState = resolvedByHikeId[entity.id],
+                walkCount = walkCountsByHikeId[entity.id] ?: 0
+            )
+        }
     }.flowOn(defaultDispatcher)
 
     override val mapRoutes: Flow<List<HikeMapRoute>> = hikeDao.observeAllMapRouteChunks()
         .map { rows -> rows.toMapRoutes() }
+        .flowOn(defaultDispatcher)
+
+    override val libraryLines: Flow<List<LibraryLine>> = hikeDao.observeAllMapRouteChunks()
+        .map { rows -> libraryMetricsStore.toLibraryLines(rows) }
         .flowOn(defaultDispatcher)
 
     override fun observeHike(hikeId: HikeId): Flow<Hike?> = combine(
@@ -463,16 +490,31 @@ internal class OfflineFirstHikeRepository @Inject constructor(
 
     override suspend fun reclaimOrphanedPhotos(): Result<Int> = hikePhotoImportStore.reclaimOrphanedPhotos()
 
+    override suspend fun saveCustomHikeOrder(orderedIds: List<HikeId>): Result<Unit> =
+        libraryMetricsStore.saveCustomHikeOrder(orderedIds)
+
+    override suspend fun clearCustomHikeOrder(): Result<Unit> = libraryMetricsStore.clearCustomHikeOrder()
+
+    override suspend fun validateElevationMetrics(hikeIds: List<HikeId>): Result<Boolean> =
+        libraryMetricsStore.validateElevationMetrics(hikeIds)
+
+    override suspend fun computeLibraryTotals(asOfEpochMillis: Long, zoneId: ZoneId): Result<LibraryTotals> =
+        libraryMetricsStore.computeLibraryTotals(asOfEpochMillis, zoneId)
+
     override suspend fun seedFixtureIfConfigured(): HikeId? {
         val config = launchConfigHolder.current.value
+        val shouldSeed = hasSeededFixture.compareAndSet(false, true)
         val fixtureName = config.importedGpxFixtureName
-        val loaded = if (fixtureName != null && hasSeededFixture.compareAndSet(false, true)) {
+        val loaded = if (fixtureName != null && shouldSeed) {
             bundledGpxFixtureSource.loadFixture(fixtureName)
         } else {
             null
         }
         val importedId = loaded?.let { (fileName, bytes) ->
             (importGpxBytes(bytes, fileName) as? GpxImportResult.Success)?.importedHikes?.firstOrNull()?.id
+        }
+        if (shouldSeed && (config.seedHikeCount > 0 || config.seedNearbyTrails)) {
+            libraryMetricsStore.seedLibraryFixtures(config)
         }
         if (importedId != null) {
             val hike = observeHike(importedId).first()

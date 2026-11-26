@@ -157,6 +157,10 @@ internal class LocalFakeUserSettingsRepository : UserSettingsRepository {
             current.copy(hiddenPlaceSymbols = next)
         }
     }
+
+    override suspend fun setHikeListSort(sort: app.openhikes.core.model.HikeListSort) {
+        state.update { it.copy(hikeListSort = sort) }
+    }
 }
 
 @Suppress("TooManyFunctions")
@@ -170,6 +174,7 @@ internal class LocalFakeHikeRepository : HikeRepository {
         list.filterNot { it.isRecording }.map { it.toSummary() }
     }
     override val mapRoutes: Flow<List<HikeMapRoute>> = MutableStateFlow(emptyList())
+    override val libraryLines: Flow<List<app.openhikes.core.model.LibraryLine>> = MutableStateFlow(emptyList())
 
     fun setLocalStateForTest(localState: HikeLocalState) {
         localStateMap.update { it + (localState.hikeId to localState) }
@@ -278,6 +283,13 @@ internal class LocalFakeHikeRepository : HikeRepository {
     override suspend fun exportHikeArchiveToUri(hikeId: HikeId, uriString: String) = error("Unused")
     override suspend fun measurePhotoStorageBytes(): Long = 0L
     override suspend fun reclaimOrphanedPhotos(): Result<Int> = Result.success(0)
+    override suspend fun saveCustomHikeOrder(orderedIds: List<HikeId>): Result<Unit> = Result.success(Unit)
+    override suspend fun clearCustomHikeOrder(): Result<Unit> = Result.success(Unit)
+    override suspend fun validateElevationMetrics(hikeIds: List<HikeId>): Result<Boolean> = Result.success(false)
+    override suspend fun computeLibraryTotals(
+        asOfEpochMillis: Long,
+        zoneId: java.time.ZoneId
+    ): Result<app.openhikes.core.model.LibraryTotals> = error("Unused")
     override suspend fun seedFixtureIfConfigured(): HikeId? = null
 
     fun getHike(hikeId: HikeId): Hike? = hikesState.value.firstOrNull { it.id == hikeId }

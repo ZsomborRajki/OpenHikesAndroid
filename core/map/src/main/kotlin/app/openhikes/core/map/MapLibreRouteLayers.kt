@@ -49,6 +49,8 @@ private const val PAUSED_GAP_LENGTH = 2.5
 private const val SELECTED_WIDTH_BONUS_DP = 1.5f
 private const val SELECTED_OPACITY = 1.0f
 private const val UNSELECTED_OPACITY = 0.88f
+private const val LIBRARY_LINE_OPACITY = 0.6f
+private const val LIBRARY_LINE_WIDTH_DP = 3.5f
 private const val BORDER_MULTIPLIER = 2f
 private const val ICON_PADDING_DP = 4f
 private const val HALF_DIVISOR = 2f
@@ -88,6 +90,65 @@ internal data class WalkedRouteRenderPlan(
     val borderDashArray: List<Number>?,
     val chevronSpec: RouteChevronRenderSpec?
 )
+
+internal data class LibraryLineRenderPlan(
+    val lineColor: Color,
+    val lineWidthDp: Float,
+    val borderColor: Color,
+    val borderWidthDp: Float,
+    val opacity: Float
+)
+
+internal fun buildLibraryLineRenderPlan(line: MapLibraryLineOverlay): LibraryLineRenderPlan {
+    val parsed = parseHexColorOrDefault(
+        line.tintHex,
+        parseHexColorOrDefault(RouteTint.DEFAULT_HEX, Color.Green)
+    )
+    val opaqueTint = parsed.copy(alpha = 1.0f)
+    val borderOutsetDp = RouteBorder.width(LIBRARY_LINE_WIDTH_DP.toDouble()).toFloat() * BORDER_MULTIPLIER
+    return LibraryLineRenderPlan(
+        lineColor = opaqueTint,
+        lineWidthDp = LIBRARY_LINE_WIDTH_DP,
+        borderColor = Color.Black,
+        borderWidthDp = LIBRARY_LINE_WIDTH_DP + borderOutsetDp,
+        opacity = LIBRARY_LINE_OPACITY
+    )
+}
+
+/**
+ * Draws every unselected finished hike in the user's library faded beneath the selected route,
+ * oldest first so the newest hike renders on top.
+ */
+@Composable
+@MaplibreComposable
+internal fun LibraryLineOverlayLayers(libraryLines: List<MapLibraryLineOverlay>) {
+    for (line in libraryLines.asReversed()) {
+        if (line.runs.isEmpty()) continue
+        key("library-${line.hikeId.value}") {
+            val plan = remember(line.tintHex) { buildLibraryLineRenderPlan(line) }
+            val sourceData = remember(line.runs) { buildMultiLineFeatureCollection(line.runs) }
+            val source = rememberGeoJsonSource(data = sourceData)
+            LineLayer(
+                id = "library-line-border-${line.hikeId.value}",
+                source = source,
+                color = const(plan.borderColor),
+                width = const(plan.borderWidthDp.dp),
+                opacity = const(plan.opacity),
+                cap = const(LineCap.Round),
+                join = const(LineJoin.Round)
+            )
+            LineLayer(
+                id = "library-line-stroke-${line.hikeId.value}",
+                source = source,
+                color = const(plan.lineColor),
+                width = const(plan.lineWidthDp.dp),
+                opacity = const(plan.opacity),
+                cap = const(LineCap.Round),
+                join = const(LineJoin.Round)
+            )
+        }
+    }
+}
 
 @Composable
 @MaplibreComposable

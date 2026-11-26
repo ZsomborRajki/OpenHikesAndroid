@@ -1,9 +1,11 @@
 package app.openhikes.core.map
 
 import androidx.compose.runtime.Immutable
+import app.openhikes.core.model.GeoBoundingBox
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeMapRoute
+import app.openhikes.core.model.LibraryLine
 import app.openhikes.core.model.RouteLinePattern
 import app.openhikes.core.model.toTrailRuns
 
@@ -50,3 +52,29 @@ fun HikeMapRoute.toMapRouteOverlay(isSelected: Boolean): MapRouteOverlay {
         isSelected = isSelected
     )
 }
+
+/**
+ * Thinned background polyline state for an unselected hike in the user's library, drawn faded
+ * underneath the selected route on [TrailMapHost].
+ */
+@Immutable
+data class MapLibraryLineOverlay(
+    val hikeId: HikeId,
+    val tintHex: String,
+    val runs: List<List<GeoCoordinate>>,
+    val bounds: GeoBoundingBox? = null
+)
+
+fun LibraryLine.toMapLibraryLineOverlay(): MapLibraryLineOverlay = MapLibraryLineOverlay(
+    hikeId = hikeId,
+    tintHex = tintHex,
+    runs = runs,
+    bounds = bounds
+)
+
+fun MapLibraryLineOverlay.toLibraryLine(): LibraryLine = LibraryLine(
+    hikeId = hikeId,
+    tintHex = tintHex,
+    runs = runs,
+    bounds = bounds
+)
