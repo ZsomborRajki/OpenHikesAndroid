@@ -91,7 +91,8 @@ fun TrailMakerScreen(
     Box(modifier = modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
             TrailMakerTopBar(
-                canBeSaved = uiState.canBeSaved && !uiState.isSaving,
+                canBeSaved = uiState.canBeSaved && uiState.isEditingEnabled,
+                canClose = uiState.isEditingEnabled,
                 onBack = onBack,
                 onSaveClick = { onAction(TrailMakerAction.OpenSaveDialog) },
                 onCloseClick = onCloseRequested
@@ -112,6 +113,7 @@ fun TrailMakerScreen(
                 item(key = "travel_mode") {
                     TrailTravelModeBar(
                         selectedMode = uiState.travelMode,
+                        enabled = uiState.isEditingEnabled,
                         onSelectMode = { onAction(TrailMakerAction.SelectTravelMode(it)) }
                     )
                 }
@@ -128,6 +130,7 @@ fun TrailMakerScreen(
                         FollowPathsCard(
                             snapsToPaths = uiState.snapsToPaths,
                             travelMode = uiState.travelMode,
+                            enabled = uiState.isEditingEnabled,
                             onToggle = { onAction(TrailMakerAction.ToggleSnapToPaths(it)) }
                         )
                     }
@@ -183,6 +186,7 @@ private fun TrailMakerOverlays(
 @Composable
 private fun TrailMakerTopBar(
     canBeSaved: Boolean,
+    canClose: Boolean,
     onBack: () -> Unit,
     onSaveClick: () -> Unit,
     onCloseClick: () -> Unit
@@ -228,6 +232,7 @@ private fun TrailMakerTopBar(
         }
         IconButton(
             onClick = onCloseClick,
+            enabled = canClose,
             modifier = Modifier
                 .defaultMinSize(minWidth = MinTouchTarget, minHeight = MinTouchTarget)
                 .testTag(OpenHikesTestTags.TRAIL_DRAFT_CLOSE)

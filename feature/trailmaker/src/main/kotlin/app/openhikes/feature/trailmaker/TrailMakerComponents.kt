@@ -74,6 +74,7 @@ private val NoticeSpacing = 6.dp
 @Composable
 internal fun TrailTravelModeBar(
     selectedMode: TrailTravelMode,
+    enabled: Boolean,
     onSelectMode: (TrailTravelMode) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -89,6 +90,7 @@ internal fun TrailTravelModeBar(
             SegmentedButton(
                 selected = mode == selectedMode,
                 onClick = { onSelectMode(mode) },
+                enabled = enabled,
                 shape = SegmentedButtonDefaults.itemShape(index = index, count = modes.size),
                 icon = {},
                 modifier = Modifier
@@ -111,6 +113,7 @@ internal fun TrailRouteCard(
     onAction: (TrailMakerAction) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val editingEnabled = uiState.isEditingEnabled
     Surface(
         shape = RoundedCornerShape(CardCornerRadius),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -129,6 +132,7 @@ internal fun TrailRouteCard(
                     totalRows = uiState.rows.size,
                     hasAddStopRow = uiState.canBeSaved,
                     distanceUnit = uiState.distanceUnit,
+                    enabled = editingEnabled,
                     onClick = { onAction(TrailMakerAction.OpenStopSearch(searchTargetForRow(row, index))) },
                     onMoveUp = row.waypointId?.let { id -> { onAction(TrailMakerAction.MoveStop(id, -1)) } },
                     onMoveDown = row.waypointId?.let { id -> { onAction(TrailMakerAction.MoveStop(id, 1)) } },
@@ -137,11 +141,15 @@ internal fun TrailRouteCard(
             }
             if (uiState.canBeSaved) {
                 TrailAddStopRow(
+                    enabled = editingEnabled,
                     onClick = { onAction(TrailMakerAction.OpenStopSearch(TrailStopSearchTarget.NewStop)) }
                 )
             }
             if (uiState.hasRetryableLegs) {
-                TrailRetryRoutingButton(onClick = { onAction(TrailMakerAction.RetryRefusedLegs) })
+                TrailRetryRoutingButton(
+                    enabled = editingEnabled,
+                    onClick = { onAction(TrailMakerAction.RetryRefusedLegs) }
+                )
             }
             TrailRouteFooter(
                 canBeSaved = uiState.canBeSaved,
@@ -161,9 +169,10 @@ private fun searchTargetForRow(row: TrailStopRowItem, index: Int): TrailStopSear
 }
 
 @Composable
-private fun TrailRetryRoutingButton(onClick: () -> Unit) {
+private fun TrailRetryRoutingButton(enabled: Boolean, onClick: () -> Unit) {
     FilledTonalButton(
         onClick = onClick,
+        enabled = enabled,
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = RowVerticalPadding)
@@ -217,11 +226,13 @@ private fun RouteHeaderRow(distanceMeters: Double, travelTimeSeconds: Double?, d
 }
 
 @Composable
+@Suppress("LongParameterList")
 private fun TrailStopListRow(
     row: TrailStopRowItem,
     totalRows: Int,
     hasAddStopRow: Boolean,
     distanceUnit: DistanceUnit,
+    enabled: Boolean,
     onClick: () -> Unit,
     onMoveUp: (() -> Unit)?,
     onMoveDown: (() -> Unit)?,
@@ -252,6 +263,7 @@ private fun TrailStopListRow(
             roleLabel = roleLabel,
             headingText = headingText,
             distanceUnit = distanceUnit,
+            enabled = enabled,
             onClick = onClick,
             onMoveUp = onMoveUp,
             onMoveDown = onMoveDown,
@@ -262,6 +274,7 @@ private fun TrailStopListRow(
             StopTrailingControls(
                 pointNumber = pointNum,
                 stopTitle = headingText,
+                enabled = enabled,
                 canMoveUp = row.canMoveUp,
                 canMoveDown = row.canMoveDown,
                 onMoveUp = onMoveUp,
@@ -273,11 +286,13 @@ private fun TrailStopListRow(
 }
 
 @Composable
+@Suppress("LongParameterList")
 private fun TrailStopRowBody(
     row: TrailStopRowItem,
     roleLabel: String,
     headingText: String,
     distanceUnit: DistanceUnit,
+    enabled: Boolean,
     onClick: () -> Unit,
     onMoveUp: (() -> Unit)?,
     onMoveDown: (() -> Unit)?,
@@ -292,18 +307,22 @@ private fun TrailStopRowBody(
         distanceText,
         row.arrivingSnap?.let { legNoticeText(it) }
     ).joinToString(", ")
-    val a11yActions = stopRowReorderActions(
-        row = row,
-        moveUpLabel = stringResource(R.string.trail_stop_move_up),
-        moveDownLabel = stringResource(R.string.trail_stop_move_down),
-        onMoveUp = onMoveUp,
-        onMoveDown = onMoveDown
-    )
+    val a11yActions = if (enabled) {
+        stopRowReorderActions(
+            row = row,
+            moveUpLabel = stringResource(R.string.trail_stop_move_up),
+            moveDownLabel = stringResource(R.string.trail_stop_move_down),
+            onMoveUp = onMoveUp,
+            onMoveDown = onMoveDown
+        )
+    } else {
+        emptyList()
+    }
 
     Row(
         modifier = modifier
             .defaultMinSize(minHeight = RowMinHeight)
-            .clickable(role = Role.Button, onClick = onClick)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(vertical = RowVerticalPadding)
             .semantics(mergeDescendants = true) {
                 if (spokenState.isNotEmpty()) stateDescription = spokenState
@@ -387,9 +406,11 @@ private fun stopRowReorderActions(
 }
 
 @Composable
+@Suppress("LongParameterList")
 private fun StopTrailingControls(
     pointNumber: Int,
     stopTitle: String,
+    enabled: Boolean,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
     onMoveUp: (() -> Unit)?,
@@ -399,6 +420,7 @@ private fun StopTrailingControls(
     if (canMoveUp && onMoveUp != null) {
         IconButton(
             onClick = onMoveUp,
+            enabled = enabled,
             modifier = Modifier
                 .defaultMinSize(minWidth = TouchTarget, minHeight = TouchTarget)
                 .testTag(OpenHikesTestTags.trailDraftPointMoveUp(pointNumber))
@@ -413,6 +435,7 @@ private fun StopTrailingControls(
     if (canMoveDown && onMoveDown != null) {
         IconButton(
             onClick = onMoveDown,
+            enabled = enabled,
             modifier = Modifier
                 .defaultMinSize(minWidth = TouchTarget, minHeight = TouchTarget)
                 .testTag(OpenHikesTestTags.trailDraftPointMoveDown(pointNumber))
@@ -427,6 +450,7 @@ private fun StopTrailingControls(
     if (onDelete != null) {
         IconButton(
             onClick = onDelete,
+            enabled = enabled,
             modifier = Modifier
                 .defaultMinSize(minWidth = TouchTarget, minHeight = TouchTarget)
                 .testTag(OpenHikesTestTags.trailDraftPointDelete(pointNumber))
@@ -489,12 +513,12 @@ private fun StopRailIndicator(drawTopStem: Boolean, drawBottomStem: Boolean, isF
 }
 
 @Composable
-private fun TrailAddStopRow(onClick: () -> Unit) {
+private fun TrailAddStopRow(enabled: Boolean, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = RowMinHeight)
-            .clickable(role = Role.Button, onClick = onClick)
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .semantics(mergeDescendants = true) {}
             .testTag(OpenHikesTestTags.TRAIL_DRAFT_ADD_STOP),
         verticalAlignment = Alignment.CenterVertically
@@ -583,6 +607,7 @@ private fun TrailRouteFooter(canBeSaved: Boolean, worstLegSnap: TrailLegSnap?) {
 internal fun FollowPathsCard(
     snapsToPaths: Boolean,
     travelMode: TrailTravelMode,
+    enabled: Boolean,
     onToggle: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -609,6 +634,7 @@ internal fun FollowPathsCard(
                 Switch(
                     checked = snapsToPaths,
                     onCheckedChange = onToggle,
+                    enabled = enabled,
                     modifier = Modifier.testTag(OpenHikesTestTags.TRAIL_DRAFT_SNAP)
                 )
             }

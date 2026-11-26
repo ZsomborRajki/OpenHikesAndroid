@@ -2,12 +2,12 @@ package app.openhikes.feature.trailmaker
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import app.openhikes.core.common.ApplicationScope
 import app.openhikes.core.common.HikeTitle
 import app.openhikes.core.common.OpenHikesClock
 import app.openhikes.core.data.HikeRepository
 import app.openhikes.core.data.StopPlaceSearchSource
 import app.openhikes.core.data.TrailDraftRepository
+import app.openhikes.core.data.TrailDraftWriteCoordinator
 import app.openhikes.core.data.UserSettingsRepository
 import app.openhikes.core.location.LocationFeed
 import app.openhikes.core.location.LocationPermissionStatus
@@ -33,7 +33,6 @@ import app.openhikes.core.ui.navigation.TrailMakerRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.IOException
 import javax.inject.Inject
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -58,10 +57,10 @@ class TrailMakerViewModel @Inject constructor(
     private val clock: OpenHikesClock,
     private val mapClaimCoordinator: MapClaimCoordinator,
     private val trailDraftOverlayState: TrailDraftOverlayState,
-    @ApplicationScope private val applicationScope: CoroutineScope
+    private val draftWriteCoordinator: TrailDraftWriteCoordinator
 ) : ViewModel() {
     private val engine = TrailDraftEngine()
-    private val uiStateFlow = MutableStateFlow(TrailMakerUiState())
+    private val uiStateFlow = MutableStateFlow(TrailMakerUiState(isRestoring = true))
     val uiState: StateFlow<TrailMakerUiState> = uiStateFlow.asStateFlow()
 
     private var distanceUnit: DistanceUnit = DistanceUnit.METRIC
@@ -75,12 +74,14 @@ class TrailMakerViewModel @Inject constructor(
     private var showNameDialog: Boolean = false
     private var namingStartedAtEpochMillis: Long? = null
     private var nameDraft: String = ""
+    private var isRestoring: Boolean = true
     private var isSaving: Boolean = false
     private var refusal: TrailDraftRefusal? = null
     private var stopSearchState: TrailStopSearchUiState? = null
     private var searchJob: Job? = null
+    private var myLocationCoordinate: GeoCoordinate? = null
+    private var myLocationJob: Job? = null
     private var hasFramedDrawing: Boolean = false
-    private var latestDraftWriteJob: Job? = null
     private val backgroundQueues = TrailDraftBackgroundQueues(
         scope = viewModelScope,
         engine = engine,
@@ -88,30 +89,39 @@ class TrailMakerViewModel @Inject constructor(
         stopPlaceSearchSource = stopPlaceSearchSource,
         onRoutingUpdate = ::publishAll,
         onStopNamed = {
-            persistDraft()
-            publishAll()
+            if (canMutateDraft) {
+                persistDraft()
+                publishAll()
+            }
         }
     )
 
+    private val canMutateDraft: Boolean
+        get() = !isRestoring && !isSaving
+
     private val mapInteractionHandler = object : TrailDraftMapInteractionHandler {
         override fun onDropPin(coordinate: GeoCoordinate, legEnds: TrailLegEnds?) {
+            if (!canMutateDraft) return
             droppedPin = TrailDraftDroppedPin(coordinate = coordinate, legEnds = legEnds)
             selectPlace(TrailDraftSelection.DroppedPin)
         }
 
         override fun onTapStopPin(waypointId: String) {
+            if (!canMutateDraft) return
             if (engine.waypoints.any { it.id == waypointId }) {
                 selectPlace(TrailDraftSelection.Stop(waypointId))
             }
         }
 
         override fun onTapDroppedPin() {
+            if (!canMutateDraft) return
             if (droppedPin != null) {
                 selectPlace(TrailDraftSelection.DroppedPin)
             }
         }
 
         override fun onChooseAlternative(legIndex: Int, alternativeIndex: Int) {
+            if (!canMutateDraft) return
             if (engine.chooseAlternative(legIndex, alternativeIndex)) {
                 persistDraft()
                 publishAll()
@@ -119,16 +129,22 @@ class TrailMakerViewModel @Inject constructor(
         }
 
         override fun onBeginPinDrag(index: Int): Boolean {
+            if (!canMutateDraft) return false
             val started = engine.beginDrag(index)
             if (started) publishOverlay()
             return started
         }
 
         override fun onMovePinDrag(coordinate: GeoCoordinate) {
+            if (!canMutateDraft) return
             if (engine.moveDrag(coordinate)) publishOverlay()
         }
 
         override fun onEndPinDrag() {
+            if (!canMutateDraft) {
+                if (engine.cancelDrag()) publishOverlay()
+                return
+            }
             val moved = engine.endDrag()
             if (moved) {
                 commitLineAndRoute()
@@ -151,6 +167,7 @@ class TrailMakerViewModel @Inject constructor(
             )
         )
         trailDraftOverlayState.bindHandler(mapInteractionHandler)
+        publishUiState()
         observeSettingsAndRecents()
         restoreInitialDraft()
     }
@@ -158,6 +175,7 @@ class TrailMakerViewModel @Inject constructor(
     override fun onCleared() {
         cancelRouting()
         cancelNaming()
+        cancelMyLocationLookup()
         searchJob?.cancel()
         placeCardAddressJob?.cancel()
         engine.cancelDrag()
@@ -169,7 +187,7 @@ class TrailMakerViewModel @Inject constructor(
         when (action) {
             is TrailMakerAction.SelectTravelMode -> setTravelMode(action.mode)
             is TrailMakerAction.ToggleSnapToPaths -> setSnapsToPaths(action.enabled)
-            TrailMakerAction.RetryRefusedLegs -> resolveLegs(retryingRefusals = true)
+            TrailMakerAction.RetryRefusedLegs -> if (canMutateDraft) resolveLegs(retryingRefusals = true)
             is TrailMakerAction.OpenStopSearch -> openStopSearch(action.target)
             TrailMakerAction.CloseStopSearch -> closeStopSearch()
             is TrailMakerAction.UpdateSearchQuery -> updateSearchQuery(action.query)
@@ -197,8 +215,10 @@ class TrailMakerViewModel @Inject constructor(
             TrailMakerAction.AddStopFromPlaceCard -> addStopFromPlaceCard()
             TrailMakerAction.RemoveDroppedPin -> removeDroppedPin()
             is TrailMakerAction.RemoveStopFromPlaceCard -> {
-                selectPlace(null)
-                removeStop(action.waypointId)
+                if (canMutateDraft) {
+                    selectPlace(null)
+                    removeStop(action.waypointId)
+                }
             }
             TrailMakerAction.DismissCloseDialog -> {
                 showCloseDialog = false
@@ -206,8 +226,10 @@ class TrailMakerViewModel @Inject constructor(
             }
             TrailMakerAction.OpenSaveDialog -> openSaveDialog()
             is TrailMakerAction.UpdateNameDraft -> {
-                nameDraft = action.value
-                publishUiState()
+                if (canMutateDraft) {
+                    nameDraft = action.value
+                    publishUiState()
+                }
             }
             TrailMakerAction.DismissNameDialog -> {
                 showNameDialog = false
@@ -222,6 +244,7 @@ class TrailMakerViewModel @Inject constructor(
     }
 
     fun onCloseRequested(onClose: () -> Unit) {
+        if (!canMutateDraft) return
         if (engine.isEmpty) {
             discardAndClose(onClose)
         } else {
@@ -231,21 +254,23 @@ class TrailMakerViewModel @Inject constructor(
     }
 
     fun onDiscardTrail(onClose: () -> Unit) {
+        if (!canMutateDraft) return
         showCloseDialog = false
         discardAndClose(onClose)
     }
 
     fun onKeepForLater(onClose: () -> Unit) {
+        if (!canMutateDraft) return
         showCloseDialog = false
         publishUiState()
         viewModelScope.launch {
-            latestDraftWriteJob?.join()
+            draftWriteCoordinator.awaitPendingWrites()
             onClose()
         }
     }
 
     fun onConfirmSave(onSaved: (HikeId) -> Unit) {
-        if (isSaving) return
+        if (!canMutateDraft) return
         val madeOn = namingStartedAtEpochMillis ?: clock.nowEpochMillis()
         showNameDialog = false
         if (!engine.canBeSaved) {
@@ -256,29 +281,47 @@ class TrailMakerViewModel @Inject constructor(
         val titleInput = nameDraft
         val distanceMeters = engine.distanceMeters
         val route = engine.routeCoordinates
+        prepareForSave()
         viewModelScope.launch {
-            isSaving = true
-            publishUiState()
             val result = hikeRepository.saveDrawnTrail(
                 title = titleInput,
                 distanceMeters = distanceMeters,
                 route = route,
                 madeOnEpochMillis = madeOn
             )
-            isSaving = false
             result.fold(
                 onSuccess = { hike ->
                     nameDraft = ""
                     namingStartedAtEpochMillis = null
                     clearDraftStateAndAwait()
+                    isSaving = false
+                    publishUiState()
                     onSaved(hike.id)
                 },
                 onFailure = {
+                    isSaving = false
                     refusal = TrailDraftRefusal.NOT_SAVED
-                    publishUiState()
+                    publishAll()
+                    resolveLegs(retryingRefusals = false)
                 }
             )
         }
+    }
+
+    private fun prepareForSave() {
+        isSaving = true
+        cancelRouting()
+        cancelNaming()
+        cancelMyLocationLookup()
+        searchJob?.cancel()
+        searchJob = null
+        placeCardAddressJob?.cancel()
+        placeCardAddressJob = null
+        engine.cancelDrag()
+        stopSearchState = null
+        selection = null
+        showCloseDialog = false
+        publishAll()
     }
 
     private fun observeSettingsAndRecents() {
@@ -301,6 +344,7 @@ class TrailMakerViewModel @Inject constructor(
 
     private fun restoreInitialDraft() {
         viewModelScope.launch {
+            draftWriteCoordinator.awaitPendingWrites()
             val stored = trailDraftRepository.loadDraft()
             if (!stored.isEmpty) {
                 engine.replace(stored)
@@ -309,6 +353,7 @@ class TrailMakerViewModel @Inject constructor(
                     frameCoordinates(engine.coordinates)
                 }
             }
+            isRestoring = false
             publishAll()
             resolveLegs(retryingRefusals = false)
             enqueueUnnamedStops()
@@ -316,19 +361,21 @@ class TrailMakerViewModel @Inject constructor(
     }
 
     private fun setTravelMode(mode: TrailTravelMode) {
-        if (!engine.setTravelMode(mode)) return
+        if (!canMutateDraft || !engine.setTravelMode(mode)) return
         cancelRouting()
         commitLineAndRoute()
     }
 
     private fun setSnapsToPaths(enabled: Boolean) {
-        if (!engine.setSnapsToPaths(enabled)) return
+        if (!canMutateDraft || !engine.setSnapsToPaths(enabled)) return
         cancelRouting()
         commitLineAndRoute()
     }
 
     private fun openStopSearch(target: TrailStopSearchTarget) {
+        if (!canMutateDraft) return
         selectPlace(null)
+        cancelMyLocationLookup()
         locationFeed.refreshPermissionStatus()
         val prefill = when (target) {
             is TrailStopSearchTarget.Existing ->
@@ -339,27 +386,68 @@ class TrailMakerViewModel @Inject constructor(
             is TrailStopSearchTarget.Open, TrailStopSearchTarget.NewStop -> ""
         }
         val permission = locationFeed.permissionStatus.value
-        val hasFix = locationFeed.lastKnownCoordinate() != null
+        val denied = permission == LocationPermissionStatus.DENIED
+        val cached = if (denied) null else locationFeed.lastKnownCoordinate()
+        myLocationCoordinate = cached
         stopSearchState = TrailStopSearchUiState(
             target = target,
             query = prefill,
             prefill = prefill,
             recents = recentStops,
-            myLocationAvailable = hasFix,
-            myLocationDenied = permission == LocationPermissionStatus.DENIED
+            myLocationAvailable = cached != null,
+            myLocationDenied = denied
         )
         publishUiState()
+        if (!denied) {
+            startMyLocationLookup(needsOneShot = cached == null)
+        }
+    }
+
+    private fun startMyLocationLookup(needsOneShot: Boolean) {
+        myLocationJob = viewModelScope.launch {
+            launch {
+                locationFeed.fixes.collect { fix ->
+                    val coord = runCatching { GeoCoordinate(fix.latitude, fix.longitude) }.getOrNull() ?: return@collect
+                    publishResolvedMyLocation(coord)
+                }
+            }
+            if (needsOneShot) {
+                val fresh = locationFeed.requestCurrentCoordinate()
+                if (fresh != null) {
+                    publishResolvedMyLocation(fresh)
+                } else if (locationFeed.permissionStatus.value == LocationPermissionStatus.DENIED) {
+                    val active = stopSearchState ?: return@launch
+                    stopSearchState = active.copy(myLocationAvailable = false, myLocationDenied = true)
+                    publishUiState()
+                }
+            }
+        }
+    }
+
+    private fun publishResolvedMyLocation(coordinate: GeoCoordinate) {
+        myLocationCoordinate = coordinate
+        val active = stopSearchState ?: return
+        if (!active.myLocationAvailable || active.myLocationDenied) {
+            stopSearchState = active.copy(myLocationAvailable = true, myLocationDenied = false)
+            publishUiState()
+        }
+    }
+
+    private fun cancelMyLocationLookup() {
+        myLocationJob?.cancel()
+        myLocationJob = null
     }
 
     private fun closeStopSearch() {
         searchJob?.cancel()
         searchJob = null
+        cancelMyLocationLookup()
         stopSearchState = null
         publishUiState()
     }
 
     private fun updateSearchQuery(query: String) {
-        val current = stopSearchState ?: return
+        val current = stopSearchState.takeIf { canMutateDraft } ?: return
         searchJob?.cancel()
         val trimmed = query.trim()
         if (trimmed.isEmpty() || query == current.prefill) {
@@ -372,18 +460,20 @@ class TrailMakerViewModel @Inject constructor(
         searchJob = viewModelScope.launch {
             delay(SEARCH_DEBOUNCE_MILLIS)
             val answer = stopPlaceSearchSource.search(trimmed)
-            val active = stopSearchState ?: return@launch
-            if (active.query != query) return@launch
-            stopSearchState = answer.fold(
-                onSuccess = { list -> active.copy(results = list, isSearching = false, didFail = list.isEmpty()) },
-                onFailure = { active.copy(results = emptyList(), isSearching = false, didFail = true) }
-            )
-            publishUiState()
+            val active = stopSearchState
+            if (active != null && active.query == query) {
+                stopSearchState = answer.fold(
+                    onSuccess = { list -> active.copy(results = list, isSearching = false, didFail = list.isEmpty()) },
+                    onFailure = { active.copy(results = emptyList(), isSearching = false, didFail = true) }
+                )
+                publishUiState()
+            }
         }
     }
 
     private fun pickMyLocation() {
-        val here = locationFeed.lastKnownCoordinate() ?: return
+        if (!canMutateDraft) return
+        val here = myLocationCoordinate ?: locationFeed.lastKnownCoordinate() ?: return
         applySearchPick(coordinate = here, name = "", subtitle = "", recordRecent = false)
     }
 
@@ -393,6 +483,7 @@ class TrailMakerViewModel @Inject constructor(
         subtitle: String,
         recordRecent: Boolean = true
     ) {
+        if (!canMutateDraft) return
         val target = stopSearchState?.target ?: return
         val boundedName = HikeTitle.bounded(name).orEmpty()
         when (target) {
@@ -418,6 +509,7 @@ class TrailMakerViewModel @Inject constructor(
         }
         stopSearchState = null
         searchJob?.cancel()
+        cancelMyLocationLookup()
         commitLineAndRoute()
         if (target.landsOnAnEnd && engine.coordinates.size > 1) {
             frameCoordinates(engine.coordinates)
@@ -434,23 +526,25 @@ class TrailMakerViewModel @Inject constructor(
     }
 
     private fun removeRecentStop(id: String) {
+        if (!canMutateDraft) return
         viewModelScope.launch {
             trailDraftRepository.removeRecentStop(id)
         }
     }
 
     private fun removeStop(waypointId: String) {
-        if (!engine.removeById(waypointId)) return
+        if (!canMutateDraft || !engine.removeById(waypointId)) return
         if (selection == TrailDraftSelection.Stop(waypointId)) selectPlace(null)
         commitLineAndRoute()
     }
 
     private fun moveStop(waypointId: String, delta: Int) {
-        val currentIndex = engine.waypoints.indexOfFirst { it.id == waypointId }
+        val currentIndex = if (canMutateDraft) engine.waypoints.indexOfFirst { it.id == waypointId } else -1
         if (currentIndex < 0) return
         val targetIndex = (currentIndex + delta).coerceIn(0, engine.waypoints.lastIndex)
-        if (!engine.moveWaypoint(currentIndex, targetIndex)) return
-        commitLineAndRoute()
+        if (engine.moveWaypoint(currentIndex, targetIndex)) {
+            commitLineAndRoute()
+        }
     }
 
     private fun selectPlace(next: TrailDraftSelection?) {
@@ -475,6 +569,7 @@ class TrailMakerViewModel @Inject constructor(
     }
 
     private fun addStopFromPlaceCard() {
+        if (!canMutateDraft) return
         val spot = droppedPin ?: return
         selection = null
         droppedPin = null
@@ -487,12 +582,14 @@ class TrailMakerViewModel @Inject constructor(
     }
 
     private fun removeDroppedPin() {
+        if (!canMutateDraft) return
         if (selection == TrailDraftSelection.DroppedPin) selection = null
         droppedPin = null
         publishAll()
     }
 
     private fun openSaveDialog() {
+        if (!canMutateDraft) return
         val now = clock.nowEpochMillis()
         namingStartedAtEpochMillis = now
         nameDraft = ""
@@ -510,6 +607,7 @@ class TrailMakerViewModel @Inject constructor(
     private suspend fun clearDraftStateAndAwait() {
         cancelRouting()
         cancelNaming()
+        cancelMyLocationLookup()
         droppedPin = null
         selection = null
         placeCardAddress = null
@@ -517,7 +615,7 @@ class TrailMakerViewModel @Inject constructor(
         engine.clear()
         trailDraftOverlayState.clearOverlay()
         publishUiState()
-        enqueueDraftWrite(StoredTrailDraft.Empty).join()
+        draftWriteCoordinator.writeAndAwait(trailDraftRepository, StoredTrailDraft.Empty)
     }
 
     private fun commitLineAndRoute() {
@@ -528,21 +626,7 @@ class TrailMakerViewModel @Inject constructor(
     }
 
     private fun persistDraft() {
-        enqueueDraftWrite(engine.toStoredDraft())
-    }
-
-    private fun enqueueDraftWrite(snapshot: StoredTrailDraft): Job {
-        val previous = latestDraftWriteJob
-        val job = applicationScope.launch {
-            previous?.join()
-            if (snapshot.isEmpty) {
-                trailDraftRepository.clearDraft()
-            } else {
-                trailDraftRepository.saveDraft(snapshot)
-            }
-        }
-        latestDraftWriteJob = job
-        return job
+        draftWriteCoordinator.enqueueWrite(trailDraftRepository, engine.toStoredDraft())
     }
 
     private fun resolveLegs(retryingRefusals: Boolean) {
@@ -587,6 +671,7 @@ class TrailMakerViewModel @Inject constructor(
                 engine = engine,
                 distanceUnit = distanceUnit,
                 canSnapToPaths = trailLegRouter.supportsMode(engine.travelMode),
+                isRestoring = isRestoring,
                 isSaving = isSaving,
                 showCloseDialog = showCloseDialog,
                 showNameDialog = showNameDialog,

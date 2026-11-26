@@ -1,13 +1,16 @@
 package app.openhikes.core.network
 
+import app.openhikes.core.common.ApplicationScope
 import app.openhikes.core.common.IoDispatcher
 import app.openhikes.core.common.OpenHikesClock
 import app.openhikes.core.common.routing.TrailGraphSquareFile
+import app.openhikes.core.model.RetryAfterParser
 import app.openhikes.core.model.TileNetworkPurpose
 import app.openhikes.core.model.TrailGraph
 import app.openhikes.core.model.TrailGraphRegion
 import app.openhikes.core.model.TrailGraphSquareGrid
 import app.openhikes.core.model.TrailLegOutage
+import app.openhikes.core.model.VectorTileSource
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -15,11 +18,14 @@ import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -34,45 +40,49 @@ sealed interface RoutingSquareReadResult {
 
 /**
  * Fetches and caches pre-built `OHGS` OSM routing squares (`routing-<build>/12/<x>/<y>.bin`)
- * from `tiles.openhikes.app`, handling HTTP `410` archive retirement and coalescing in-flight reads.
+ * from `tiles.openhikes.app`, handling HTTP `410` archive retirement, shared HTTP `429` backoff,
+ * and caller-independent coalescing of in-flight reads.
  */
 interface RoutingGraphSquareDataSource {
     suspend fun readRegion(region: TrailGraphRegion): RoutingSquareReadResult
 }
 
 @Singleton
+@Suppress("LongParameterList")
 internal class HttpRoutingGraphSquareDataSource @Inject constructor(
     @TileOkHttpClient private val httpClient: OkHttpClient,
     private val archivesManager: VectorTileArchivesManager,
     private val tileNetworkPolicy: TileNetworkPolicy,
     private val clock: OpenHikesClock,
     @RoutingSquaresDir private val cacheDir: File,
-    @IoDispatcher private val ioDispatcher: CoroutineDispatcher
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher,
+    @ApplicationScope private val applicationScope: CoroutineScope
 ) : RoutingGraphSquareDataSource {
-    private val inFlight = ConcurrentHashMap<TrailGraphRegion, CompletableDeferred<RoutingSquareReadResult>>()
+    private val inFlight = ConcurrentHashMap<TrailGraphRegion, Deferred<RoutingSquareReadResult>>()
+    private val rateLimitedUntilEpochMillis = AtomicLong(0L)
 
     override suspend fun readRegion(region: TrailGraphRegion): RoutingSquareReadResult {
         if (region.zoom != TrailGraphSquareGrid.REGION_ZOOM) {
             return RoutingSquareReadResult.Graph(TrailGraph.Empty)
         }
         val existing = inFlight[region]
-        val result = if (existing != null) {
-            existing.await()
+        val active = if (existing != null) {
+            existing
         } else {
-            val created = CompletableDeferred<RoutingSquareReadResult>()
+            val created = applicationScope.async(ioDispatcher, start = CoroutineStart.LAZY) {
+                loadOrFetch(region)
+            }
             val winner = inFlight.putIfAbsent(region, created)
             if (winner != null) {
-                winner.await()
+                created.cancel()
+                winner
             } else {
-                try {
-                    withContext(ioDispatcher) { loadOrFetch(region) }.also { created.complete(it) }
-                } finally {
-                    if (!created.isCompleted) created.cancel()
-                    inFlight.remove(region, created)
-                }
+                created.invokeOnCompletion { inFlight.remove(region, created) }
+                created.start()
+                created
             }
         }
-        return result
+        return active.await()
     }
 
     private suspend fun loadOrFetch(region: TrailGraphRegion): RoutingSquareReadResult {
@@ -84,6 +94,7 @@ internal class HttpRoutingGraphSquareDataSource @Inject constructor(
             cached != null -> RoutingSquareReadResult.Graph(cached)
             !tileNetworkPolicy.decide(TileNetworkPurpose.INTERACTIVE).isAllowed ->
                 RoutingSquareReadResult.Failed(TrailLegOutage.OFFLINE)
+            isRateLimited() -> RoutingSquareReadResult.Failed(TrailLegOutage.RATE_LIMITED)
             routingArchive == null -> RoutingSquareReadResult.Failed(TrailLegOutage.UNAVAILABLE)
             else -> when (val first = fetchSquare(routingArchive.squareTileUrl(region))) {
                 is SquareHttpAnswer.Bytes -> decodeAndCache(squareName, region, first.payload)
@@ -95,18 +106,21 @@ internal class HttpRoutingGraphSquareDataSource @Inject constructor(
     }
 
     private suspend fun retryAfterManifestRefresh(
-        retiredSource: app.openhikes.core.model.VectorTileSource,
+        retiredSource: VectorTileSource,
         squareName: String,
         region: TrailGraphRegion
     ): RoutingSquareReadResult {
         val moved = archivesManager.movedFrom(retiredSource)
         val refreshedRouting = if (moved) archivesManager.activeSource.value?.routing else null
-        if (refreshedRouting == null) return RoutingSquareReadResult.Failed(TrailLegOutage.UNAVAILABLE)
-        return when (val retry = fetchSquare(refreshedRouting.squareTileUrl(region))) {
-            is SquareHttpAnswer.Bytes -> decodeAndCache(squareName, region, retry.payload)
-            SquareHttpAnswer.Empty -> cacheEmptyAndReturn(squareName)
-            SquareHttpAnswer.Retired -> RoutingSquareReadResult.Failed(TrailLegOutage.UNAVAILABLE)
-            is SquareHttpAnswer.Error -> RoutingSquareReadResult.Failed(retry.outage)
+        return when {
+            refreshedRouting == null -> RoutingSquareReadResult.Failed(TrailLegOutage.UNAVAILABLE)
+            isRateLimited() -> RoutingSquareReadResult.Failed(TrailLegOutage.RATE_LIMITED)
+            else -> when (val retry = fetchSquare(refreshedRouting.squareTileUrl(region))) {
+                is SquareHttpAnswer.Bytes -> decodeAndCache(squareName, region, retry.payload)
+                SquareHttpAnswer.Empty -> cacheEmptyAndReturn(squareName)
+                SquareHttpAnswer.Retired -> RoutingSquareReadResult.Failed(TrailLegOutage.UNAVAILABLE)
+                is SquareHttpAnswer.Error -> RoutingSquareReadResult.Failed(retry.outage)
+            }
         }
     }
 
@@ -136,12 +150,28 @@ internal class HttpRoutingGraphSquareDataSource @Inject constructor(
                 }
                 HTTP_NO_CONTENT -> SquareHttpAnswer.Empty
                 HTTP_GONE -> SquareHttpAnswer.Retired
-                HTTP_TOO_MANY_REQUESTS -> SquareHttpAnswer.Error(TrailLegOutage.RATE_LIMITED)
+                RetryAfterParser.HTTP_TOO_MANY_REQUESTS -> {
+                    applyRateLimitCooldown(response.header(RETRY_AFTER_HEADER))
+                    SquareHttpAnswer.Error(TrailLegOutage.RATE_LIMITED)
+                }
                 else -> SquareHttpAnswer.Error(TrailLegOutage.UNAVAILABLE)
             }
         }
     } catch (_: IOException) {
         SquareHttpAnswer.Error(TrailLegOutage.UNAVAILABLE)
+    }
+
+    private fun isRateLimited(): Boolean = clock.nowEpochMillis() < rateLimitedUntilEpochMillis.get()
+
+    private fun applyRateLimitCooldown(retryAfterHeader: String?) {
+        val now = clock.nowEpochMillis()
+        val parsed = RetryAfterParser.parseDelayMillis(
+            statusCode = RetryAfterParser.HTTP_TOO_MANY_REQUESTS,
+            headerValue = retryAfterHeader,
+            nowEpochMillis = now
+        )
+        val deadline = now + (parsed ?: DEFAULT_RATE_LIMIT_COOLDOWN_MILLIS)
+        rateLimitedUntilEpochMillis.accumulateAndGet(deadline, ::maxOf)
     }
 
     private fun readCachedGraph(squareName: String, region: TrailGraphRegion): TrailGraph? {
@@ -205,12 +235,13 @@ internal class HttpRoutingGraphSquareDataSource @Inject constructor(
 
     companion object {
         const val CACHE_DIR_NAME = "routing_graph_squares"
+        const val DEFAULT_RATE_LIMIT_COOLDOWN_MILLIS = 60_000L
         private const val FILE_EXTENSION = ".ohgs"
         private const val MAX_CACHED_FILES = 32
         private const val CACHE_LIFETIME_MILLIS = 30L * 24L * 60L * 60L * 1000L
+        private const val RETRY_AFTER_HEADER = "Retry-After"
         private const val HTTP_OK = 200
         private const val HTTP_NO_CONTENT = 204
         private const val HTTP_GONE = 410
-        private const val HTTP_TOO_MANY_REQUESTS = 429
     }
 }

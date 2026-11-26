@@ -2,12 +2,19 @@ package app.openhikes.core.data
 
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import app.openhikes.core.common.LaunchConfig
+import app.openhikes.core.common.LaunchConfigHolder
 import app.openhikes.core.database.OpenHikesLocalDatabase
 import app.openhikes.core.model.AssembledTrailGraph
 import app.openhikes.core.model.GeoCoordinate
+import app.openhikes.core.model.RouteGeometry
 import app.openhikes.core.model.StoredTrailDraft
 import app.openhikes.core.model.TrailGraph
+import app.openhikes.core.model.TrailGraphEdge
+import app.openhikes.core.model.TrailGraphEdgeId
+import app.openhikes.core.model.TrailGraphNode
 import app.openhikes.core.model.TrailGraphProvider
+import app.openhikes.core.model.TrailGraphRegion
 import app.openhikes.core.model.TrailLegEnds
 import app.openhikes.core.model.TrailLegGap
 import app.openhikes.core.model.TrailLegOutage
@@ -15,6 +22,8 @@ import app.openhikes.core.model.TrailLegSnap
 import app.openhikes.core.model.TrailStopRecent
 import app.openhikes.core.model.TrailTravelMode
 import app.openhikes.core.model.TrailWaypoint
+import app.openhikes.core.network.RoutingGraphSquareDataSource
+import app.openhikes.core.network.RoutingSquareReadResult
 import app.openhikes.core.testing.TestClock
 import app.openhikes.core.testing.TestFixtures
 import com.google.common.truth.Truth.assertThat
@@ -142,4 +151,59 @@ class TrailDraftAndRoutingRepositoryTest {
         val driving = router.route(ends, TrailTravelMode.DRIVING)
         assertThat(driving?.snap).isEqualTo(TrailLegSnap.Unmapped(TrailLegGap.NO_DIRECTIONS))
     }
+
+    @Test
+    fun archiveProviderFetchesIntermediateCornerTileSoShortDiagonalLegSnaps() = runTest {
+        val nw = TrailGraphRegion(zoom = 12, x = 2047, y = 2047)
+        val sw = TrailGraphRegion(zoom = 12, x = 2047, y = 2048)
+        val se = TrailGraphRegion(zoom = 12, x = 2048, y = 2048)
+        val n1 = TrailGraphNode(1, 0.003, -0.007)
+        val n2 = TrailGraphNode(2, -0.001, -0.004)
+        val n3 = TrailGraphNode(3, -0.003, -0.001)
+        val n4 = TrailGraphNode(4, -0.004, 0.003)
+        val tileGraphs = mapOf(
+            nw to TrailGraph(
+                nodes = listOf(n1, n2),
+                edges = listOf(trailEdge(1, 0, n1, n2))
+            ),
+            sw to TrailGraph(
+                nodes = listOf(n2, n3),
+                edges = listOf(trailEdge(1, 1, n2, n3))
+            ),
+            se to TrailGraph(
+                nodes = listOf(n3, n4),
+                edges = listOf(trailEdge(1, 2, n3, n4))
+            )
+        )
+        val requested = mutableListOf<TrailGraphRegion>()
+        val squareSource = object : RoutingGraphSquareDataSource {
+            override suspend fun readRegion(region: TrailGraphRegion): RoutingSquareReadResult {
+                requested.add(region)
+                return RoutingSquareReadResult.Graph(tileGraphs[region] ?: TrailGraph.Empty)
+            }
+        }
+        val provider = ArchiveTrailGraphProvider(
+            routingSquareDataSource = squareSource,
+            bundledFixtureSource = object : BundledTrailGraphFixtureSource {
+                override suspend fun loadFixture(fixtureName: String): TrailGraph? = null
+            },
+            launchConfigHolder = LaunchConfigHolder(LaunchConfig.Production)
+        )
+        val router = OsmTrailLegRouter(provider, UnconfinedTestDispatcher(testScheduler))
+        val ends = TrailLegEnds(n1.coordinate, n4.coordinate)
+
+        val routed = router.route(ends, TrailTravelMode.HIKING)
+
+        assertThat(requested).containsExactly(nw, sw, se).inOrder()
+        assertThat(routed?.snap).isEqualTo(TrailLegSnap.Snapped)
+    }
+
+    private fun trailEdge(wayId: Long, seg: Int, from: TrailGraphNode, to: TrailGraphNode): TrailGraphEdge =
+        TrailGraphEdge(
+            id = TrailGraphEdgeId(wayId, seg),
+            fromNodeId = from.id,
+            toNodeId = to.id,
+            lengthMeters = RouteGeometry.distanceMeters(from.coordinate, to.coordinate),
+            highway = "path"
+        )
 }

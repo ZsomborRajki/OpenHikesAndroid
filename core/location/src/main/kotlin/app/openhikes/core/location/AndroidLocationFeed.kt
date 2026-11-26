@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.os.CancellationSignal
 import android.os.Looper
 import androidx.core.content.ContextCompat
 import app.openhikes.core.model.GeoCoordinate
@@ -16,12 +17,14 @@ import app.openhikes.core.model.RecordingEnergyReason
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.coroutines.resume
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
  * Production [LocationFeed] backed by Android's [LocationManager] using GPS/Fused providers
@@ -38,7 +41,11 @@ internal class AndroidLocationFeed @Inject constructor(@ApplicationContext priva
     private val activeProfileState = MutableStateFlow<RecordingEnergyProfile?>(null)
     private var isListening = false
 
+    @Volatile
+    private var latestFixCoordinate: GeoCoordinate? = null
+
     private val listener = LocationListener { location ->
+        location.toValidCoordinate()?.let { latestFixCoordinate = it }
         fixesFlow.tryEmit(location.toLocationFix())
     }
 
@@ -98,15 +105,74 @@ internal class AndroidLocationFeed @Inject constructor(@ApplicationContext priva
     @SuppressLint("MissingPermission")
     override fun lastKnownCoordinate(): GeoCoordinate? {
         refreshPermissionStatus()
-        val manager = if (permissionStatusState.value != LocationPermissionStatus.DENIED) locationManager else null
-        return manager?.let { mgr ->
-            listOf(LocationManager.FUSED_PROVIDER, LocationManager.GPS_PROVIDER).firstNotNullOfOrNull { provider ->
-                runCatching { mgr.getLastKnownLocation(provider) }
+        val status = permissionStatusState.value
+        val manager = locationManager
+        return when {
+            status == LocationPermissionStatus.DENIED -> null
+            manager == null -> latestFixCoordinate
+            else -> lastKnownProvidersFor(status).firstNotNullOfOrNull { provider ->
+                runCatching { manager.getLastKnownLocation(provider) }
                     .getOrNull()
-                    ?.takeIf { it.latitude.isFinite() && it.longitude.isFinite() }
-                    ?.let { loc -> runCatching { GeoCoordinate(loc.latitude, loc.longitude) }.getOrNull() }
+                    ?.toValidCoordinate()
+            } ?: latestFixCoordinate
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    override suspend fun requestCurrentCoordinate(): GeoCoordinate? {
+        val cached = lastKnownCoordinate()
+        val status = permissionStatusState.value
+        val manager = locationManager
+        val provider = if (cached == null && status != LocationPermissionStatus.DENIED && manager != null) {
+            resolveOneShotProvider(manager, status)
+        } else {
+            null
+        }
+        return when {
+            cached != null -> cached
+            provider == null || manager == null -> null
+            else -> fetchSingleFix(manager, provider)
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    private suspend fun fetchSingleFix(manager: LocationManager, provider: String): GeoCoordinate? =
+        suspendCancellableCoroutine { continuation ->
+            val signal = CancellationSignal()
+            continuation.invokeOnCancellation { signal.cancel() }
+            val started = runCatching {
+                manager.getCurrentLocation(provider, signal, context.mainExecutor) { location ->
+                    val coord = location?.toValidCoordinate()
+                    if (coord != null) latestFixCoordinate = coord
+                    if (continuation.isActive) continuation.resume(coord)
+                }
+            }
+            if (started.isFailure && continuation.isActive) {
+                continuation.resume(null)
             }
         }
+
+    private fun lastKnownProvidersFor(status: LocationPermissionStatus): List<String> = when (status) {
+        LocationPermissionStatus.GRANTED_FINE -> listOf(
+            LocationManager.FUSED_PROVIDER,
+            LocationManager.GPS_PROVIDER,
+            LocationManager.NETWORK_PROVIDER
+        )
+        LocationPermissionStatus.GRANTED_COARSE -> listOf(
+            LocationManager.FUSED_PROVIDER,
+            LocationManager.NETWORK_PROVIDER
+        )
+        LocationPermissionStatus.DENIED -> emptyList()
+    }
+
+    private fun resolveOneShotProvider(manager: LocationManager, status: LocationPermissionStatus): String? {
+        val candidates = lastKnownProvidersFor(status)
+        val available = manager.allProviders
+        return candidates.firstOrNull {
+            it in available &&
+                runCatching { manager.isProviderEnabled(it) }.getOrDefault(false)
+        }
+            ?: candidates.firstOrNull { it in available }
     }
 
     private fun readPermissionStatus(): LocationPermissionStatus {
@@ -129,6 +195,9 @@ internal class AndroidLocationFeed @Inject constructor(@ApplicationContext priva
         manager.allProviders.contains(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
         else -> null
     }
+
+    private fun Location.toValidCoordinate(): GeoCoordinate? = takeIf { latitude.isFinite() && longitude.isFinite() }
+        ?.let { loc -> runCatching { GeoCoordinate(loc.latitude, loc.longitude) }.getOrNull() }
 
     private fun Location.toLocationFix(): LocationFix = LocationFix(
         latitude = latitude,
