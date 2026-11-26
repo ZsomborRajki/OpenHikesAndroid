@@ -221,6 +221,24 @@ class HikePhotoViewerViewModelTest {
             .isEqualTo(PhotoPageContent.Unavailable(PhotoUnavailableReason.NOT_DOWNLOADED))
     }
 
+    @Test
+    fun shareActionPreparesUniqueShareFileWithReadableDisplayName() = runTest {
+        val harness = createViewerHarness()
+        advanceUntilIdle()
+
+        harness.viewModel.onAction(HikePhotoViewerAction.ShareCurrent)
+        advanceUntilIdle()
+
+        val prepared = harness.viewModel.uiState.value.pendingSharePhoto
+        assertThat(prepared).isNotNull()
+        assertThat(prepared?.displayName).isEqualTo("Thumsee Loop-1.jpeg")
+        assertThat(prepared?.file?.exists()).isTrue()
+
+        harness.viewModel.onAction(HikePhotoViewerAction.ConsumeShareFile)
+        assertThat(harness.viewModel.uiState.value.pendingSharePhoto).isNull()
+        prepared?.file?.delete()
+    }
+
     private fun sampleHike(hikeId: HikeId, photos: List<HikePhoto>): Hike = Hike(
         id = hikeId,
         title = "Thumsee Loop",

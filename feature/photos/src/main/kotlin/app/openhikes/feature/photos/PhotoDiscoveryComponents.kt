@@ -1,6 +1,5 @@
 package app.openhikes.feature.photos
 
-import android.graphics.BitmapFactory
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -40,7 +39,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -55,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import app.openhikes.core.designsystem.icon.OpenHikesIcons
 import app.openhikes.core.model.LibraryPhotoMatch
 import app.openhikes.core.model.PhotoMatchEvidence
+import app.openhikes.core.ui.components.PhotoBitmapDecoder
 import app.openhikes.core.ui.components.PhotoPresentationFormatter
 import app.openhikes.core.ui.format.HikeMetricsFormatter
 import app.openhikes.core.ui.testing.OpenHikesTestTags
@@ -63,6 +62,7 @@ import kotlinx.coroutines.withContext
 
 private val GridCellMinSize = 104.dp
 private val GridSpacing = 8.dp
+private const val DISCOVERY_CELL_DECODE_MAX_EDGE_PX = 400
 private val GridCellCornerRadius = 12.dp
 private val SelectedBorderWidth = 3.dp
 private val CheckBadgeSize = 22.dp
@@ -303,7 +303,10 @@ private fun DiscoveryPhotoCell(
         val bytes = loadThumbnailBytes(match.asset.localIdentifier)
         value = if (bytes != null) {
             withContext(Dispatchers.Default) {
-                runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap() }.getOrNull()
+                PhotoBitmapDecoder.decodeUpright(
+                    bytes = bytes,
+                    maxEdgePx = DISCOVERY_CELL_DECODE_MAX_EDGE_PX
+                )
             }
         } else {
             null

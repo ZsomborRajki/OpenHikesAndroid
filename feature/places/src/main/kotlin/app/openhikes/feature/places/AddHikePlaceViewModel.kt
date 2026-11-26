@@ -47,6 +47,7 @@ data class AddHikePlaceUiState(
     val isStagingPhoto: Boolean = false,
     val isSaving: Boolean = false,
     val showSaveRefusal: Boolean = false,
+    val photoAttachFailureCount: Int = 0,
     val addedPlaceId: String? = null
 ) {
     val canConfirmAdd: Boolean
@@ -92,6 +93,7 @@ class AddHikePlaceViewModel @AssistedInject constructor(
         initialLongitude = initialLongitude
     )
     private val placeId = UUID.randomUUID().toString()
+    private var createdPlace: TrailPoint? = null
 
     private val uiStateFlow = MutableStateFlow(AddHikePlaceUiState(coordinate = initialCoordinate))
     val uiState: StateFlow<AddHikePlaceUiState> = uiStateFlow.asStateFlow()
@@ -200,9 +202,67 @@ class AddHikePlaceViewModel @AssistedInject constructor(
     fun onConfirmAdd(currentKindLabel: String) {
         val current = uiStateFlow.value
         if (!current.canConfirmAdd) return
+        val existingCreated = createdPlace
+        val targetPlace = existingCreated ?: buildDraftPlace(current, currentKindLabel)
+        val stagedSnapshot = current.stagedPhotos
+        uiStateFlow.update { it.copy(isSaving = true, showSaveRefusal = false, photoAttachFailureCount = 0) }
+        viewModelScope.launch {
+            val placePersisted = if (existingCreated != null) {
+                true
+            } else {
+                val addResult = hikeRepository.addPlace(hikeId, targetPlace)
+                if (addResult.isSuccess) {
+                    createdPlace = targetPlace
+                    true
+                } else {
+                    false
+                }
+            }
+            if (!placePersisted) {
+                uiStateFlow.update { it.copy(isSaving = false, showSaveRefusal = true) }
+                return@launch
+            }
+            val failed = commitStagedPhotos(targetPlace, stagedSnapshot)
+            if (failed.isEmpty()) {
+                uiStateFlow.update {
+                    it.copy(
+                        isSaving = false,
+                        stagedPhotos = emptyList(),
+                        photoAttachFailureCount = 0,
+                        addedPlaceId = targetPlace.id
+                    )
+                }
+            } else {
+                uiStateFlow.update {
+                    it.copy(
+                        isSaving = false,
+                        stagedPhotos = failed,
+                        photoAttachFailureCount = failed.size
+                    )
+                }
+            }
+        }
+    }
+
+    fun onContinueWithoutFailedPhotos() {
+        val savedId = createdPlace?.id ?: return
+        uiStateFlow.update {
+            it.copy(
+                stagedPhotos = emptyList(),
+                photoAttachFailureCount = 0,
+                addedPlaceId = savedId
+            )
+        }
+    }
+
+    fun onDismissPhotoAttachError() {
+        uiStateFlow.update { it.copy(photoAttachFailureCount = 0) }
+    }
+
+    private fun buildDraftPlace(current: AddHikePlaceUiState, currentKindLabel: String): TrailPoint {
         val boundedName = BoundedText.boundedOrEmpty(current.name, TextBound.TITLE)
         val storedName = if (boundedName == currentKindLabel) "" else boundedName
-        val newPlace = TrailPoint(
+        return TrailPoint(
             id = placeId,
             hikeId = hikeId,
             coordinate = current.coordinate,
@@ -210,28 +270,18 @@ class AddHikePlaceViewModel @AssistedInject constructor(
             symbol = current.symbol?.rawValue,
             note = BoundedText.boundedOrEmpty(current.note, TextBound.NOTES)
         )
-        val stagedSnapshot = current.stagedPhotos
-        uiStateFlow.update { it.copy(isSaving = true, showSaveRefusal = false) }
-        viewModelScope.launch {
-            val result = hikeRepository.addPlace(hikeId, newPlace)
-            if (result.isSuccess) {
-                commitStagedPhotos(newPlace, stagedSnapshot)
-                uiStateFlow.update { it.copy(isSaving = false, stagedPhotos = emptyList(), addedPlaceId = newPlace.id) }
-            } else {
-                uiStateFlow.update { it.copy(isSaving = false, showSaveRefusal = true) }
-            }
-        }
     }
 
-    private suspend fun commitStagedPhotos(place: TrailPoint, staged: List<StagedPlacePhoto>) {
-        if (staged.isEmpty()) return
+    private suspend fun commitStagedPhotos(place: TrailPoint, staged: List<StagedPlacePhoto>): List<StagedPlacePhoto> {
+        if (staged.isEmpty()) return emptyList()
         val saveToLibrary = try {
             userSettingsRepository.userSettings.first().savePhotosToLibrary
         } catch (_: IOException) {
             false
         }
+        val failed = ArrayList<StagedPlacePhoto>()
         for (item in staged) {
-            if (item.fromCamera) {
+            val result = if (item.fromCamera) {
                 hikeRepository.addCameraPhoto(
                     hikeId = hikeId,
                     rawBytes = item.bytes,
@@ -249,7 +299,11 @@ class AddHikePlaceViewModel @AssistedInject constructor(
                     placeId = place.id
                 )
             }
+            if (result.isFailure) {
+                failed.add(item)
+            }
         }
+        return failed
     }
 
     fun onDismissSaveRefusal() {

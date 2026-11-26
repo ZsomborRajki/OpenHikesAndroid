@@ -4,7 +4,6 @@ import androidx.compose.runtime.Immutable
 import app.openhikes.core.location.TrailWalkSessionState
 import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.ExportedGpx
-import app.openhikes.core.model.ExportedHikeArchive
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
@@ -69,7 +68,7 @@ data class HikeDetailUiState(
     val showDeleteDialog: Boolean = false,
     val actionError: HikeDetailError? = null,
     val pendingExport: ExportedGpx? = null,
-    val pendingArchiveExport: ExportedHikeArchive? = null,
+    val pendingArchiveFileName: String? = null,
     val exportSuccess: Boolean = false,
     val orderedPhotos: List<HikePhoto> = emptyList(),
     val anchoredPhotoCount: Int = 0,

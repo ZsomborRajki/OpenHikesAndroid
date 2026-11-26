@@ -26,6 +26,12 @@ import java.io.File
 import kotlinx.coroutines.flow.Flow
 
 /**
+ * Immutable cached photo copy prepared for Android's share sheet, paired with its user-facing
+ * display name for `FileProvider.getUriForFile(context, authority, file, displayName)`.
+ */
+data class PreparedSharePhoto(val file: File, val displayName: String)
+
+/**
  * Main-safe repository owning the local hike library, GPX import/export, and route styling.
  */
 @Suppress("TooManyFunctions")
@@ -151,7 +157,11 @@ interface HikeRepository {
 
     suspend fun hasPhotoFile(photo: HikePhoto): Boolean
 
-    suspend fun prepareSharePhotoFile(hikeTitle: String, positionOneBased: Int, photo: HikePhoto): Result<File>
+    suspend fun prepareSharePhotoFile(
+        hikeTitle: String,
+        positionOneBased: Int,
+        photo: HikePhoto
+    ): Result<PreparedSharePhoto>
 
     suspend fun exportHikeArchive(hikeId: HikeId): Result<ExportedHikeArchive>
 

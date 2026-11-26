@@ -9,6 +9,8 @@ import app.openhikes.core.common.IoDispatcher
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
@@ -38,6 +40,8 @@ interface PhotoFileIo {
     suspend fun readPickedUri(uriString: String): PickedImagePayload?
 
     suspend fun writeBytesToUri(uriString: String, bytes: ByteArray): Result<Unit>
+
+    suspend fun writeStreamToUri(uriString: String, writer: (OutputStream) -> Unit): Result<Unit>
 }
 
 @Singleton
@@ -55,6 +59,12 @@ internal class AndroidPhotoFileIo @Inject constructor(
     }
 
     override suspend fun writeBytesToUri(uriString: String, bytes: ByteArray): Result<Unit> =
+        writeStreamToUri(uriString) { output ->
+            output.write(bytes)
+            output.flush()
+        }
+
+    override suspend fun writeStreamToUri(uriString: String, writer: (OutputStream) -> Unit): Result<Unit> =
         withContext(ioDispatcher) {
             runCatching {
                 val uri = uriString.toUri()
@@ -62,7 +72,7 @@ internal class AndroidPhotoFileIo @Inject constructor(
                     ?: context.contentResolver.openOutputStream(uri)
                     ?: throw IOException("Unable to open output stream for $uriString")
                 stream.use { output ->
-                    output.write(bytes)
+                    writer(output)
                     output.flush()
                 }
             }
@@ -70,16 +80,7 @@ internal class AndroidPhotoFileIo @Inject constructor(
 
     private fun readBoundedBytes(uri: Uri, maxBytes: Int): ByteArray? = runCatching {
         context.contentResolver.openInputStream(uri)?.use { stream ->
-            val output = ByteArrayOutputStream()
-            val buffer = ByteArray(STREAM_BUFFER_SIZE)
-            var total = 0
-            while (total < maxBytes) {
-                val read = stream.read(buffer, 0, minOf(buffer.size, maxBytes - total))
-                if (read <= 0) break
-                output.write(buffer, 0, read)
-                total += read
-            }
-            output.toByteArray()
+            readBoundedStream(stream, maxBytes)
         }
     }.getOrNull()
 
@@ -108,8 +109,25 @@ internal class AndroidPhotoFileIo @Inject constructor(
         return fromMediaId ?: fromDoc ?: uri.lastPathSegment?.takeIf { it.all(Char::isDigit) }
     }
 
-    private companion object {
+    internal companion object {
         const val MAX_IMAGE_BYTES = 64 * 1024 * 1024
         const val STREAM_BUFFER_SIZE = 8192
+
+        fun readBoundedStream(stream: InputStream, maxBytes: Int): ByteArray? {
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(STREAM_BUFFER_SIZE)
+            var total = 0
+            while (total < maxBytes) {
+                val read = stream.read(buffer, 0, minOf(buffer.size, maxBytes - total))
+                if (read <= 0) break
+                output.write(buffer, 0, read)
+                total += read
+            }
+            return if (total == maxBytes && stream.read() != -1) {
+                null
+            } else {
+                output.toByteArray()
+            }
+        }
     }
 }

@@ -87,6 +87,10 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
         private set
     var lastExportedArchiveUri: Pair<String, ByteArray>? = null
         private set
+    var exportHikeArchiveCalls: Int = 0
+        private set
+    var exportHikeArchiveToUriCalls: Int = 0
+        private set
     val mirroredCameraPhotoIds: MutableList<String> = mutableListOf()
 
     fun putPhotoBytesForTest(photoId: String, bytes: ByteArray) {
@@ -1050,15 +1054,33 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
         hikeTitle: String,
         positionOneBased: Int,
         photo: HikePhoto
-    ): Result<File> {
+    ): Result<app.openhikes.core.data.PreparedSharePhoto> {
         val bytes = readPhotoBytes(photo)
             ?: return Result.failure(IOException("Photo file is not on this device"))
-        val temp = File.createTempFile("share-$positionOneBased-", ".${photo.pathExtension}")
+        val temp = File.createTempFile("share-${UUID.randomUUID()}-", ".${photo.pathExtension}")
         temp.writeBytes(bytes)
-        return Result.success(temp)
+        val stem = hikeTitle.ifBlank { "Hike" }
+        return Result.success(
+            app.openhikes.core.data.PreparedSharePhoto(
+                file = temp,
+                displayName = "$stem-$positionOneBased.${photo.pathExtension}"
+            )
+        )
     }
 
     override suspend fun exportHikeArchive(hikeId: HikeId): Result<ExportedHikeArchive> {
+        exportHikeArchiveCalls += 1
+        return buildFakeHikeArchive(hikeId)
+    }
+
+    override suspend fun exportHikeArchiveToUri(hikeId: HikeId, uriString: String): Result<Unit> {
+        exportHikeArchiveToUriCalls += 1
+        val archive = buildFakeHikeArchive(hikeId).getOrElse { return Result.failure(it) }
+        lastExportedArchiveUri = uriString to archive.zipBytes
+        return Result.success(Unit)
+    }
+
+    private fun buildFakeHikeArchive(hikeId: HikeId): Result<ExportedHikeArchive> {
         val failure = nextExportFailure?.also { nextExportFailure = null }
         val hike = if (failure == null) hikesState.value.firstOrNull { it.id == hikeId } else null
         return when {
@@ -1068,12 +1090,6 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
             )
             else -> Result.failure(NoSuchElementException("Hike not found"))
         }
-    }
-
-    override suspend fun exportHikeArchiveToUri(hikeId: HikeId, uriString: String): Result<Unit> {
-        val archive = exportHikeArchive(hikeId).getOrElse { return Result.failure(it) }
-        lastExportedArchiveUri = uriString to archive.zipBytes
-        return Result.success(Unit)
     }
 
     override suspend fun measurePhotoStorageBytes(): Long =

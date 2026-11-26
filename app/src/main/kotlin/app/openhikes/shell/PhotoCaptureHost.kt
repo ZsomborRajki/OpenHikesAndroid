@@ -12,8 +12,8 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -24,6 +24,7 @@ import app.openhikes.R
 import app.openhikes.core.map.PhotoCaptureAlert
 import app.openhikes.core.map.PhotoCaptureRequest
 import app.openhikes.core.map.PhotoCaptureRequestKind
+import app.openhikes.core.model.HikeId
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
@@ -47,16 +48,17 @@ data class MapPhotosChromeState(
 @Immutable
 internal data class PhotoCaptureHostCallbacks(
     val onConsumeRequest: (Long) -> Unit,
-    val onCameraPhotoCaptured: (PhotoCaptureRequest, ByteArray, Long) -> Unit,
+    val onCameraPhotoCaptured: (HikeId, String?, ByteArray, Long) -> Unit,
     val onCameraCaptureFailed: (PhotoCaptureAlert) -> Unit,
-    val onLibraryPhotosPicked: (PhotoCaptureRequest, List<String>) -> Unit,
+    val onLibraryPhotosPicked: (HikeId, String?, List<String>) -> Unit,
     val onDismissAlert: () -> Unit
 )
 
 /**
  * Shell-level host executing Android's system camera (`TakePicture`) and Photo Picker
  * (`PickMultipleVisualMedia`) contracts whenever any photo-capable route or floating control
- * enqueues a [PhotoCaptureRequest], and displaying Material 3 alerts on capture/import failure.
+ * enqueues a [PhotoCaptureRequest], persisting the pending target across configuration changes
+ * and process recreation, and displaying Material 3 alerts on capture/import failure.
  */
 @Composable
 internal fun PhotoCaptureHost(
@@ -84,30 +86,38 @@ internal fun PhotoCaptureHost(
 @Suppress("InjectDispatcher")
 @Composable
 private fun rememberShellCameraLauncher(
-    onCameraPhotoCaptured: (PhotoCaptureRequest, ByteArray, Long) -> Unit,
+    onCameraPhotoCaptured: (HikeId, String?, ByteArray, Long) -> Unit,
     onCameraCaptureFailed: (PhotoCaptureAlert) -> Unit
 ): (PhotoCaptureRequest) -> Unit {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var activeCameraRequest by remember { mutableStateOf<Pair<PhotoCaptureRequest, File>?>(null) }
+    var pendingHikeId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingPlaceId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingFilePath by rememberSaveable { mutableStateOf<String?>(null) }
 
     val cameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicture()
     ) { success ->
-        val pending = activeCameraRequest
-        activeCameraRequest = null
-        if (pending == null) return@rememberLauncherForActivityResult
-        val (request, file) = pending
+        val hikeId = pendingHikeId?.let(::HikeId)
+        val placeId = pendingPlaceId
+        val file = pendingFilePath?.let(::File)
+        pendingHikeId = null
+        pendingPlaceId = null
+        pendingFilePath = null
+        if (hikeId == null || file == null) {
+            file?.delete()
+            return@rememberLauncherForActivityResult
+        }
         if (!success) {
             file.delete()
         } else {
-            val shutterMillis = System.currentTimeMillis()
+            val fallbackMillis = System.currentTimeMillis()
             scope.launch {
                 val bytes = withContext(Dispatchers.IO) {
                     runCatching { file.readBytes() }.getOrNull().also { file.delete() }
                 }
                 if (bytes != null && bytes.isNotEmpty()) {
-                    onCameraPhotoCaptured(request, bytes, shutterMillis)
+                    onCameraPhotoCaptured(hikeId, placeId, bytes, fallbackMillis)
                 } else {
                     onCameraCaptureFailed(PhotoCaptureAlert.CAMERA_SAVE_FAILED)
                 }
@@ -119,12 +129,16 @@ private fun rememberShellCameraLauncher(
         runCatching {
             val dir = File(context.cacheDir, "camera_captures").apply { mkdirs() }
             val file = File(dir, "capture-${UUID.randomUUID()}.jpg")
-            activeCameraRequest = request to file
+            pendingHikeId = request.subject.hikeId.value
+            pendingPlaceId = request.subject.placeId
+            pendingFilePath = file.absolutePath
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
             cameraLauncher.launch(uri)
         }.onFailure {
-            activeCameraRequest?.second?.delete()
-            activeCameraRequest = null
+            pendingFilePath?.let { path -> File(path).delete() }
+            pendingHikeId = null
+            pendingPlaceId = null
+            pendingFilePath = null
             onCameraCaptureFailed(PhotoCaptureAlert.CAMERA_SAVE_FAILED)
         }
     }
@@ -132,26 +146,31 @@ private fun rememberShellCameraLauncher(
 
 @Composable
 private fun rememberShellLibraryLauncher(
-    onLibraryPhotosPicked: (PhotoCaptureRequest, List<String>) -> Unit,
+    onLibraryPhotosPicked: (HikeId, String?, List<String>) -> Unit,
     onCameraCaptureFailed: (PhotoCaptureAlert) -> Unit
 ): (PhotoCaptureRequest) -> Unit {
-    var activeLibraryRequest by remember { mutableStateOf<PhotoCaptureRequest?>(null) }
+    var pendingHikeId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingPlaceId by rememberSaveable { mutableStateOf<String?>(null) }
     val libraryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(MAX_LIBRARY_PICK_ITEMS)
     ) { uris ->
-        val request = activeLibraryRequest
-        activeLibraryRequest = null
-        if (request != null && uris.isNotEmpty()) {
-            onLibraryPhotosPicked(request, uris.map { it.toString() })
+        val hikeId = pendingHikeId?.let(::HikeId)
+        val placeId = pendingPlaceId
+        pendingHikeId = null
+        pendingPlaceId = null
+        if (hikeId != null && uris.isNotEmpty()) {
+            onLibraryPhotosPicked(hikeId, placeId, uris.map { it.toString() })
         }
     }
 
     return { request ->
         runCatching {
-            activeLibraryRequest = request
+            pendingHikeId = request.subject.hikeId.value
+            pendingPlaceId = request.subject.placeId
             libraryLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
         }.onFailure {
-            activeLibraryRequest = null
+            pendingHikeId = null
+            pendingPlaceId = null
             onCameraCaptureFailed(PhotoCaptureAlert.LIBRARY_IMPORT_FAILED)
         }
     }

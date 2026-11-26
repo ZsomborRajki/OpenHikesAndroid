@@ -1,7 +1,6 @@
 package app.openhikes.feature.photos
 
 import android.content.Intent
-import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -39,7 +38,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -54,13 +52,13 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.openhikes.core.data.PreparedSharePhoto
 import app.openhikes.core.designsystem.icon.OpenHikesIcons
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikePhoto
 import app.openhikes.core.model.PhotoCreditPlacement
+import app.openhikes.core.ui.components.PhotoBitmapDecoder
 import app.openhikes.core.ui.testing.OpenHikesTestTags
-import java.io.File
-import kotlin.math.max
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withContext
@@ -103,9 +101,9 @@ fun HikePhotoViewerRoute(
             viewModel.onAction(HikePhotoViewerAction.ConsumeExpandFullHeight)
         }
     }
-    LaunchedEffect(uiState.pendingShareFile) {
-        val file = uiState.pendingShareFile ?: return@LaunchedEffect
-        sharePreparedPhoto(context, file)
+    LaunchedEffect(uiState.pendingSharePhoto) {
+        val prepared = uiState.pendingSharePhoto ?: return@LaunchedEffect
+        sharePreparedPhoto(context, prepared)
         viewModel.onAction(HikePhotoViewerAction.ConsumeShareFile)
     }
 
@@ -461,24 +459,14 @@ private fun PhotoViewerDialogs(
     }
 }
 
-private fun decodeDisplayBitmap(bytes: ByteArray): ImageBitmap? = runCatching {
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-    var sample = 1
-    var longest = max(bounds.outWidth, bounds.outHeight)
-    while (longest / 2 >= DISPLAY_MAX_EDGE_PX) {
-        sample *= 2
-        longest /= 2
-    }
-    val opts = BitmapFactory.Options().apply { inSampleSize = sample }
-    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)?.asImageBitmap()
-}.getOrNull()
+private fun decodeDisplayBitmap(bytes: ByteArray): ImageBitmap? =
+    PhotoBitmapDecoder.decodeUpright(bytes, DISPLAY_MAX_EDGE_PX)
 
-private fun sharePreparedPhoto(context: android.content.Context, file: File) {
+private fun sharePreparedPhoto(context: android.content.Context, prepared: PreparedSharePhoto) {
     runCatching {
         val authority = "${context.packageName}.fileprovider"
-        val uri = FileProvider.getUriForFile(context, authority, file)
-        val mime = when (file.extension.lowercase()) {
+        val uri = FileProvider.getUriForFile(context, authority, prepared.file, prepared.displayName)
+        val mime = when (prepared.file.extension.lowercase()) {
             "png" -> "image/png"
             "webp" -> "image/webp"
             "heic" -> "image/heic"

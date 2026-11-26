@@ -110,6 +110,12 @@ class PhotoCaptureController @Inject constructor() {
         }
     }
 
+    fun subjectFor(hikeId: HikeId, placeId: String?): PhotoCaptureSubject? = synchronized(lock) {
+        subjectsByRoute.values
+            .filter { it.hikeId == hikeId && it.placeId == placeId }
+            .maxByOrNull { it.depth }
+    }
+
     fun requestCamera(explicitSubject: PhotoCaptureSubject? = null): Boolean =
         enqueueRequest(PhotoCaptureRequestKind.CAMERA, explicitSubject)
 

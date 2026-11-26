@@ -187,8 +187,8 @@ private fun HikeDetailRouteEffects(hikeId: HikeId, uiState: HikeDetailUiState, c
     LaunchedEffect(uiState.pendingExport) {
         uiState.pendingExport?.let { exportLauncher.launch(it.fileName) }
     }
-    LaunchedEffect(uiState.pendingArchiveExport) {
-        uiState.pendingArchiveExport?.let { archiveExportLauncher.launch(it.fileName) }
+    LaunchedEffect(uiState.pendingArchiveFileName) {
+        uiState.pendingArchiveFileName?.let { archiveExportLauncher.launch(it) }
     }
     LaunchedEffect(uiState.walkSession.lastEndedWalk) {
         val ended = uiState.walkSession.lastEndedWalk ?: return@LaunchedEffect

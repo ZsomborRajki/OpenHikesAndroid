@@ -7,6 +7,7 @@ import app.openhikes.core.common.DefaultDispatcher
 import app.openhikes.core.common.LaunchConfigHolder
 import app.openhikes.core.data.HikeRepository
 import app.openhikes.core.data.OfflineCountryRepository
+import app.openhikes.core.data.PhotoMetadataCodec
 import app.openhikes.core.data.UserSettingsRepository
 import app.openhikes.core.location.RecordingController
 import app.openhikes.core.location.TrailWalkController
@@ -68,6 +69,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Coarse UI state for map overlays and attribution chrome, deliberately excluding high-frequency
@@ -102,7 +104,7 @@ class MapShellViewModel @Inject constructor(
     private val photoCaptureController: PhotoCaptureController,
     private val mapProviderKeys: MapProviderKeys,
     launchConfigHolder: LaunchConfigHolder,
-    @DefaultDispatcher defaultDispatcher: CoroutineDispatcher
+    @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
 ) : ViewModel() {
     private val showAttributionDialog = MutableStateFlow(false)
     private val showEndWalkForRecordingDialogState = MutableStateFlow(false)
@@ -376,7 +378,7 @@ class MapShellViewModel @Inject constructor(
         photoCaptureController.showAlert(alert)
     }
 
-    fun onCameraPhotoCaptured(request: PhotoCaptureRequest, bytes: ByteArray, shutterEpochMillis: Long) {
+    fun onCameraPhotoCaptured(hikeId: HikeId, placeId: String?, bytes: ByteArray, fallbackCapturedAtMillis: Long) {
         viewModelScope.launch {
             photoCaptureController.setBusy(true)
             try {
@@ -385,14 +387,17 @@ class MapShellViewModel @Inject constructor(
                 } catch (_: IOException) {
                     false
                 }
-                val subject = request.subject
-                val coordinate = subject.anchorProvider(shutterEpochMillis)
+                val exifCapturedAt = withContext(defaultDispatcher) {
+                    PhotoMetadataCodec.readMetadata(bytes).capturedAtEpochMillis
+                }
+                val resolvedShutterMillis = exifCapturedAt ?: fallbackCapturedAtMillis
+                val coordinate = resolveCapturedPhotoCoordinate(hikeId, placeId, resolvedShutterMillis)
                 val result = hikeRepository.addCameraPhoto(
-                    hikeId = subject.hikeId,
+                    hikeId = hikeId,
                     rawBytes = bytes,
-                    capturedAtEpochMillis = shutterEpochMillis,
+                    capturedAtEpochMillis = resolvedShutterMillis,
                     coordinate = coordinate,
-                    placeId = subject.placeId,
+                    placeId = placeId,
                     saveToSystemLibrary = saveToLibrary
                 )
                 if (result.isFailure) {
@@ -404,22 +409,21 @@ class MapShellViewModel @Inject constructor(
         }
     }
 
-    fun onLibraryPhotosPicked(request: PhotoCaptureRequest, uriStrings: List<String>) {
+    fun onLibraryPhotosPicked(hikeId: HikeId, placeId: String?, uriStrings: List<String>) {
         if (uriStrings.isEmpty()) return
         val startEpoch = photoCaptureController.importCancellationEpoch.value
-        val subject = request.subject
         viewModelScope.launch {
             photoCaptureController.setBusy(true)
             var anyFailed = false
             try {
                 for (uriString in uriStrings) {
                     if (photoCaptureController.importCancellationEpoch.value != startEpoch) break
-                    val fallbackCoord = subject.anchorProvider(null)
+                    val fallbackCoord = resolveCapturedPhotoCoordinate(hikeId, placeId, shutterEpochMillis = null)
                     val result = hikeRepository.addPickedPhotoUri(
-                        hikeId = subject.hikeId,
+                        hikeId = hikeId,
                         uriString = uriString,
                         fallbackCoordinate = fallbackCoord,
-                        placeId = subject.placeId
+                        placeId = placeId
                     )
                     if (result.isFailure) anyFailed = true
                 }
@@ -429,6 +433,27 @@ class MapShellViewModel @Inject constructor(
             } finally {
                 photoCaptureController.setBusy(false)
             }
+        }
+    }
+
+    private suspend fun resolveCapturedPhotoCoordinate(
+        hikeId: HikeId,
+        placeId: String?,
+        shutterEpochMillis: Long?
+    ): GeoCoordinate? {
+        val registered = photoCaptureController.subjectFor(hikeId, placeId)
+        if (registered != null) {
+            return registered.anchorProvider(shutterEpochMillis)
+        }
+        val recording = recordingController.state.value
+        return when {
+            placeId != null -> hikeRepository.observeHike(hikeId).first()
+                ?.places
+                ?.firstOrNull { it.id == placeId }
+                ?.coordinate
+            recording.isActive && recording.sessionId == hikeId.value ->
+                recordingController.photoCoordinateAt(shutterEpochMillis)
+            else -> null
         }
     }
 

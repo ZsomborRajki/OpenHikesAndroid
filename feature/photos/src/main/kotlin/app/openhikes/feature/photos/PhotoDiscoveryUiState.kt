@@ -58,6 +58,8 @@ sealed interface PhotoDiscoveryAction {
 
     data object PermissionResultReceived : PhotoDiscoveryAction
 
+    data object LifecycleResumed : PhotoDiscoveryAction
+
     data object ConsumePermissionRequest : PhotoDiscoveryAction
 
     data object ConsumeLimitedMoreRequest : PhotoDiscoveryAction

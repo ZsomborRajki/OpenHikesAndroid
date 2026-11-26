@@ -54,6 +54,9 @@ class FakeRecordingController(
     var grantedFinePermission: Boolean = true
     var simulatedElapsedSeconds: Double = 0.0
     var simulatedPhotoCoordinate: GeoCoordinate? = null
+    var photoCoordinateLookup: ((Long?) -> GeoCoordinate?)? = null
+    var lastPhotoCoordinateShutterMillis: Long? = null
+        private set
     var holdsKeepsakesForStop: Boolean = false
     var nextStopStepOverride: RecordingStopStep? = null
     var nextStopFailure: Throwable? = null
@@ -84,8 +87,12 @@ class FakeRecordingController(
 
     override fun elapsedSeconds(): Double = simulatedElapsedSeconds
 
-    override fun photoCoordinateAt(shutterEpochMillis: Long?): GeoCoordinate? =
-        simulatedPhotoCoordinate ?: traceFlow.value.points.lastOrNull()?.coordinate
+    override fun photoCoordinateAt(shutterEpochMillis: Long?): GeoCoordinate? {
+        lastPhotoCoordinateShutterMillis = shutterEpochMillis
+        return photoCoordinateLookup?.invoke(shutterEpochMillis)
+            ?: simulatedPhotoCoordinate
+            ?: traceFlow.value.points.lastOrNull()?.coordinate
+    }
 
     override fun consumeCompletedSave(hikeId: HikeId) {
         if (completedSaveFlow.value?.hikeId == hikeId) {

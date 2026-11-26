@@ -12,6 +12,7 @@ dependencies {
     api(projects.core.designsystem)
     api(projects.core.model)
     api(libs.androidx.navigation3.runtime)
+    implementation(libs.androidx.exifinterface)
     implementation(libs.kotlinx.serialization.json)
 
     testImplementation(libs.junit4)

@@ -39,7 +39,6 @@ import app.openhikes.core.model.TrailPoint
 import app.openhikes.core.model.TrailWalkEndReason
 import app.openhikes.core.model.TrailWalkRecord
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.io.File
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
@@ -68,7 +67,7 @@ internal class OfflineFirstHikeRepository @Inject constructor(
     private val hikeLocalStateDao: HikeLocalStateDao,
     private val photoStore: HikePhotoStore,
     photoLibraryMirror: PhotoLibraryMirror,
-    private val photoFileIo: PhotoFileIo,
+    photoFileIo: PhotoFileIo,
     private val gpxFileSource: GpxFileSource,
     private val gpxFileSink: GpxFileSink,
     private val bundledGpxFixtureSource: BundledGpxFixtureSource,
@@ -446,7 +445,7 @@ internal class OfflineFirstHikeRepository @Inject constructor(
         hikeTitle: String,
         positionOneBased: Int,
         photo: HikePhoto
-    ): Result<File> = hikePhotoImportStore.prepareSharePhotoFile(hikeTitle, positionOneBased, photo)
+    ): Result<PreparedSharePhoto> = hikePhotoImportStore.prepareSharePhotoFile(hikeTitle, positionOneBased, photo)
 
     override suspend fun exportHikeArchive(hikeId: HikeId): Result<ExportedHikeArchive> {
         val hike = observeHike(hikeId).first()
@@ -455,8 +454,9 @@ internal class OfflineFirstHikeRepository @Inject constructor(
     }
 
     override suspend fun exportHikeArchiveToUri(hikeId: HikeId, uriString: String): Result<Unit> {
-        val archive = exportHikeArchive(hikeId).getOrElse { return Result.failure(it) }
-        return photoFileIo.writeBytesToUri(uriString, archive.zipBytes)
+        val hike = observeHike(hikeId).first()
+            ?: return Result.failure(NoSuchElementException("Hike not found: ${hikeId.value}"))
+        return hikePhotoImportStore.exportHikeArchiveToUri(hike, uriString)
     }
 
     override suspend fun measurePhotoStorageBytes(): Long = hikePhotoImportStore.measurePhotoStorageBytes()
