@@ -95,7 +95,16 @@ class MapShellViewModel @Inject constructor(
     val pendingCameraCommand: StateFlow<MapCameraCommand?> = mapClaimCoordinator.pendingCameraCommand
     val routeHighlight: StateFlow<MapRouteHighlight?> = routeHighlightState.highlight
     val walkCoverageOverlay: StateFlow<MapWalkCoverageOverlay?> = walkOverlayState.coverageOverlay
-    val routeEditOverlay: StateFlow<MapRouteEditOverlay?> = routeEditOverlayState.overlay
+    val routeEditOverlay: StateFlow<MapRouteEditOverlay?> = combine(
+        routeEditOverlayState.overlay,
+        mapClaimCoordinator.activeClaim
+    ) { overlay, activeClaim ->
+        overlay?.takeIf { activeClaim?.hiddenRouteHikeId == it.hikeId }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = null
+    )
     val walkSession: StateFlow<TrailWalkSessionState> = trailWalkController.sessionState
     val showEndWalkForRecordingDialog: StateFlow<Boolean> = showEndWalkForRecordingDialogState.asStateFlow()
     val walkTimeLeftMark: StateFlow<WalkTimeLeftMark?> = trailWalkController.progressState
@@ -162,11 +171,17 @@ class MapShellViewModel @Inject constructor(
         showAttributionDialog
     ) { settings, activeClaim, routeOverlays, attributionDialogOpen ->
         val resolvedStyleId = MapStyleCatalog.renderable(settings.mapStyleId, mapProviderKeys).id
+        val hiddenHikeId = activeClaim?.hiddenRouteHikeId
+        val visibleRoutes = if (hiddenHikeId != null) {
+            routeOverlays.filterNot { it.hikeId == hiddenHikeId }
+        } else {
+            routeOverlays
+        }
         val defaultOverlay = MapOverlayState(
             mapStyleId = resolvedStyleId,
             showsHikingRoutes = settings.showsHikingRoutes,
             attribution = MapAttribution.forStyle(resolvedStyleId, settings.showsHikingRoutes),
-            routes = routeOverlays,
+            routes = visibleRoutes,
             countryOutlines = activeClaim?.countryOutlines.orEmpty()
         )
         MapChromeUiState(
@@ -179,7 +194,15 @@ class MapShellViewModel @Inject constructor(
         initialValue = MapChromeUiState()
     )
 
-    fun routeEditHandler(): RouteEditMapInteractionHandler? = routeEditOverlayState.interactionHandler
+    fun routeEditHandler(): RouteEditMapInteractionHandler? {
+        val activeHiddenId = mapClaimCoordinator.activeClaim.value?.hiddenRouteHikeId
+        val overlayHikeId = routeEditOverlayState.overlay.value?.hikeId
+        return if (activeHiddenId != null && activeHiddenId == overlayHikeId) {
+            routeEditOverlayState.interactionHandler
+        } else {
+            null
+        }
+    }
 
     fun syncBackStack(keysInOrder: List<Any>) {
         mapClaimCoordinator.syncBackStack(keysInOrder)

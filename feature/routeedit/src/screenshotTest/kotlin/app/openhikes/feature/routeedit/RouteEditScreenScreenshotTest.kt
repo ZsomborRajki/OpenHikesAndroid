@@ -63,6 +63,7 @@ fun RouteEditDarkStretchModePreview() {
             isLoading = false,
             profile = profile,
             isSelectingStretch = true,
+            canFollowTrails = true,
             hasOriginal = true,
             hasSteps = true,
             canUndo = false

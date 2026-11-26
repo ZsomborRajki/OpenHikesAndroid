@@ -12,5 +12,11 @@ data class RoutedStretchWay(val coordinates: List<GeoCoordinate>, val isMapped: 
  * mapped trail connects the requested endpoints.
  */
 interface RouteStretchRouter {
+    /**
+     * Whether this router can snap stretches onto mapped trails (gates the *Follow Trails* action).
+     */
+    val supportsMappedRouting: Boolean
+        get() = true
+
     suspend fun routeWay(from: GeoCoordinate, to: GeoCoordinate, through: GeoCoordinate? = null): RoutedStretchWay?
 }

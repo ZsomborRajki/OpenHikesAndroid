@@ -220,14 +220,50 @@ class RouteEditViewModelTest {
         viewModel.onAction(RouteEditAction.MoveHandle(isStart = false, meters = initialEnd))
         val pullStart = hike.route[15].coordinate
         val pullTarget = GeoCoordinate(pullStart.latitude + 0.004, pullStart.longitude)
+        val pullTargetTwo = GeoCoordinate(pullStart.latitude + 0.006, pullStart.longitude + 0.001)
         assertThat(handler.onBeginPull(pullStart, reachMeters = 400.0)).isTrue()
+        val overlayBeforeMove = requireNotNull(overlayState.overlay.value)
         handler.onMovePull(pullTarget)
-        assertThat(overlayState.overlay.value?.pullBandCoordinates).hasSize(3)
-        handler.onEndPull(pullTarget, movedEnough = true)
+        val overlayAfterMoveOne = requireNotNull(overlayState.overlay.value)
+        handler.onMovePull(pullTargetTwo)
+        val overlayAfterMoveTwo = requireNotNull(overlayState.overlay.value)
+        assertThat(overlayAfterMoveTwo.pullBandCoordinates).hasSize(3)
+        assertThat(overlayAfterMoveTwo.pullBandCoordinates[1]).isEqualTo(pullTargetTwo)
+        assertThat(overlayAfterMoveTwo.keptWalkedSegments).isSameInstanceAs(overlayBeforeMove.keptWalkedSegments)
+        assertThat(overlayAfterMoveTwo.cutLeadingSegments).isSameInstanceAs(overlayBeforeMove.cutLeadingSegments)
+        assertThat(overlayAfterMoveTwo.cutTrailingSegments).isSameInstanceAs(overlayBeforeMove.cutTrailingSegments)
+        assertThat(overlayAfterMoveTwo.pullCoverSegments).isSameInstanceAs(overlayAfterMoveOne.pullCoverSegments)
+        handler.onEndPull(pullTargetTwo, movedEnough = true)
         advanceUntilIdle()
 
         assertThat(viewModel.uiState.value.hasSteps).isTrue()
         assertThat(viewModel.uiState.value.canSave).isTrue()
         assertThat(RouteGeometry.routeLengthMeters(hike.route)).isGreaterThan(0.0)
+    }
+
+    @Test
+    fun followTrailsIsDisabledAndIgnoredWhenRouterDoesNotSupportMappedRouting() = runTest(testDispatcher) {
+        val hike = walkThenDriveHike()
+        val router = FakeRouteStretchRouter(supportsMappedRouting = false)
+        val viewModel = RouteEditViewModel(
+            rawHikeId = hike.id.value,
+            hikeRepository = FakeHikeRepository(listOf(hike)),
+            userSettingsRepository = FakeUserSettingsRepository(),
+            trailWalkController = FakeTrailWalkController(),
+            routeStretchRouter = router,
+            mapClaimCoordinator = MapClaimCoordinator(),
+            routeEditOverlayState = RouteEditOverlayState(),
+            defaultDispatcher = testDispatcher
+        )
+        advanceUntilIdle()
+
+        viewModel.onAction(RouteEditAction.BeginStretch)
+        advanceUntilIdle()
+        assertThat(viewModel.uiState.value.canFollowTrails).isFalse()
+
+        viewModel.onAction(RouteEditAction.FollowTrails)
+        advanceUntilIdle()
+        assertThat(router.requests).isEmpty()
+        assertThat(viewModel.uiState.value.refusal).isNull()
     }
 }

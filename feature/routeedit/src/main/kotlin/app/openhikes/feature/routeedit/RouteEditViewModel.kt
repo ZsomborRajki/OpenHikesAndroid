@@ -332,7 +332,7 @@ class RouteEditViewModel @AssistedInject constructor(
     private fun followTrailsAcrossStretch() {
         val from = session.spotOf(RouteTrimHandle.START)
         val to = session.spotOf(RouteTrimHandle.END)
-        val canFollow = session.isSelectingStretch && session.canMakeSteps
+        val canFollow = routeStretchRouter.supportsMappedRouting && session.isSelectingStretch && session.canMakeSteps
         if (!canFollow || from == null || to == null) return
         holdingSteps {
             val asked = session.stepGround
@@ -491,7 +491,10 @@ class RouteEditViewModel @AssistedInject constructor(
     }
 
     private fun publishCoarseState() {
-        uiStateFlow.value = session.snapshotUiState(distanceUnit)
+        uiStateFlow.value = session.snapshotUiState(
+            distanceUnit = distanceUnit,
+            canFollowTrails = routeStretchRouter.supportsMappedRouting
+        )
     }
 
     private fun publishRangeAndOverlay() {

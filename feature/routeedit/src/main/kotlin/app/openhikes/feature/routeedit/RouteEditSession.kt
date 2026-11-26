@@ -44,7 +44,9 @@ internal class RouteEditSession(private val hikeId: HikeId) {
         val stretchEndMeters: Double,
         val ground: StepGround,
         val coverCoordinates: List<GeoCoordinate>,
-        val currentVia: GeoCoordinate
+        val currentVia: GeoCoordinate,
+        val coverSegments: List<List<GeoCoordinate>> =
+            if (coverCoordinates.size >= 2) listOf(coverCoordinates) else emptyList()
     )
 
     var sources: RouteEditSources? = null
@@ -86,6 +88,7 @@ internal class RouteEditSession(private val hikeId: HikeId) {
         private set
     var activePull: PullState? = null
         private set
+    private var cachedBaseOverlay: MapRouteEditOverlay? = null
 
     var isRouting: Boolean = false
     var isMakingStep: Boolean = false
@@ -156,6 +159,7 @@ internal class RouteEditSession(private val hikeId: HikeId) {
             addAll(measured.endsMovedBySteps)
         }
         lineRevision += 1
+        cachedBaseOverlay = null
     }
 
     fun applyRedrawn(
@@ -180,6 +184,7 @@ internal class RouteEditSession(private val hikeId: HikeId) {
             endMeters = measured.totalMeters * 2.0 / THIRDS
         }
         lineRevision += 1
+        cachedBaseOverlay = null
     }
 
     fun cuts(handle: RouteTrimHandle): Boolean = when {
@@ -204,8 +209,11 @@ internal class RouteEditSession(private val hikeId: HikeId) {
             RouteTrimHandle.END -> endMeters = meters.coerceIn(min(startMeters + gap, total), total)
         }
         val moved = positionOf(handle) != before
-        if (moved && handle.endPause in pausesTakenOff) {
-            pausesTakenOff -= handle.endPause
+        if (moved) {
+            if (handle.endPause in pausesTakenOff) {
+                pausesTakenOff -= handle.endPause
+            }
+            cachedBaseOverlay = null
         }
         return moved
     }
@@ -228,7 +236,10 @@ internal class RouteEditSession(private val hikeId: HikeId) {
         val moved = moveHandle(handle, edge)
         val onEnd = if (handle == RouteTrimHandle.START) edge <= 0.0 else edge >= totalMeters
         val addedPause = onEnd && handle.endPause !in pausesTakenOff
-        if (addedPause) pausesTakenOff += handle.endPause
+        if (addedPause) {
+            pausesTakenOff += handle.endPause
+            cachedBaseOverlay = null
+        }
         return moved || addedPause
     }
 
@@ -362,7 +373,7 @@ internal class RouteEditSession(private val hikeId: HikeId) {
         }
     }
 
-    fun snapshotUiState(distanceUnit: DistanceUnit): RouteEditUiState {
+    fun snapshotUiState(distanceUnit: DistanceUnit, canFollowTrails: Boolean = false): RouteEditUiState {
         val currentLine = line
         val startSpot = keptSpotOf(RouteTrimHandle.START)
         val endSpot = keptSpotOf(RouteTrimHandle.END)
@@ -393,6 +404,7 @@ internal class RouteEditSession(private val hikeId: HikeId) {
             hasSteps = steps.isNotEmpty(),
             canUndo = canUndo,
             canMakeSteps = canMakeSteps,
+            canFollowTrails = canFollowTrails,
             isRouting = isRouting,
             isSaving = isSaving,
             isLoop = isLoop,
@@ -444,6 +456,23 @@ internal class RouteEditSession(private val hikeId: HikeId) {
     }
 
     fun buildMapOverlay(): MapRouteEditOverlay? {
+        val base = cachedBaseOverlay ?: computeBaseMapOverlay()?.also { cachedBaseOverlay = it } ?: return null
+        val pull = activePull
+        return if (pull != null && pull.coverCoordinates.size >= 2) {
+            base.copy(
+                pullCoverSegments = pull.coverSegments,
+                pullBandCoordinates = listOf(
+                    pull.coverCoordinates.first(),
+                    pull.currentVia,
+                    pull.coverCoordinates.last()
+                )
+            )
+        } else {
+            base
+        }
+    }
+
+    private fun computeBaseMapOverlay(): MapRouteEditOverlay? {
         val currentLine = line
         val startHandle = spotOf(RouteTrimHandle.START)
         val endHandle = spotOf(RouteTrimHandle.END)
@@ -458,19 +487,6 @@ internal class RouteEditSession(private val hikeId: HikeId) {
         )
         val pickedStretch =
             sliceRangeIf(isSelectingStretch && endMeters > startMeters, currentLine, startMeters, endMeters)
-        val pull = activePull
-        val pullCover = if (pull != null &&
-            pull.coverCoordinates.size >= 2
-        ) {
-            listOf(pull.coverCoordinates)
-        } else {
-            emptyList()
-        }
-        val pullBand = if (pull != null && pull.coverCoordinates.size >= 2) {
-            listOf(pull.coverCoordinates.first(), pull.currentVia, pull.coverCoordinates.last())
-        } else {
-            emptyList()
-        }
         return MapRouteEditOverlay(
             hikeId = hikeId,
             tintHex = tintHex,
@@ -482,8 +498,6 @@ internal class RouteEditSession(private val hikeId: HikeId) {
             cutLeadingSegments = cutLeading,
             cutTrailingSegments = cutTrailing,
             pickedStretchSegments = pickedStretch,
-            pullCoverSegments = pullCover,
-            pullBandCoordinates = pullBand,
             startHandle = startHandle,
             endHandle = endHandle,
             isSelectingStretch = isSelectingStretch

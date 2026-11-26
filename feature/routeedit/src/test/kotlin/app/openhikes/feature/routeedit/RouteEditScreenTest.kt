@@ -97,6 +97,7 @@ class RouteEditScreenTest {
                         isLoading = false,
                         profile = profile,
                         isSelectingStretch = true,
+                        canFollowTrails = true,
                         picksWholeLine = true
                     ),
                     rangeStateFlow = range,
@@ -117,6 +118,43 @@ class RouteEditScreenTest {
         composeRule.onNodeWithTag(OpenHikesTestTags.ROUTE_STRETCH_CANCEL).assertIsEnabled().performClick()
 
         assertThat(actions).containsExactly(RouteEditAction.StraightenStretch, RouteEditAction.EndStretch).inOrder()
+    }
+
+    @Test
+    fun stretchModeHidesFollowTrailsWhenMappedRoutingIsUnavailable() {
+        val profile = sampleProfile()
+        val range = MutableStateFlow(
+            RouteTrimRangeState(
+                startMeters = profile.totalDistanceMeters / 3.0,
+                endMeters = profile.totalDistanceMeters * 2.0 / 3.0,
+                totalMeters = profile.totalDistanceMeters,
+                displayedDistanceMeters = profile.totalDistanceMeters / 3.0
+            )
+        )
+
+        composeRule.setContent {
+            OpenHikesTheme(dynamicColor = false) {
+                RouteEditScreen(
+                    uiState = RouteEditUiState(
+                        hikeId = HikeId("h1"),
+                        isLoading = false,
+                        profile = profile,
+                        isSelectingStretch = true,
+                        canFollowTrails = false
+                    ),
+                    rangeStateFlow = range,
+                    onBack = {},
+                    onSave = {},
+                    onConfirmRevert = {},
+                    onAction = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(OpenHikesTestTags.ROUTE_EDIT_SCREEN).performScrollToKey("steps")
+        composeRule.onNodeWithTag(OpenHikesTestTags.ROUTE_STRETCH_FOLLOW).assertDoesNotExist()
+        composeRule.onNodeWithTag(OpenHikesTestTags.ROUTE_STRETCH_STRAIGHTEN).assertIsEnabled()
+        composeRule.onNodeWithTag(OpenHikesTestTags.ROUTE_STRETCH_REMOVE).assertIsEnabled()
     }
 
     @Test

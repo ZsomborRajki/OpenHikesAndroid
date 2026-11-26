@@ -16,6 +16,8 @@ import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteEditOutcome
 import app.openhikes.core.model.RouteEditRefusal
 import app.openhikes.core.model.RouteGeometry
+import app.openhikes.core.model.RouteStep
+import app.openhikes.core.model.RouteSteps
 import app.openhikes.core.model.RouteTrim
 import app.openhikes.core.model.TrailWalkEndReason
 import app.openhikes.core.model.TrailWalkRecord
@@ -23,7 +25,9 @@ import app.openhikes.core.testing.TestClock
 import app.openhikes.core.testing.TestFixtures
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -190,6 +194,107 @@ class RouteEditStoreTest {
         assertThat(repo.loadRouteEditSources(hikeId)!!.isUnreadable).isTrue()
         val refusedUnreadable = repo.applyRouteEdit(hikeId, expectedCurrentRoute = originalHike.route, edited = edited)
         assertThat(refusedUnreadable).isEqualTo(RouteEditOutcome.Refused(RouteEditRefusal.NOT_HERE_YET))
+    }
+
+    @Test
+    fun concurrentSavesFromSameRouteAllowOnlyFirstAndRefuseSecondWithLineChanged() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = createRepository(LaunchConfig(), dispatcher)
+        val imported = repo.importGpxBytes(
+            TestFixtures.thumseeWalkThenDriveGpxBytes(),
+            "${TestFixtures.THUMSEE_WALK_THEN_DRIVE_NAME}.gpx"
+        ) as GpxImportResult.Success
+        val hikeId = imported.importedHikes.first().id
+        val original = repo.observeHike(hikeId).first()!!
+        val distances = RouteTrim.distances(original.route)
+        val total = distances.last()
+        val editOne = EditedLine.build(
+            whole = original.route,
+            distances = distances,
+            cuts = EditedLine.Cuts(range = 0.0..(total * 0.7)),
+            replacing = original.route
+        )!!
+        val editTwo = EditedLine.build(
+            whole = original.route,
+            distances = distances,
+            cuts = EditedLine.Cuts(range = (total * 0.2)..total),
+            replacing = original.route
+        )!!
+
+        val first = async(dispatcher) { repo.applyRouteEdit(hikeId, original.route, editOne) }
+        val second = async(dispatcher) { repo.applyRouteEdit(hikeId, original.route, editTwo) }
+        val outcomes = listOf(first.await(), second.await())
+
+        assertThat(outcomes.count { it is RouteEditOutcome.Saved }).isEqualTo(1)
+        assertThat(outcomes.count { it == RouteEditOutcome.Refused(RouteEditRefusal.LINE_CHANGED) }).isEqualTo(1)
+        val winner = outcomes.filterIsInstance<RouteEditOutcome.Saved>().single().route
+        assertThat(repo.observeHike(hikeId).first()!!.route).isEqualTo(winner)
+    }
+
+    @Test
+    fun revertAndSaveRefuseAndNeverRecreateDeletedHike() = runTest {
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        val repo = createRepository(LaunchConfig(), dispatcher)
+        val imported = repo.importGpxBytes(
+            TestFixtures.thumseeWalkThenDriveGpxBytes(),
+            "${TestFixtures.THUMSEE_WALK_THEN_DRIVE_NAME}.gpx"
+        ) as GpxImportResult.Success
+        val hikeId = imported.importedHikes.first().id
+        val original = repo.observeHike(hikeId).first()!!
+        val distances = RouteTrim.distances(original.route)
+        val edited = EditedLine.build(
+            whole = original.route,
+            distances = distances,
+            cuts = EditedLine.Cuts(range = 0.0..(distances.last() * 0.6)),
+            replacing = original.route
+        )!!
+        assertThat(repo.applyRouteEdit(hikeId, original.route, edited)).isEqualTo(RouteEditOutcome.Saved(edited.route))
+
+        repo.deleteHike(hikeId).getOrThrow()
+
+        assertThat(repo.revertRouteEdit(hikeId, edited.route))
+            .isEqualTo(RouteEditOutcome.Refused(RouteEditRefusal.LINE_CHANGED))
+        assertThat(repo.applyRouteEdit(hikeId, edited.route, edited))
+            .isEqualTo(RouteEditOutcome.Refused(RouteEditRefusal.LINE_CHANGED))
+        assertThat(portableDb.hikeDao().getHikeById(hikeId.value)).isNull()
+    }
+
+    @Test
+    fun reversePreservesTimedHikeDurationWhileClearingPointTimestamps() = runTest {
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        val repo = createRepository(LaunchConfig(), dispatcher)
+        val imported = repo.importGpxBytes(
+            TestFixtures.thumseeWalkThenDriveGpxBytes(),
+            "${TestFixtures.THUMSEE_WALK_THEN_DRIVE_NAME}.gpx"
+        ) as GpxImportResult.Success
+        val hikeId = imported.importedHikes.first().id
+        val original = repo.observeHike(hikeId).first()!!
+        val originalDuration = requireNotNull(original.durationSeconds)
+        assertThat(originalDuration).isGreaterThan(0.0)
+
+        val applied = RouteSteps.applying(listOf(RouteStep.Reverse), original.route)
+        val edited = EditedLine.build(
+            whole = applied.route,
+            distances = RouteTrim.distances(applied.route),
+            cuts = EditedLine.Cuts(),
+            replacing = original.route,
+            steps = EditedLine.Steps(
+                made = listOf(RouteStep.Reverse),
+                moving = setOf(
+                    app.openhikes.core.model.RouteTrimHandle.START,
+                    app.openhikes.core.model.RouteTrimHandle.END
+                ),
+                recordedSeconds = applied.recordedSeconds,
+                clockedRoute = applied.clockedRoute
+            )
+        )!!
+        assertThat(edited.route.all { it.timestampEpochMillis == null }).isTrue()
+        assertThat(edited.removedSeconds).isEqualTo(0.0)
+
+        assertThat(repo.applyRouteEdit(hikeId, original.route, edited)).isEqualTo(RouteEditOutcome.Saved(edited.route))
+
+        val saved = repo.observeHike(hikeId).first()!!
+        assertThat(saved.durationSeconds).isWithin(0.1).of(originalDuration)
     }
 
     private fun createRepository(

@@ -26,6 +26,7 @@ data class RouteEditUiState(
     val hasSteps: Boolean = false,
     val canUndo: Boolean = false,
     val canMakeSteps: Boolean = true,
+    val canFollowTrails: Boolean = false,
     val isRouting: Boolean = false,
     val isSaving: Boolean = false,
     val isLoop: Boolean = false,

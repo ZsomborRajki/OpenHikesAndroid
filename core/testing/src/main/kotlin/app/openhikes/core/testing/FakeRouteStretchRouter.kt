@@ -8,6 +8,7 @@ import app.openhikes.core.model.RoutedStretchWay
  * Deterministic pure-JVM [RouteStretchRouter] fake for route-editing tests.
  */
 class FakeRouteStretchRouter(
+    override var supportsMappedRouting: Boolean = true,
     var handler: suspend (from: GeoCoordinate, to: GeoCoordinate, through: GeoCoordinate?) -> RoutedStretchWay? =
         { from, to, through ->
             val points = buildList {
