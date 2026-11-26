@@ -26,6 +26,9 @@ internal fun Project.configureKotlinAndroid(commonExtension: CommonExtension) {
         }
 
         testOptions.unitTests.isIncludeAndroidResources = true
+        testOptions.unitTests.all { test ->
+            test.maxHeapSize = "2g"
+        }
     }
 
     configureKotlinCompilerOptions()

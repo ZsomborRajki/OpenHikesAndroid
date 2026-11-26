@@ -1,0 +1,78 @@
+<resources>
+    <string name="trail_maker_title">New Trail</string>
+    <string name="trail_maker_back_description">Back to library</string>
+    <string name="trail_maker_save_description">Save trail</string>
+    <string name="trail_maker_close_description">Close trail maker</string>
+
+    <string name="trail_mode_hiking">Hiking</string>
+    <string name="trail_mode_walking">Walking</string>
+    <string name="trail_mode_cycling">Cycling</string>
+    <string name="trail_mode_driving">Driving</string>
+
+    <string name="trail_route_header">Route</string>
+    <string name="trail_stop_start">Start</string>
+    <string name="trail_stop_destination">Destination</string>
+    <string name="trail_stop_numbered">Stop %1$d</string>
+    <string name="trail_stop_choose_start">Choose Start</string>
+    <string name="trail_stop_choose_destination">Choose Destination</string>
+    <string name="trail_stop_add">Add Stop</string>
+    <string name="trail_stop_delete_description">Remove %1$s</string>
+    <string name="trail_stop_move_up">Move Up</string>
+    <string name="trail_stop_move_down">Move Down</string>
+    <string name="trail_stop_along_route">%1$s along the route</string>
+
+    <string name="trail_draft_empty_hint">Choose a start and a destination above, or press and hold the map.</string>
+    <string name="trail_draft_gesture_hint">Press and hold the map to drop a pin, or tap a gray route to take it instead. Drag a pin on the map to refine it.</string>
+    <string name="trail_draft_try_again">Try Again</string>
+
+    <string name="trail_snap_title">Follow Paths</string>
+    <string name="trail_snap_footer_hiking">Legs run along paths mapped in OpenStreetMap. Turn this off to draw straight lines.</string>
+    <string name="trail_snap_footer_other">Turn this off to draw straight lines between stops.</string>
+
+    <string name="trail_notice_routing">Finding a path…</string>
+    <string name="trail_notice_no_path">No mapped path here</string>
+    <string name="trail_notice_too_far">Too far apart to follow a path</string>
+    <string name="trail_notice_no_directions">No route found for this travel mode</string>
+    <string name="trail_notice_off_network">Check access between the stops and the route</string>
+    <string name="trail_notice_offline">Offline — couldn’t reach OpenStreetMap</string>
+    <string name="trail_notice_rate_limited">OpenStreetMap is busy right now</string>
+    <string name="trail_notice_unavailable">OpenStreetMap couldn’t be reached right now</string>
+
+    <string name="trail_close_dialog_title">Close this trail?</string>
+    <string name="trail_close_dialog_message">Keep it for later and it will be here the next time you make a trail.</string>
+    <string name="trail_close_discard">Discard Trail</string>
+    <string name="trail_close_keep_later">Keep for Later</string>
+    <string name="trail_close_keep_drawing">Keep Drawing</string>
+
+    <string name="trail_name_dialog_title">Name Your Trail</string>
+    <string name="trail_name_dialog_message">Give this trail a name, or leave it blank to keep the default.</string>
+    <string name="trail_name_dialog_label">Trail name</string>
+    <string name="trail_name_dialog_save">Save</string>
+    <string name="trail_name_dialog_cancel">Cancel</string>
+
+    <string name="trail_refusal_too_short_title">This trail needs at least two points.</string>
+    <string name="trail_refusal_too_short_message">Press and hold the map to add another point, then save again.</string>
+    <string name="trail_refusal_not_saved_title">This trail couldn’t be saved.</string>
+    <string name="trail_refusal_not_saved_message">Your drawing wasn’t lost. Check that the device has storage available, then save again.</string>
+    <string name="trail_refusal_ok">OK</string>
+
+    <string name="trail_search_placeholder">Search for a place</string>
+    <string name="trail_search_cancel">Cancel</string>
+    <string name="trail_search_recents_header">Recents</string>
+    <string name="trail_search_my_location">My Location</string>
+    <string name="trail_search_waiting_location">Waiting for your location</string>
+    <string name="trail_search_location_denied">Location access is off</string>
+    <string name="trail_search_failed">That place couldn’t be found. Try another search.</string>
+    <string name="trail_search_remove_recent_description">Remove recent place</string>
+
+    <string name="trail_place_dropped_pin">Dropped Pin</string>
+    <string name="trail_place_add_stop">Add Stop</string>
+    <string name="trail_place_remove_stop">Remove Stop</string>
+    <string name="trail_place_remove_pin">Remove Pin</string>
+    <string name="trail_place_share">Share</string>
+    <string name="trail_place_close_description">Close place details</string>
+    <string name="trail_place_coordinates_label">Coordinates</string>
+    <string name="trail_place_address_label">Address</string>
+    <string name="trail_place_share_chooser">Share place</string>
+    <string name="trail_alternative_spoken">Alternative route, %1$s</string>
+</resources>

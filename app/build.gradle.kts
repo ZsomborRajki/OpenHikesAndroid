@@ -79,6 +79,7 @@ dependencies {
     implementation(projects.feature.recording)
     implementation(projects.feature.routeedit)
     implementation(projects.feature.settings)
+    implementation(projects.feature.trailmaker)
     implementation(projects.feature.walks)
 
     implementation(libs.androidx.core.ktx)

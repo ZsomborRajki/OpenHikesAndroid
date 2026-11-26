@@ -293,6 +293,29 @@ internal class OfflineFirstHikeRepository @Inject constructor(
     override suspend fun deleteOwnedOrphanedRecordingDrafts(exceptHikeId: HikeId?): Result<Int> =
         recordingDraftStore.deleteOwnedOrphanedRecordingDrafts(exceptHikeId)
 
+    override suspend fun saveDrawnTrail(
+        title: String,
+        distanceMeters: Double,
+        route: List<RouteCoordinate>,
+        madeOnEpochMillis: Long
+    ): Result<Hike> = withContext(ioDispatcher) {
+        if (route.size < 2) {
+            return@withContext Result.failure(IllegalArgumentException("A drawn trail needs at least two points"))
+        }
+        val failSave = launchConfigHolder.current.value.failsFirstSave && !hasConsumedFirstSaveFailure.getAndSet(true)
+        if (failSave) {
+            return@withContext Result.failure(IOException("Simulated drawn trail save failure"))
+        }
+        runCatching {
+            gpxImportStore.persistDrawnTrail(
+                title = title,
+                distanceMeters = distanceMeters,
+                route = route,
+                madeOnEpochMillis = madeOnEpochMillis
+            )
+        }
+    }
+
     override suspend fun seedFixtureIfConfigured(): HikeId? {
         val config = launchConfigHolder.current.value
         val fixtureName = config.importedGpxFixtureName

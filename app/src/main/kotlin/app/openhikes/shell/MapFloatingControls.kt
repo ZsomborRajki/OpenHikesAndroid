@@ -90,6 +90,8 @@ fun MapFloatingControls(
     isMapModesOpen: Boolean = false,
     isRecordingActive: Boolean = false,
     onOpenRecording: () -> Unit = {},
+    showTrailMakerButton: Boolean = false,
+    onOpenTrailMaker: () -> Unit = {},
     walkChrome: MapWalkChromeState = MapWalkChromeState()
 ) {
     val safePadding = WindowInsets.safeDrawing.asPaddingValues()
@@ -111,8 +113,10 @@ fun MapFloatingControls(
         MapActionToolbar(
             isMapModesOpen = isMapModesOpen,
             isRecordingActive = isRecordingActive,
+            showTrailMakerButton = showTrailMakerButton,
             walkChrome = walkChrome,
             onOpenRecording = onOpenRecording,
+            onOpenTrailMaker = onOpenTrailMaker,
             onOpenMapModes = onOpenMapModes,
             onZoomIn = onZoomIn,
             onZoomOut = onZoomOut,
@@ -178,8 +182,10 @@ private fun WalkChromeStack(
 private fun MapActionToolbar(
     isMapModesOpen: Boolean,
     isRecordingActive: Boolean,
+    showTrailMakerButton: Boolean,
     walkChrome: MapWalkChromeState,
     onOpenRecording: () -> Unit,
+    onOpenTrailMaker: () -> Unit,
     onOpenMapModes: () -> Unit,
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
@@ -192,6 +198,14 @@ private fun MapActionToolbar(
         modifier = modifier
     ) {
         RecordActionButton(isRecordingActive = isRecordingActive, onOpenRecording = onOpenRecording)
+        if (showTrailMakerButton) {
+            MapToolbarIconButton(
+                iconRes = OpenHikesIcons.Route,
+                contentDescription = stringResource(R.string.action_make_trail),
+                testTag = OpenHikesTestTags.MAP_TRAIL_MAKER_BUTTON,
+                onClick = onOpenTrailMaker
+            )
+        }
         if (walkChrome.session.isJunctionWarningsOffered) {
             JunctionWarningsToolbarButton(
                 enabled = walkChrome.session.isJunctionWarningsEnabled,

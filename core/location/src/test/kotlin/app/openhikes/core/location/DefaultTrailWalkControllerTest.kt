@@ -557,6 +557,12 @@ class DefaultTrailWalkControllerTest {
         }
 
         override suspend fun deleteHike(hikeId: HikeId) = error("Unused")
+        override suspend fun saveDrawnTrail(
+            title: String,
+            distanceMeters: Double,
+            route: List<app.openhikes.core.model.RouteCoordinate>,
+            madeOnEpochMillis: Long
+        ) = error("Unused")
         override suspend fun createOrClaimRecordingDraft(hikeId: HikeId, startedAtEpochMillis: Long, title: String) =
             error("Unused")
         override suspend fun finalizeRecordingDraft(

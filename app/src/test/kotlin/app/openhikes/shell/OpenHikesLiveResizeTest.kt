@@ -132,6 +132,7 @@ class OpenHikesLiveResizeTest {
         routeHighlightState = RouteHighlightState(),
         walkOverlayState = WalkOverlayState(),
         routeEditOverlayState = app.openhikes.core.map.RouteEditOverlayState(),
+        trailDraftOverlayState = app.openhikes.core.map.TrailDraftOverlayState(),
         mapProviderKeys = MapProviderKeys.Empty,
         launchConfigHolder = LaunchConfigHolder(launchConfig),
         defaultDispatcher = DefaultOpenHikesDispatchers().default

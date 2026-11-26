@@ -86,5 +86,12 @@ interface HikeRepository {
 
     suspend fun deleteOwnedOrphanedRecordingDrafts(exceptHikeId: HikeId? = null): Result<Int>
 
+    suspend fun saveDrawnTrail(
+        title: String,
+        distanceMeters: Double,
+        route: List<RouteCoordinate>,
+        madeOnEpochMillis: Long
+    ): Result<Hike>
+
     suspend fun seedFixtureIfConfigured(): HikeId?
 }

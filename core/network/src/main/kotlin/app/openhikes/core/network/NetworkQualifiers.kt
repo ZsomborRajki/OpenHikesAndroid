@@ -25,3 +25,7 @@ annotation class TileServerBaseUrl
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
 annotation class VectorArchivesFile
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class RoutingSquaresDir

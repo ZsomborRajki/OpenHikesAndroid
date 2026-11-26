@@ -185,3 +185,30 @@ GitHub issues once created.)*
      *Close Loop*, *Start Loop Here*), *Undo*, and *Revert to Original*, wired
      from `:feature:hikes` and `:app` with ported Tier 1/2/3 & screenshot
      tests.
+9. **Phase 8 — Trail Maker (Slice 8):**
+   - Pure-JVM OSM trail routing graph & draft domain (`TrailGraph`,
+     `TrailGraphIndex`, `TrailDraftEngine`, `TrailMakerModels`,
+     `TrailGraphSquareFile` `OHGS` v1 binary codec with Liang-Barsky bounds
+     clipping, `SquareArchive` manifest support, `HikeTitle.drawn`, and
+     bundled iOS graph fixtures `ThumseeRidgePath`, `ThumseeTwinPaths`, and
+     `ThumseeLoopTrails`) across `:core:model`, `:core:common`, and
+     `:core:testing`.
+   - Device-local Room v3 `trail_draft` & `trail_stop_recents` tables in
+     `noBackupFilesDir`, cached `HttpRoutingGraphSquareDataSource` (30-day TTL,
+     32-file cap, HTTP `200`/`204`/`410`/`429` + in-flight coalescing),
+     `OfflineFirstTrailDraftRepository`, `OsmTrailLegRouter`,
+     `AndroidStopPlaceSearchSource`, `HikeRepository.saveDrawnTrail`, and
+     production `TrailGraphRouteStretchRouter` (upgrading Phase 7 Route Editing
+     stretch routing to real OSM trails) across `:core:database`,
+     `:core:network`, and `:core:data`.
+   - Isolated `TrailDraftOverlayState`, solid/dashed/alternative leg layers,
+     time bubbles, draggable numbered stop pins, long-press pin drop with leg
+     insertion hit-testing, and fake test renderer hooks across `:core:map` and
+     `:core:testing-android`.
+   - `:feature:trailmaker` Material 3 Expressive stop list (add, reorder,
+     delete, drag, tap-to-inspect), Hiking/Walking/Cycling/Driving modes,
+     Follow Paths vs. Straight toggle, alternative path picker, live figures,
+     offline/unmatched notices with Retry, place card for dropped pins & placed
+     stops, in-tree stop search (My Location, recents, geocoder results), and
+     Save Trail naming flow wired into `:app`'s adaptive shell & root floating
+     toolbar with ported Tier 1/2/3 & screenshot tests.

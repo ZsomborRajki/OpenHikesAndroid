@@ -42,7 +42,7 @@ import kotlinx.coroutines.flow.update
 /**
  * In-memory [HikeRepository] fake for deterministic ViewModel, Compose screen, and shell tests.
  */
-@Suppress("TooManyFunctions")
+@Suppress("TooManyFunctions", "LargeClass")
 class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepository {
     private val hikesState = MutableStateFlow(initialHikes)
     private val localStateMap = MutableStateFlow<Map<HikeId, HikeLocalState>>(emptyMap())
@@ -59,6 +59,7 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
     var nextDeleteFailure: Throwable? = null
     var nextExportFailure: Throwable? = null
     var nextFinalizeFailure: Throwable? = null
+    var nextDrawnTrailSaveFailure: Throwable? = null
     var nextWalkPersistFailure: Throwable? = null
     var nextWalkFinishFailure: Throwable? = null
     var seededFixtureBytes: Pair<String, ByteArray>? = null
@@ -643,6 +644,53 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
         hikesState.update { list -> list.filterNot { toRemove.contains(it.id) } }
         localStateMap.update { map -> map - toRemove }
         return Result.success(toRemove.size)
+    }
+
+    override suspend fun saveDrawnTrail(
+        title: String,
+        distanceMeters: Double,
+        route: List<RouteCoordinate>,
+        madeOnEpochMillis: Long
+    ): Result<Hike> {
+        val failure = nextDrawnTrailSaveFailure?.also { nextDrawnTrailSaveFailure = null }
+        return when {
+            failure != null -> Result.failure(failure)
+            route.size < 2 -> Result.failure(IllegalArgumentException("A drawn trail needs at least two points"))
+            else -> Result.success(commitFakeDrawnTrail(title, distanceMeters, route, madeOnEpochMillis))
+        }
+    }
+
+    private fun commitFakeDrawnTrail(
+        title: String,
+        distanceMeters: Double,
+        route: List<RouteCoordinate>,
+        madeOnEpochMillis: Long
+    ): Hike {
+        val id = HikeId(UUID.randomUUID().toString())
+        val stats = HikeRouteStatistics.from(distanceMeters, route)
+        val hike = Hike(
+            id = id,
+            title = HikeTitle.drawn(title, madeOnEpochMillis),
+            distanceMeters = distanceMeters,
+            durationSeconds = null,
+            dateEpochMillis = madeOnEpochMillis,
+            tintHex = RouteTint.forIndex(hikesState.value.size),
+            routeWidthDp = HikeSummary.DEFAULT_ROUTE_WIDTH_DP,
+            linePattern = RouteLinePattern.Default,
+            routeBorderHex = RouteBorder.NONE_HEX,
+            route = route
+        )
+        hikesState.update { current -> listOf(hike) + current }
+        localStateMap.update { map ->
+            map + (
+                id to HikeLocalState(
+                    hikeId = id,
+                    climbMeters = stats.elevationGainMeters,
+                    descentMeters = stats.elevationLossMeters
+                )
+                )
+        }
+        return hike
     }
 
     override suspend fun seedFixtureIfConfigured(): HikeId? {

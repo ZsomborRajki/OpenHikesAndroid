@@ -133,7 +133,9 @@ internal class MapLibreTrailMapRenderer @Inject constructor(
         modifier: Modifier,
         walkCoverageOverlayState: StateFlow<MapWalkCoverageOverlay?>,
         routeEditOverlayState: StateFlow<MapRouteEditOverlay?>,
-        routeEditHandlerProvider: () -> RouteEditMapInteractionHandler?
+        routeEditHandlerProvider: () -> RouteEditMapInteractionHandler?,
+        trailDraftOverlayState: StateFlow<MapTrailDraftOverlay?>,
+        trailDraftHandlerProvider: () -> TrailDraftMapInteractionHandler?
     ) {
         val currentInteractions by rememberUpdatedState(interactions)
         val allowRemoteRequests by mapNetworkPolicy.allowsInteractiveMapRequests.collectAsStateWithLifecycle()
@@ -163,6 +165,7 @@ internal class MapLibreTrailMapRenderer @Inject constructor(
             liveRecordingOverlayState = liveRecordingOverlayState,
             walkCoverageOverlayState = walkCoverageOverlayState,
             routeEditOverlayState = routeEditOverlayState,
+            trailDraftOverlayState = trailDraftOverlayState,
             initialCameraState = cameraState
         )
 
@@ -176,27 +179,58 @@ internal class MapLibreTrailMapRenderer @Inject constructor(
             onCameraCommandHandled = onCameraCommandHandled
         )
 
-        val mapContentDescription = stringResource(R.string.trail_map_content_description)
-        MaplibreMap(
+        TrailMapCanvas(
+            mapState = mapState,
+            viewportPadding = viewportPadding,
+            isPanLocked = isPanLocked,
+            onMapTap = { currentInteractions.onMapTap(it) },
+            routeEditOverlayState = routeEditOverlayState,
+            routeEditHandlerProvider = routeEditHandlerProvider,
+            trailDraftOverlayState = trailDraftOverlayState,
+            trailDraftHandlerProvider = trailDraftHandlerProvider,
+            onPanLockChanged = { locked -> isPanLocked = locked },
             modifier = modifier
-                .fillMaxSize()
-                .semantics { contentDescription = mapContentDescription }
-                .testTag(OpenHikesTestTags.TRAIL_MAP),
-            state = mapState,
-            viewportInsets = viewportPadding,
-            interactions = createMapInteractions(isPanEnabled = !isPanLocked) { coordinate ->
-                currentInteractions.onMapTap(coordinate)
-            },
-            overlay = {
-                RouteEditInteractiveOverlay(
-                    mapState = mapState,
-                    routeEditOverlayState = routeEditOverlayState,
-                    interactionHandlerProvider = routeEditHandlerProvider,
-                    onPanLockChanged = { locked -> isPanLocked = locked }
-                )
-            }
         )
     }
+}
+
+@Composable
+private fun TrailMapCanvas(
+    mapState: MapState,
+    viewportPadding: PaddingValues,
+    isPanLocked: Boolean,
+    onMapTap: (GeoCoordinate) -> Unit,
+    routeEditOverlayState: StateFlow<MapRouteEditOverlay?>,
+    routeEditHandlerProvider: () -> RouteEditMapInteractionHandler?,
+    trailDraftOverlayState: StateFlow<MapTrailDraftOverlay?>,
+    trailDraftHandlerProvider: () -> TrailDraftMapInteractionHandler?,
+    onPanLockChanged: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val mapContentDescription = stringResource(R.string.trail_map_content_description)
+    MaplibreMap(
+        modifier = modifier
+            .fillMaxSize()
+            .semantics { contentDescription = mapContentDescription }
+            .testTag(OpenHikesTestTags.TRAIL_MAP),
+        state = mapState,
+        viewportInsets = viewportPadding,
+        interactions = createMapInteractions(isPanEnabled = !isPanLocked, onMapTap = onMapTap),
+        overlay = {
+            RouteEditInteractiveOverlay(
+                mapState = mapState,
+                routeEditOverlayState = routeEditOverlayState,
+                interactionHandlerProvider = routeEditHandlerProvider,
+                onPanLockChanged = onPanLockChanged
+            )
+            TrailDraftInteractiveOverlay(
+                mapState = mapState,
+                trailDraftOverlayState = trailDraftOverlayState,
+                interactionHandlerProvider = trailDraftHandlerProvider,
+                onPanLockChanged = onPanLockChanged
+            )
+        }
+    )
 }
 
 @Composable
@@ -252,6 +286,7 @@ private fun rememberTrailMapState(
     liveRecordingOverlayState: StateFlow<MapRouteOverlay?>,
     walkCoverageOverlayState: StateFlow<MapWalkCoverageOverlay?>,
     routeEditOverlayState: StateFlow<MapRouteEditOverlay?>,
+    trailDraftOverlayState: StateFlow<MapTrailDraftOverlay?>,
     initialCameraState: MapCameraState
 ) = rememberMapState(
     baseStyle = stylePlan.baseStyle,
@@ -296,6 +331,7 @@ private fun rememberTrailMapState(
     CountryOutlineLayers(outlines = countryOutlines)
     RouteOverlayLayers(routes = routes)
     RouteEditOverlayLayers(routeEditOverlayState = routeEditOverlayState)
+    TrailDraftOverlayLayers(trailDraftOverlayState = trailDraftOverlayState)
     WalkCoverageOverlayLayers(walkCoverageState = walkCoverageOverlayState)
     LiveRecordingRouteLayers(liveOverlayState = liveRecordingOverlayState)
     HighlightMarkerLayers(highlightState = highlightState)

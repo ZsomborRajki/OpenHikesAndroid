@@ -77,7 +77,9 @@ private fun ShellPreviewHost(widthDp: Float, heightDp: Float, darkTheme: Boolean
                 modifier: Modifier,
                 walkCoverageOverlayState: StateFlow<MapWalkCoverageOverlay?>,
                 routeEditOverlayState: StateFlow<app.openhikes.core.map.MapRouteEditOverlay?>,
-                routeEditHandlerProvider: () -> app.openhikes.core.map.RouteEditMapInteractionHandler?
+                routeEditHandlerProvider: () -> app.openhikes.core.map.RouteEditMapInteractionHandler?,
+                trailDraftOverlayState: StateFlow<app.openhikes.core.map.MapTrailDraftOverlay?>,
+                trailDraftHandlerProvider: () -> app.openhikes.core.map.TrailDraftMapInteractionHandler?
             ) {
                 Box(
                     modifier = modifier

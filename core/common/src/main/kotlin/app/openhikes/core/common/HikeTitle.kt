@@ -1,5 +1,11 @@
 package app.openhikes.core.common
 
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
+import java.util.Locale
+
 /**
  * Single source of truth for hike title length and GPX track/filename fallback rules.
  *
@@ -14,6 +20,25 @@ object HikeTitle {
 
     fun imported(trackName: String?, fileName: String?): String =
         bounded(trackName) ?: bounded(extractFileStem(fileName)).orEmpty()
+
+    /**
+     * Resolves the title of a drawn trail: bounded hiker input if non-blank, otherwise
+     * `"Trail, <abbreviated date>, <short time>"` so unnamed drawn trails stay distinguishable.
+     */
+    fun drawn(
+        name: String?,
+        madeOnEpochMillis: Long,
+        zoneId: ZoneId = ZoneId.systemDefault(),
+        locale: Locale = Locale.getDefault()
+    ): String {
+        val custom = bounded(name)
+        if (custom != null) return custom
+        val stamp = DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)
+            .withLocale(locale)
+            .withZone(zoneId)
+            .format(Instant.ofEpochMilli(madeOnEpochMillis))
+        return bounded("Trail, $stamp").orEmpty().ifBlank { "Trail" }
+    }
 
     private fun extractFileStem(fileName: String?): String? {
         val lastSegment = fileName

@@ -22,6 +22,7 @@ object LaunchConfigReader {
     const val EXTRA_AUTO_PAUSE_SECONDS = "ui_test_auto_pause_seconds"
     const val EXTRA_DISABLE_AUTO_RECOVERY = "ui_test_disable_auto_recovery"
     const val EXTRA_SEED_WALKS = "ui_test_seed_walks"
+    const val EXTRA_TRAIL_GRAPH = "ui_test_trail_graph"
 
     fun fromIntent(intent: Intent?): LaunchConfig {
         val extras = intent?.extras ?: return LaunchConfig.Production
@@ -51,31 +52,37 @@ object LaunchConfigReader {
             enableSimulatedLocation = arguments.boolFlag(EXTRA_ENABLE_LOCATION),
             autoPauseSecondsOverride = parsePositiveSeconds(arguments[EXTRA_AUTO_PAUSE_SECONDS]),
             disableAutomaticRecovery = arguments.boolFlag(EXTRA_DISABLE_AUTO_RECOVERY),
-            seedWalkPresetName = sanitizeFixtureName(arguments[EXTRA_SEED_WALKS])
+            seedWalkPresetName = sanitizeFixtureName(arguments[EXTRA_SEED_WALKS]),
+            trailGraphFixtureName = sanitizeFixtureName(arguments[EXTRA_TRAIL_GRAPH])
         )
     }
 
     fun merge(base: LaunchConfig, intent: Intent?): LaunchConfig {
         val fromIntent = fromIntent(intent)
         if (!fromIntent.isUiTesting) return base
-        return LaunchConfig(
-            isUiTesting = true,
-            startsWithExpandedSheet = base.startsWithExpandedSheet || fromIntent.startsWithExpandedSheet,
-            useIsolatedDataStore = base.useIsolatedDataStore || fromIntent.useIsolatedDataStore,
-            useInMemoryDatabase = base.useInMemoryDatabase || fromIntent.useInMemoryDatabase,
-            simulatesOffline = base.simulatesOffline || fromIntent.simulatesOffline,
-            mapStart = fromIntent.mapStart ?: base.mapStart,
-            importedGpxFixtureName = fromIntent.importedGpxFixtureName ?: base.importedGpxFixtureName,
-            offlineCountriesScenarioName =
-            fromIntent.offlineCountriesScenarioName ?: base.offlineCountriesScenarioName,
-            failsFirstSave = base.failsFirstSave || fromIntent.failsFirstSave,
-            refusesHikeDeletion = base.refusesHikeDeletion || fromIntent.refusesHikeDeletion,
-            enableSimulatedLocation = base.enableSimulatedLocation || fromIntent.enableSimulatedLocation,
-            autoPauseSecondsOverride = fromIntent.autoPauseSecondsOverride ?: base.autoPauseSecondsOverride,
-            disableAutomaticRecovery = base.disableAutomaticRecovery || fromIntent.disableAutomaticRecovery,
-            seedWalkPresetName = fromIntent.seedWalkPresetName ?: base.seedWalkPresetName
-        )
+        return mergeFixtureOverrides(mergeFlagOverrides(base, fromIntent), fromIntent)
     }
+
+    private fun mergeFlagOverrides(base: LaunchConfig, override: LaunchConfig): LaunchConfig = base.copy(
+        isUiTesting = true,
+        startsWithExpandedSheet = base.startsWithExpandedSheet || override.startsWithExpandedSheet,
+        useIsolatedDataStore = base.useIsolatedDataStore || override.useIsolatedDataStore,
+        useInMemoryDatabase = base.useInMemoryDatabase || override.useInMemoryDatabase,
+        simulatesOffline = base.simulatesOffline || override.simulatesOffline,
+        failsFirstSave = base.failsFirstSave || override.failsFirstSave,
+        refusesHikeDeletion = base.refusesHikeDeletion || override.refusesHikeDeletion,
+        enableSimulatedLocation = base.enableSimulatedLocation || override.enableSimulatedLocation,
+        disableAutomaticRecovery = base.disableAutomaticRecovery || override.disableAutomaticRecovery
+    )
+
+    private fun mergeFixtureOverrides(base: LaunchConfig, override: LaunchConfig): LaunchConfig = base.copy(
+        mapStart = override.mapStart ?: base.mapStart,
+        importedGpxFixtureName = override.importedGpxFixtureName ?: base.importedGpxFixtureName,
+        offlineCountriesScenarioName = override.offlineCountriesScenarioName ?: base.offlineCountriesScenarioName,
+        autoPauseSecondsOverride = override.autoPauseSecondsOverride ?: base.autoPauseSecondsOverride,
+        seedWalkPresetName = override.seedWalkPresetName ?: base.seedWalkPresetName,
+        trailGraphFixtureName = override.trailGraphFixtureName ?: base.trailGraphFixtureName
+    )
 
     private fun parsePositiveSeconds(raw: String?): Double? = raw?.trim()
         ?.toDoubleOrNull()

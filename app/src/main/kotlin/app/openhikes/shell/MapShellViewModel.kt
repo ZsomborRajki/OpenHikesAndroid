@@ -19,10 +19,13 @@ import app.openhikes.core.map.MapOverlayState
 import app.openhikes.core.map.MapRouteEditOverlay
 import app.openhikes.core.map.MapRouteHighlight
 import app.openhikes.core.map.MapRouteOverlay
+import app.openhikes.core.map.MapTrailDraftOverlay
 import app.openhikes.core.map.MapWalkCoverageOverlay
 import app.openhikes.core.map.RouteEditMapInteractionHandler
 import app.openhikes.core.map.RouteEditOverlayState
 import app.openhikes.core.map.RouteHighlightState
+import app.openhikes.core.map.TrailDraftMapInteractionHandler
+import app.openhikes.core.map.TrailDraftOverlayState
 import app.openhikes.core.map.WalkOverlayState
 import app.openhikes.core.map.toMapRouteOverlay
 import app.openhikes.core.model.GeoCoordinate
@@ -36,6 +39,7 @@ import app.openhikes.core.model.RouteLinePattern
 import app.openhikes.core.model.UserSettings
 import app.openhikes.core.model.WalkTimeLeftMark
 import app.openhikes.core.model.toTrailRuns
+import app.openhikes.core.ui.navigation.TrailMakerRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.IOException
 import javax.inject.Inject
@@ -78,6 +82,7 @@ class MapShellViewModel @Inject constructor(
     routeHighlightState: RouteHighlightState,
     walkOverlayState: WalkOverlayState,
     private val routeEditOverlayState: RouteEditOverlayState,
+    private val trailDraftOverlayState: TrailDraftOverlayState,
     private val mapProviderKeys: MapProviderKeys,
     launchConfigHolder: LaunchConfigHolder,
     @DefaultDispatcher defaultDispatcher: CoroutineDispatcher
@@ -100,6 +105,16 @@ class MapShellViewModel @Inject constructor(
         mapClaimCoordinator.activeClaim
     ) { overlay, activeClaim ->
         overlay?.takeIf { activeClaim?.hiddenRouteHikeId == it.hikeId }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = null
+    )
+    val trailDraftOverlay: StateFlow<MapTrailDraftOverlay?> = combine(
+        trailDraftOverlayState.overlay,
+        mapClaimCoordinator.activeClaim
+    ) { overlay, activeClaim ->
+        overlay?.takeIf { activeClaim?.routeKey == TrailMakerRoute }
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
@@ -203,6 +218,13 @@ class MapShellViewModel @Inject constructor(
             null
         }
     }
+
+    fun trailDraftHandler(): TrailDraftMapInteractionHandler? =
+        if (mapClaimCoordinator.activeClaim.value?.routeKey == TrailMakerRoute) {
+            trailDraftOverlayState.interactionHandler
+        } else {
+            null
+        }
 
     fun syncBackStack(keysInOrder: List<Any>) {
         mapClaimCoordinator.syncBackStack(keysInOrder)

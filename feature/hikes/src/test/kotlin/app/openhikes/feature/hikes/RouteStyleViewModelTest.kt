@@ -210,6 +210,12 @@ class RouteStyleViewModelTest {
             reason: app.openhikes.core.model.TrailWalkEndReason
         ): Result<app.openhikes.core.model.HikeWalk?> = Result.success(null)
         override suspend fun deleteHike(hikeId: HikeId): Result<Unit> = error("Unused")
+        override suspend fun saveDrawnTrail(
+            title: String,
+            distanceMeters: Double,
+            route: List<RouteCoordinate>,
+            madeOnEpochMillis: Long
+        ): Result<Hike> = error("Unused")
         override suspend fun createOrClaimRecordingDraft(
             hikeId: HikeId,
             startedAtEpochMillis: Long,
