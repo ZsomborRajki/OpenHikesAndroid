@@ -17,6 +17,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToKey
 import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import app.openhikes.core.location.RecordingController
@@ -176,13 +177,19 @@ class PlacesJourneyTest {
             composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.HIKE_PLACE_ADDER))
             composeRule.onNodeWithTag(OpenHikesTestTags.MAP_ADD_PLACE_BUTTON).assertDoesNotExist()
             assertThat(renderer.lastTrailPlacesOverlay.value?.showCenterPlacementPin).isTrue()
+            // Portrait Add Place reserves bottom viewport above the half sheet so the reticle stays visible.
+            composeRule.waitUntil(timeoutMillis = 5_000L) {
+                (renderer.lastViewportPadding.value?.calculateBottomPadding() ?: 0.dp) > 400.dp
+            }
 
             // Panning the map updates the draft coordinates live under the fixed center pin.
             val panned = GeoCoordinate(latitude = 47.72345, longitude = 12.83456)
             composeRule.runOnIdle { renderer.simulateCameraMove(MapCameraState(center = panned, zoom = 16.0)) }
             composeRule.waitUntilAtLeastOneExists(hasText("47.72345", substring = true))
 
-            composeRule.onNodeWithTag(OpenHikesTestTags.HIKE_PLACE_ADDER_NAME).performTextReplacement("Bench View")
+            composeRule.onNodeWithTag(OpenHikesTestTags.HIKE_PLACE_ADDER_NAME)
+                .performScrollTo()
+                .performTextReplacement("Bench View")
             composeRule.onNodeWithTag(OpenHikesTestTags.HIKE_PLACE_ADDER_ADD).performClick()
 
             // Replace-top opens the new place's detail screen; Back returns directly to Hike Detail.

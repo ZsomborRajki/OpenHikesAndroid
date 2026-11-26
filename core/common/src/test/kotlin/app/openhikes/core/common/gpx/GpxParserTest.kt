@@ -256,4 +256,33 @@ class GpxParserTest {
         assertThat(spring.osm?.elementId).isEqualTo(123456L)
         assertThat(spring.symbol).isEqualTo("Water")
     }
+
+    @Test
+    fun preservesFirstRecognizedOsmLinkWhenWaypointHasMultipleLinks() {
+        val xml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <gpx version="1.1" creator="OpenHikes" xmlns="http://www.topografix.com/GPX/1/1">
+              <wpt lat="47.724008" lon="12.829098">
+                <name>Lakeshore Hut</name>
+                <sym>Shelter</sym>
+                <link href="https://lakeshore-hut.example.org" />
+                <link href="https://www.openstreetmap.org/way/9100002" />
+                <link href="https://www.openstreetmap.org/node/9999999" />
+              </wpt>
+              <trk>
+                <name>Multi-Link Loop</name>
+                <trkseg>
+                  <trkpt lat="47.7184" lon="12.8317" />
+                  <trkpt lat="47.7240" lon="12.8291" />
+                </trkseg>
+              </trk>
+            </gpx>
+        """.trimIndent()
+
+        val track = (GpxParser.parseSingle(xml.encodeToByteArray()) as GpxParseResult.Success).value
+        val hut = track.places.single()
+        assertThat(hut.name).isEqualTo("Lakeshore Hut")
+        assertThat(hut.osm?.elementType).isEqualTo("way")
+        assertThat(hut.osm?.elementId).isEqualTo(9_100_002L)
+    }
 }

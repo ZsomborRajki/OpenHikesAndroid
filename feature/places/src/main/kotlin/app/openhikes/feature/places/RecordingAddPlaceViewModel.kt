@@ -105,17 +105,12 @@ class RecordingAddPlaceViewModel @AssistedInject constructor(
                 localState.update { it.copy(showSaveRefusal = true) }
                 return@launch
             }
-            val added = result.getOrDefault(false)
-            val targetId = if (added) {
-                place.id
-            } else {
-                val hike = hikeRepository.observeHike(hikeId).first()
-                hike?.places?.firstOrNull { held ->
-                    val osm = place.osm
-                    val other = held.osm
-                    osm != null && other != null && osm.isSameElement(other)
-                }?.id
-            }
+            val hike = hikeRepository.observeHike(hikeId).first()
+            val targetId = hike?.places?.firstOrNull { held ->
+                val osm = place.osm
+                val other = held.osm
+                held.id == place.id || (osm != null && other != null && osm.isSameElement(other))
+            }?.id
             if (targetId != null) {
                 localState.update { it.copy(openedPlaceId = targetId) }
             }

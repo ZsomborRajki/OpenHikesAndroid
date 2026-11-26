@@ -91,4 +91,47 @@ class AddHikePlaceViewModelTest {
         assertThat(overlayState.claims.value).isEmpty()
         assertThat(coordinator.activeClaim.value).isNull()
     }
+
+    @Test
+    fun usesProjectedReticleCoordinateOverRawCameraCenterWhenSaving() = runTest {
+        val hikeId = HikeId("h2")
+        val initial = GeoCoordinate(47.7185, 12.8318)
+        val reticlePoint = GeoCoordinate(47.7242, 12.8351)
+        val shiftedCameraCenter = GeoCoordinate(47.7000, 12.8000)
+        val repo = FakeHikeRepository(
+            listOf(
+                Hike(
+                    id = hikeId,
+                    title = "Ridge Loop",
+                    distanceMeters = 1_000.0,
+                    dateEpochMillis = 10_000L,
+                    route = listOf(RouteCoordinate(47.7184, 12.8317), RouteCoordinate(47.7220, 12.8290))
+                )
+            )
+        )
+        val cameraTracker = MapCameraTracker().apply { update(MapCameraState(center = initial, zoom = 15.0)) }
+        val overlayState = TrailPlacesOverlayState()
+        val viewModel = AddHikePlaceViewModel(
+            rawHikeId = hikeId.value,
+            initialLatitude = initial.latitude,
+            initialLongitude = initial.longitude,
+            hikeRepository = repo,
+            mapClaimCoordinator = MapClaimCoordinator(),
+            mapCameraTracker = cameraTracker,
+            trailPlacesOverlayState = overlayState
+        )
+        advanceUntilIdle()
+
+        val handler = requireNotNull(overlayState.claims.value.values.single().handler)
+        handler.onPlacementCoordinateChanged(reticlePoint)
+        cameraTracker.update(MapCameraState(center = shiftedCameraCenter, zoom = 16.0))
+        advanceUntilIdle()
+
+        assertThat(viewModel.uiState.value.coordinate).isEqualTo(reticlePoint)
+        viewModel.onNameChange("Reticle Spot")
+        viewModel.onConfirmAdd(currentKindLabel = "Viewpoint")
+        advanceUntilIdle()
+
+        assertThat(repo.observeHike(hikeId).first()!!.places.single().coordinate).isEqualTo(reticlePoint)
+    }
 }

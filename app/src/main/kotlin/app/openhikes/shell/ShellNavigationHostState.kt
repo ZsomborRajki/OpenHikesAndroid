@@ -41,6 +41,7 @@ import app.openhikes.core.ui.navigation.TrailMakerRoute
 internal data class ShellNavigationHostState(
     val sheetDetent: SheetDetent,
     val isMapModesOpen: Boolean,
+    val isCenterPlacementActive: Boolean,
     val showTrailMakerButton: Boolean,
     val showAddPlaceButton: Boolean,
     val onDetentChange: (SheetDetent) -> Unit,
@@ -194,6 +195,7 @@ internal fun rememberShellNavigationHost(
     return ShellNavigationHostState(
         sheetDetent = controllers.sheetDetent,
         isMapModesOpen = topRoute == MapModesRoute,
+        isCenterPlacementActive = topRoute is AddHikePlaceRoute,
         showTrailMakerButton = controllers.backStack.size <= 1,
         showAddPlaceButton = showAddPlaceButton,
         onDetentChange = { next ->
@@ -351,6 +353,16 @@ private fun ShellNavControllers.navigateHalfSheetIfPeek(route: OpenHikesRoute) {
 }
 
 @Composable
+private fun KeepPlacementSheetHalfDetent(controllers: ShellNavControllers) {
+    val topRoute = controllers.backStack.lastOrNull()
+    LaunchedEffect(topRoute) {
+        if (topRoute is AddHikePlaceRoute && controllers.sheetDetent != SheetDetent.HALF) {
+            controllers.sheetDetent = SheetDetent.HALF
+        }
+    }
+}
+
+@Composable
 private fun CoordinateShellNavigation(
     controllers: ShellNavControllers,
     showAttributionDialog: Boolean,
@@ -362,6 +374,7 @@ private fun CoordinateShellNavigation(
     onDismissAttributionDialog: () -> Unit,
     onExitSearch: () -> Unit
 ) {
+    KeepPlacementSheetHalfDetent(controllers)
     LaunchedEffect(openRecordingRequestCount) {
         if (openRecordingRequestCount > 0) {
             if (controllers.isSearchActive) onExitSearch()

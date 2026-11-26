@@ -118,7 +118,8 @@ class HikePlaceStoreTest {
             )
         )
         assertThat(repo.addPlace(hikeId, summit).getOrThrow()).isTrue()
-        val persistedSummit = repo.observeHike(hikeId).first()!!.places.first { it.id == "summit-1" }
+        val persistedSummit = repo.observeHike(hikeId).first()!!.places.first { it.name == "Thumsee Kopf" }
+        assertThat(persistedSummit.id).isEqualTo("${hikeId.value}:osm-node-9100004")
         assertThat(persistedSummit.osm?.wikidata).isEqualTo("Q4115189")
         assertThat(persistedSummit.osm?.facts).containsExactly(TrailPlaceFact(TrailPlaceFact.Kind.ELEVATION, "712"))
 
@@ -173,6 +174,40 @@ class HikePlaceStoreTest {
 
         assertThat(finalized.places.map { it.name }).containsExactly("Bench")
         assertThat(repo.observeHike(draftId).first()!!.places.map { it.name }).containsExactly("Bench")
+    }
+
+    @Test
+    fun savingSameOsmPlaceToTwoHikesPreservesPlaceOnBothHikesWithDistinctIds() = runTest {
+        val repo = createRepository(UnconfinedTestDispatcher(testScheduler))
+        val firstHikeId = importFixtureHike(repo)
+        val secondHikeId = importFixtureHike(repo)
+
+        val sharedSummit = TrailPoint(
+            id = "osm-node-9100004",
+            hikeId = HikeId("unassigned"),
+            coordinate = GeoCoordinate(47.7215, 12.841363),
+            name = "Thumsee Kopf",
+            symbol = TrailPlaceSymbol.SUMMIT.rawValue,
+            osm = TrailPlaceOsm(
+                elementType = "node",
+                elementId = 9_100_004L,
+                facts = listOf(TrailPlaceFact(TrailPlaceFact.Kind.ELEVATION, "712")),
+                wikidata = "Q4115189"
+            )
+        )
+
+        assertThat(repo.addPlace(firstHikeId, sharedSummit).getOrThrow()).isTrue()
+        assertThat(repo.addPlace(secondHikeId, sharedSummit).getOrThrow()).isTrue()
+
+        val firstPlaces = repo.observeHike(firstHikeId).first()!!.places
+        val secondPlaces = repo.observeHike(secondHikeId).first()!!.places
+        val firstSummit = firstPlaces.single { it.name == "Thumsee Kopf" }
+        val secondSummit = secondPlaces.single { it.name == "Thumsee Kopf" }
+        assertThat(firstSummit.id).isNotEqualTo(secondSummit.id)
+        assertThat(firstSummit.hikeId).isEqualTo(firstHikeId)
+        assertThat(secondSummit.hikeId).isEqualTo(secondHikeId)
+        assertThat(firstSummit.osm?.elementId).isEqualTo(9_100_004L)
+        assertThat(secondSummit.osm?.elementId).isEqualTo(9_100_004L)
     }
 
     private fun createRepository(dispatcher: kotlinx.coroutines.CoroutineDispatcher): OfflineFirstHikeRepository =

@@ -43,6 +43,7 @@ import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.IOException
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -50,7 +51,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -118,6 +121,22 @@ class PlacesAroundViewModel @AssistedInject constructor(
         if (ex is IOException) emit(UserSettings()) else throw ex
     }
 
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val heldPlacesFlow = hikeRepository.observeHike(hikeId)
+        .map { hike -> hike?.let { it.places to it.route } }
+        .distinctUntilChanged()
+        .mapLatest { pair ->
+            if (pair == null) {
+                HeldPlacesSnapshot()
+            } else {
+                HeldPlacesSnapshot(
+                    places = pair.first,
+                    rows = TrailPlaceOrder.ordered(pair.first, pair.second)
+                )
+            }
+        }
+        .flowOn(defaultDispatcher)
+
     private val selectionBundleFlow = combine(
         selectedIdState,
         wikidataState,
@@ -128,18 +147,19 @@ class PlacesAroundViewModel @AssistedInject constructor(
     }
 
     val uiState: StateFlow<PlacesAroundUiState> = combine(
-        hikeRepository.observeHike(hikeId),
+        heldPlacesFlow,
         settingsFlow,
         searchState,
-        selectionBundleFlow
-    ) { hike, settings, search, sel ->
-        val heldRows = if (hike != null) TrailPlaceOrder.ordered(hike.places, hike.route) else emptyList()
+        selectionBundleFlow,
+        mapCameraTracker.canSearchVisibleArea
+    ) { heldSnapshot, settings, search, sel, canSearchArea ->
+        val heldRows = heldSnapshot.rows
         val candidates = computeCandidates(
             found = search.found,
             askedAbout = search.askedAbout,
             reach = search.reach,
             shownSymbols = settings.shownSearchPlaceSymbols,
-            held = hike?.places.orEmpty()
+            held = heldSnapshot.places
         )
         val listing = TrailPlaceAroundListing.from(held = heldRows, candidates = candidates)
         val selectedCard = resolveSelectedCard(sel.selectedId, heldRows, search.found, sel.wikidata)
@@ -147,7 +167,8 @@ class PlacesAroundViewModel @AssistedInject constructor(
             heldRows = heldRows,
             candidates = candidates,
             isSearching = search.phase == PlacesAroundPhase.SEARCHING || search.isSearchingArea,
-            shownSymbols = settings.shownSearchPlaceSymbols
+            shownSymbols = settings.shownSearchPlaceSymbols,
+            canSearchArea = canSearchArea
         )
         PlacesAroundUiState(
             phase = search.phase,
@@ -286,19 +307,31 @@ class PlacesAroundViewModel @AssistedInject constructor(
     }
 
     private fun searchIfNeeded() {
-        val hike = latestHike
+        val hike = latestHike ?: return
         val symbols = latestShownSymbols
+        val cannotSearch = hike.route.size <= 1 || symbols.isEmpty() || !trailPointSource.isAvailable
+        if (cannotSearch) {
+            settleSkippedSearch()
+            return
+        }
         val desiredReach = searchState.value.reach.meters
         val alreadyAsking = askingReachMeters?.let { desiredReach <= it && symbols.all(askingSymbols::contains) }
         val alreadySearched = searchedReachMeters?.let { desiredReach <= it && symbols.all(searchedSymbols::contains) }
-        val shouldSearch = hike != null &&
-            hike.route.size > 1 &&
-            symbols.isNotEmpty() &&
-            trailPointSource.isAvailable &&
-            alreadyAsking != true &&
-            alreadySearched != true
-        if (shouldSearch) {
+        if (alreadyAsking != true && alreadySearched != true) {
             runCorridorSearch(hike, symbols)
+        }
+    }
+
+    private fun settleSkippedSearch() {
+        searchJob?.cancel()
+        askingReachMeters = null
+        askingSymbols = emptySet()
+        searchState.update { current ->
+            if (current.phase == PlacesAroundPhase.SEARCHING) {
+                current.copy(phase = PlacesAroundPhase.FOUND, outage = null)
+            } else {
+                current
+            }
         }
     }
 
@@ -388,7 +421,12 @@ class PlacesAroundViewModel @AssistedInject constructor(
     ): SelectedAroundCard? {
         val pair = selectedId?.let { id ->
             heldRows.firstOrNull { it.id == id }?.let { it to true }
-                ?: foundRows.firstOrNull { it.id == id }?.let { it to false }
+                ?: foundRows.firstOrNull { it.id == id }?.let { candidate ->
+                    val heldMatch = heldRows.firstOrNull { held ->
+                        TrailPlaceHolding.holds(candidate.place, listOf(held.place))
+                    }
+                    if (heldMatch != null) heldMatch to true else candidate to false
+                }
         }
         return pair?.let { (row, isOnHike) ->
             val item = row.place.osm?.wikidata
@@ -404,7 +442,8 @@ class PlacesAroundViewModel @AssistedInject constructor(
         heldRows: List<TrailPlaceRow>,
         candidates: List<TrailPlaceRow>,
         isSearching: Boolean,
-        shownSymbols: Set<TrailPlaceSymbol>
+        shownSymbols: Set<TrailPlaceSymbol>,
+        canSearchArea: Boolean
     ) {
         val pins = heldRows.map { row ->
             MapPlacePin(
@@ -441,12 +480,17 @@ class PlacesAroundViewModel @AssistedInject constructor(
                 searchAreaPill = MapSearchAreaPillState(
                     isVisible = trailPointSource.isAvailable && shownSymbols.isNotEmpty(),
                     isSearching = isSearching,
-                    isEnabled = mapCameraTracker.currentSearchableArea() != null && !isSearching,
+                    isEnabled = canSearchArea && !isSearching,
                     onSearchArea = ::onSearchVisibleArea
                 )
             )
         )
     }
+
+    private data class HeldPlacesSnapshot(
+        val places: List<TrailPoint> = emptyList(),
+        val rows: List<TrailPlaceRow> = emptyList()
+    )
 
     private data class SearchAccumulator(
         val phase: PlacesAroundPhase = PlacesAroundPhase.SEARCHING,

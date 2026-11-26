@@ -57,6 +57,12 @@ interface TrailPlacesMapInteractionHandler {
     fun onTapCandidatePin(placeId: String) = Unit
 
     fun onLongPressMap(coordinate: GeoCoordinate) = Unit
+
+    /**
+     * Delivered whenever the geographic point directly under the unobstructed center placement
+     * reticle changes (due to panning, zooming, resizing, or sheet detent transitions).
+     */
+    fun onPlacementCoordinateChanged(coordinate: GeoCoordinate) = Unit
 }
 
 /**

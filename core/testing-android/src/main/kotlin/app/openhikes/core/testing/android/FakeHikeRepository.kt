@@ -707,7 +707,17 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
             target == null -> Result.failure(NoSuchElementException("Hike not found"))
             TrailPlaceHolding.isSameElement(place, target.places) -> Result.success(false)
             else -> {
+                val osm = place.osm
+                val idOwnedByAnotherHike = hikesState.value.any { other ->
+                    other.id != hikeId && other.places.any { it.id == place.id }
+                }
+                val scopedId = when {
+                    osm != null -> "${hikeId.value}:osm-${osm.elementType}-${osm.elementId}"
+                    place.id.isBlank() || idOwnedByAnotherHike -> UUID.randomUUID().toString()
+                    else -> place.id
+                }
                 val normalized = place.copy(
+                    id = scopedId,
                     hikeId = hikeId,
                     name = BoundedText.boundedOrEmpty(place.name, TextBound.TITLE),
                     note = BoundedText.boundedOrEmpty(place.note, TextBound.NOTES)
