@@ -108,6 +108,27 @@ class MapRouteOverlayTest {
         assertThat(borderScaledDp[1]).isWithin(1e-6).of(12.0)
     }
 
+    @Test
+    fun libraryLineRenderPlanUsesOpaqueTintBlackBorderAndFadedLayerAlpha() {
+        val overlay = MapLibraryLineOverlay(
+            hikeId = HikeId("h-lib"),
+            tintHex = "#D85A1780",
+            runs = listOf(
+                listOf(
+                    app.openhikes.core.model.GeoCoordinate(47.7, 12.8),
+                    app.openhikes.core.model.GeoCoordinate(47.71, 12.81)
+                )
+            )
+        )
+        val plan = buildLibraryLineRenderPlan(overlay)
+        assertThat(plan.lineColor.alpha).isWithin(1e-6f).of(1.0f)
+        assertThat(plan.lineColor).isEqualTo(Color(0xFFD85A17))
+        assertThat(plan.borderColor).isEqualTo(Color.Black)
+        assertThat(plan.lineWidthDp).isWithin(1e-6f).of(3.5f)
+        assertThat(plan.borderWidthDp).isGreaterThan(plan.lineWidthDp)
+        assertThat(plan.opacity).isWithin(1e-6f).of(0.6f)
+    }
+
     private fun sampleOverlay(
         pattern: RouteLinePattern,
         tintHex: String = "#1B7F3B",

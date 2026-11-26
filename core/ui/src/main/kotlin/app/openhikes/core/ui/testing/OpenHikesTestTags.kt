@@ -49,6 +49,17 @@ object OpenHikesTestTags {
     const val IMPORT_GPX_BUTTON = "import-gpx-button"
     const val HIKE_TITLE_FIELD = "hike-title-field"
     const val HIKE_LIST = "hike-list"
+    const val HIKE_ORDER_BUTTON = "hike-order-button"
+    const val HIKE_ORDER_DONE_BUTTON = "hike-order-done-button"
+    const val HIKE_ORDER_REORDER_ACTION = "hike-order-reorder-action"
+    const val LIBRARY_TOTALS_BUTTON = "library-totals-button"
+    const val LIBRARY_TOTALS_SCREEN = "library-totals-screen"
+    const val LIBRARY_TOTALS_BACK = "library-totals-back"
+    const val LIBRARY_TOTALS_RETRY = "library-totals-retry"
+    const val LIBRARY_MONTH_CHART = "library-month-chart"
+    const val LIBRARY_RECORD_LONGEST = "library-record-longest"
+    const val LIBRARY_RECORD_HIGHEST = "library-record-highest"
+    const val LIBRARY_RECORD_STEEPEST = "library-record-steepest"
     const val HIKE_EMPTY_STATE = "hike-empty-state"
     const val HIKE_SEARCH_EMPTY_STATE = "hike-search-empty-state"
     const val HIKE_SEARCH_SECTION_HEADER = "hike-search-section-header"
@@ -349,6 +360,12 @@ object OpenHikesTestTags {
     fun hikeRow(hikeId: String): String = "hike-row-$hikeId"
 
     fun hikeRowDelete(hikeId: String): String = "hike-row-delete-$hikeId"
+
+    fun hikeRowMoveUp(hikeId: String): String = "hike-row-move-up-$hikeId"
+
+    fun hikeRowMoveDown(hikeId: String): String = "hike-row-move-down-$hikeId"
+
+    fun hikeSortOption(rawValue: String): String = "hike-sort-$rawValue"
 
     fun routePattern(patternId: String): String = "route-pattern-$patternId"
 

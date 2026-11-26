@@ -28,6 +28,7 @@ import app.openhikes.core.ui.navigation.AddHikePlaceRoute
 import app.openhikes.core.ui.navigation.EntryProviderInstaller
 import app.openhikes.core.ui.navigation.HikeDetailRoute
 import app.openhikes.core.ui.navigation.HikePhotoViewerRoute
+import app.openhikes.core.ui.navigation.LibraryTotalsRoute
 import app.openhikes.core.ui.navigation.MapHomeRoute
 import app.openhikes.core.ui.navigation.MapModesRoute
 import app.openhikes.core.ui.navigation.OpenHikesNavigator
@@ -60,6 +61,7 @@ private data class ShellNavActions(
     val exitSearch: () -> Unit,
     val onSearchFocusChanged: (Boolean) -> Unit,
     val onOpenSettings: () -> Unit,
+    val onOpenTotals: () -> Unit,
     val onOpenHike: (HikeId) -> Unit,
     val onOpenRecording: () -> Unit,
     val onOpenTrailMaker: () -> Unit,
@@ -177,6 +179,7 @@ internal fun rememberShellNavigationHost(
     isWalkActive: Boolean,
     openRecordingRequestCount: Int,
     openWalkHikeRequest: Pair<Int, HikeId>?,
+    openLibraryLineHikeRequest: Pair<Int, HikeId>?,
     defaultAddPlaceCoordinateProvider: (HikeId) -> GeoCoordinate,
     latestRecordingCoordinateProvider: () -> GeoCoordinate?,
     onRequestAutoStartRecording: () -> Unit,
@@ -207,6 +210,7 @@ internal fun rememberShellNavigationHost(
         shellLayout = shellLayout,
         openRecordingRequestCount = openRecordingRequestCount,
         openWalkHikeRequest = openWalkHikeRequest,
+        openLibraryLineHikeRequest = openLibraryLineHikeRequest,
         onSyncBackStack = onSyncBackStack,
         onDismissAttributionDialog = onDismissAttributionDialog,
         onExitSearch = actions.exitSearch
@@ -280,6 +284,7 @@ private fun rememberShellNavActions(
         exitSearch = exitSearch,
         onSearchFocusChanged = { focused -> controllers.updateSearchFocus(focused, currentSearchQuery) },
         onOpenSettings = { controllers.openSettings(exitSearch) },
+        onOpenTotals = { controllers.openTotals(exitSearch) { focusManager.clearFocus(force = true) } },
         onOpenHike = { hikeId ->
             focusManager.clearFocus(force = true)
             controllers.navigateHalfSheetIfPeek(HikeDetailRoute(hikeId))
@@ -331,6 +336,12 @@ private fun ShellNavControllers.openSettings(exitSearch: () -> Unit) {
     if (detentBeforeSettings == null) detentBeforeSettings = sheetDetent
     sheetDetent = SheetDetent.EXPANDED
     navigator.navigate(SettingsRoute)
+}
+
+private fun ShellNavControllers.openTotals(exitSearch: () -> Unit, clearFocus: () -> Unit) {
+    if (isSearchActive) exitSearch()
+    clearFocus()
+    navigateHalfSheetIfPeek(LibraryTotalsRoute)
 }
 
 private fun ShellNavControllers.toggleMapModesRoute(exitSearch: () -> Unit, clearFocus: () -> Unit) {
@@ -403,6 +414,7 @@ private fun CoordinateShellNavigation(
     shellLayout: ShellLayout,
     openRecordingRequestCount: Int,
     openWalkHikeRequest: Pair<Int, HikeId>?,
+    openLibraryLineHikeRequest: Pair<Int, HikeId>?,
     onSyncBackStack: (List<Any>) -> Unit,
     onDismissAttributionDialog: () -> Unit,
     onExitSearch: () -> Unit
@@ -412,6 +424,7 @@ private fun CoordinateShellNavigation(
         controllers = controllers,
         openRecordingRequestCount = openRecordingRequestCount,
         openWalkHikeRequest = openWalkHikeRequest,
+        openLibraryLineHikeRequest = openLibraryLineHikeRequest,
         onExitSearch = onExitSearch
     )
     SyncShellBackStackEffect(controllers = controllers, onSyncBackStack = onSyncBackStack)
@@ -463,6 +476,7 @@ private fun rememberNavigationContent(
                                 onClearSearch = currentOnClearSearch,
                                 onSearchFocusChanged = navActions.onSearchFocusChanged,
                                 onOpenSettings = navActions.onOpenSettings,
+                                onOpenTotals = navActions.onOpenTotals,
                                 onOpenHike = navActions.onOpenHike,
                                 onHikeDeleted = navActions.onHikeDeleted
                             )

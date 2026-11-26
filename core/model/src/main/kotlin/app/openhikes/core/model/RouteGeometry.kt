@@ -33,6 +33,7 @@ object RouteGeometry {
     private const val DEGREES_IN_HALF_TURN = 180.0
     private const val DEGREES_IN_FULL_TURN = 360.0
     private const val HALF_FACTOR = 2.0
+    const val METERS_PER_DEGREE_LATITUDE = EARTH_RADIUS_METERS * PI / DEGREES_IN_HALF_TURN
 
     fun distanceMeters(from: GeoCoordinate, to: GeoCoordinate): Double {
         val startLat = from.latitude * PI / DEGREES_IN_HALF_TURN

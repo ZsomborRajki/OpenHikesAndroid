@@ -3,6 +3,7 @@ package app.openhikes.core.data
 import app.openhikes.core.common.IoDispatcher
 import app.openhikes.core.datastore.OpenHikesPreferencesDataSource
 import app.openhikes.core.model.DistanceUnit
+import app.openhikes.core.model.HikeListSort
 import app.openhikes.core.model.TrailPlaceSymbol
 import app.openhikes.core.model.UserSettings
 import javax.inject.Inject
@@ -69,5 +70,9 @@ internal class OfflineFirstUserSettingsRepository @Inject constructor(
 
     override suspend fun setPlaceSymbolVisible(symbol: TrailPlaceSymbol, visible: Boolean) = withContext(ioDispatcher) {
         preferencesDataSource.setPlaceSymbolVisible(symbol, visible)
+    }
+
+    override suspend fun setHikeListSort(sort: HikeListSort) = withContext(ioDispatcher) {
+        preferencesDataSource.setHikeListSort(sort)
     }
 }

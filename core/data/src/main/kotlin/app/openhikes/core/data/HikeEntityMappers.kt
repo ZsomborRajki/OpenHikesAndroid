@@ -25,7 +25,7 @@ import app.openhikes.core.model.TrailPoint
 import app.openhikes.core.model.TrailWalkEndReason
 import kotlinx.serialization.json.Json
 
-internal fun HikeEntity.toSummary(localState: HikeLocalStateEntity?): HikeSummary = HikeSummary(
+internal fun HikeEntity.toSummary(localState: HikeLocalStateEntity?, walkCount: Int = 0): HikeSummary = HikeSummary(
     id = HikeId(id),
     title = title,
     customName = customName,
@@ -42,7 +42,9 @@ internal fun HikeEntity.toSummary(localState: HikeLocalStateEntity?): HikeSummar
     author = author,
     keywords = keywords,
     climbMeters = localState?.climbMeters,
-    descentMeters = localState?.descentMeters
+    descentMeters = localState?.descentMeters,
+    listOrder = localState?.listOrder,
+    walkCount = walkCount
 )
 
 internal fun HikeEntity.toDomain(

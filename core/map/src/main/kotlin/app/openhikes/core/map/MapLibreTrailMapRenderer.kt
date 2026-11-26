@@ -164,6 +164,7 @@ internal class MapLibreTrailMapRenderer @Inject constructor(
             extrasProvider = extrasTileProvider,
             sourceSpec = sourceSpec,
             countryOutlines = overlayState.countryOutlines,
+            libraryLines = overlayState.libraryLines,
             routes = overlayState.routes,
             highlightState = highlightState,
             liveRecordingOverlayState = liveRecordingOverlayState,
@@ -303,6 +304,7 @@ private fun rememberTrailMapState(
     extrasProvider: OpenHikesExtrasTileProvider,
     sourceSpec: OpenHikesVectorSourceSpec,
     countryOutlines: List<MapCountryOutline>,
+    libraryLines: List<MapLibraryLineOverlay>,
     routes: List<MapRouteOverlay>,
     highlightState: StateFlow<MapRouteHighlight?>,
     liveRecordingOverlayState: StateFlow<MapRouteOverlay?>,
@@ -351,6 +353,7 @@ private fun rememberTrailMapState(
         )
     }
     CountryOutlineLayers(outlines = countryOutlines)
+    LibraryLineOverlayLayers(libraryLines = libraryLines)
     RouteOverlayLayers(routes = routes)
     RouteEditOverlayLayers(routeEditOverlayState = routeEditOverlayState)
     TrailDraftOverlayLayers(trailDraftOverlayState = trailDraftOverlayState)

@@ -284,6 +284,10 @@ class FakeRecordingController(
         traceFlow.value = snapshot
     }
 
+    fun setSessionState(state: RecordingSessionState) {
+        stateFlow.value = state
+    }
+
     fun simulateAutoPause() {
         val current = stateFlow.value
         if (!current.isActive) return

@@ -28,7 +28,9 @@ data class LaunchConfig(
     val seedPhotoCount: Int = 0,
     val omitSeededPhotoFiles: Boolean = false,
     val stubPhotoLibraryCount: Int? = null,
-    val stubPhotoLibraryAccess: String? = null
+    val stubPhotoLibraryAccess: String? = null,
+    val seedHikeCount: Int = 0,
+    val seedNearbyTrails: Boolean = false
 ) {
     companion object {
         val Production = LaunchConfig()

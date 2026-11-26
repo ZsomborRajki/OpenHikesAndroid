@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.GpxImportFailure
 import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.HikeListSort
 import app.openhikes.core.model.HikeSummary
 import app.openhikes.core.model.TrailWalkPhase
 
@@ -14,6 +15,11 @@ import app.openhikes.core.model.TrailWalkPhase
 data class HikeLibraryUiState(
     val hikes: List<HikeSummary> = emptyList(),
     val distanceUnit: DistanceUnit = DistanceUnit.METRIC,
+    val sort: HikeListSort = HikeListSort.Default,
+    val isCustomOrder: Boolean = false,
+    val isReordering: Boolean = false,
+    val activeHikeId: HikeId? = null,
+    val recordingHikeId: HikeId? = null,
     val selectedHikeId: HikeId? = null,
     val walkedHikeId: HikeId? = null,
     val walkedPhase: TrailWalkPhase? = null,

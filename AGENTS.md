@@ -17,30 +17,26 @@ Supporting reference docs:
   pyramid, porting `OpenHikesUITests` fixtures/tags, static analysis wiring, and
   Phase 0–4 bootstrap roadmap.
 
-> **Repository status:** Phase 10 complete (Photos along a trail: pure-JVM
-> `HikePhoto`, `HikePhotoLicense`, `PhotoMatchEvidence`, `OrderedHikePhotos`,
-> `PhotoUnavailableReason`, `PhotoCreditPlacement`, `PhotoMapPin`,
-> `ExportedHikeArchive`, `PhotoTrailAnchor`, `HikePhotoTimeline`,
-> `RecordedRouteLegs`, `HikeWalkPhotoTimeline`, `HikePhotoSearchPlan`,
-> `LibraryPhotoMatcher`, `PickedPhotoPlacement`, `PhotoCaptureDate`,
-> `ImageDataFormat`, `HikePhotoArchiveBuilder` `.zip` exporter, and GPX photo
-> `<wpt>` round-trip across `:core:model` and `:core:common`; Room v5
-> `hike_photos`, `DiskHikePhotoStore` under `noBackupFilesDir/hike_photos/`,
-> lossless `PhotoMetadataCodec` EXIF time/GPS/Commons credit stamping,
-> `AndroidPhotoLibrarySource` & launch-aware stubbing, `MediaStorePhotoLibraryMirror`,
-> `HikePhotoImportStore`, and 30-minute recording shutter-time anchoring across
-> `:core:database`, `:core:data`, and `:core:location`; `TrailPhotosOverlayState`,
-> `PhotoCaptureController`, `HikePhotoStrip`, and interactive MapLibre + fake
-> photo pins & callout previews in `:core:designsystem`, `:core:ui`, `:core:map`,
-> and `:core:testing-android`; new `:feature:photos` module with full-screen
-> swipeable gallery viewer, Commons license credit dialog, *Show on Map* /
-> tap-to-re-expand transitions, unavailable photo recovery views, and *Find
-> Photos of This Hike* discovery; integrated into `:feature:hikes`,
-> `:feature:places` (place photos, staged Add Place photos, place-removal
-> gallery preservation), `:feature:recording`, `:feature:settings` (read-only
-> Photos storage usage), and `:app`'s adaptive shell, `FileProvider`, floating
-> camera/library controls, and full-window landscape gallery mode, plus Tier
-> 1/2/3 & screenshot tests). Phases 0–10 are complete.
+> **Repository status:** Phase 11 complete (Library Totals, Sorting & Map
+> Library Lines: pure-JVM `HikeListSort`, `HikeListOrder`,
+> `RouteElevationRevision` / `RouteElevationMeasurement`, antimeridian-aware
+> 64-point block-indexed `LibraryFootprint`, balanced interval-tree
+> `RecordedClocks`, `LibraryTotals` with same-ground overlap deduplication &
+> redrawn-trail climb withholding, two-pass `LibraryLineOutline` thinning
+> (`<= 256` points, 32 longest pauses), and `LibraryLineHitTest` across
+> `:core:model`; Proto DataStore `hike_list_sort`, transactional
+> `HikeLocalStateDao.replaceListOrders`, walk-count aggregation, off-main
+> `LibraryMetricsStore` (totals sweep, background `Hilliest` elevation
+> validation, cached thinned `LibraryLine` outlines, atomic seeded library &
+> nearby-trails fixtures), and `RouteEditStore` elevation-cache upsert across
+> `:core:common`, `:core:datastore`, `:core:database`, and `:core:data`;
+> `MapLibraryLineOverlay` & oldest-first faded MapLibre `LibraryLineOverlayLayers`
+> under selected routes in `:core:map`; `HikeLibrarySortBar`, accessible
+> reorder mode with active-hike pinning, auto-scroll-to-top, and reactive
+> `LibraryTotalsScreen` + `LibraryMonthChart` & clickable records in
+> `:core:designsystem`, `:core:ui`, `:feature:hikes`, and `:app` with map
+> tap-to-open library lines, plus Tier 1/2/3 & screenshot tests). Phases 0–11
+> are complete.
 
 ---
 

@@ -186,6 +186,19 @@ object HikeMetricsFormatter {
         .withZone(zoneId)
         .format(Instant.ofEpochMilli(epochMillis))
 
+    fun distanceInMajorUnit(meters: Double, unit: DistanceUnit): Double {
+        val safeMeters = meters.coerceAtLeast(0.0)
+        return when (unit) {
+            DistanceUnit.METRIC -> safeMeters / METERS_PER_KILOMETER
+            DistanceUnit.IMPERIAL -> safeMeters / METERS_PER_MILE
+        }
+    }
+
+    fun majorDistanceUnitLabel(unit: DistanceUnit): String = when (unit) {
+        DistanceUnit.METRIC -> "km"
+        DistanceUnit.IMPERIAL -> "mi"
+    }
+
     private fun formatNumber(value: Double, fractionDigits: Int, locale: Locale): String {
         val formatter = NumberFormat.getNumberInstance(locale).apply {
             minimumFractionDigits = fractionDigits

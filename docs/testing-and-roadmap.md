@@ -277,3 +277,30 @@ GitHub issues once created.)*
       row), and `:app` (`FileProvider`, `PhotoCaptureHost`, floating camera /
       library controls, full-window landscape gallery mode, and Tier 1/2/3 &
       screenshot tests).
+12. **Phase 11 — Library Totals, Sorting & Map Library Lines (Slice 11):**
+    - Pure-JVM library ordering, totals, and thinned map-line algorithms
+      (`HikeListSort`, `HikeListOrder`, `RouteElevationRevision` /
+      `RouteElevationMeasurement`, antimeridian-aware `LibraryFootprint`,
+      balanced interval-tree `RecordedClocks`, `LibraryTotals` with same-ground
+      overlap deduplication, directed walk climb, and redrawn-trail climb
+      withholding, two-pass `LibraryLineOutline` thinning, and
+      `LibraryLineHitTest`) across `:core:model`.
+    - Proto DataStore `hike_list_sort`, transactional custom ordering on
+      `HikeLocalStateDao`, walk-count observation on `HikeWalkDao`, off-main
+      `LibraryMetricsStore` (totals sweep, background `Hilliest` elevation
+      validation, chunk-hash-cached `LibraryLine` outlines, atomic debug batch
+      seeding), and `RouteEditStore` elevation-cache upsert across
+      `:core:common`, `:core:datastore`, `:core:database`, and `:core:data`.
+    - `MapLibraryLineOverlay`, `buildLibraryLineRenderPlan`, and faded
+      oldest-first MapLibre `LibraryLineOverlayLayers` drawn beneath selected
+      routes in `:core:map`, plus `:app`'s `MapShellViewModel` selected/library
+      line separation, Trail Maker suppression, and map tap-to-open hit-testing
+      (disabled during active recording, photo callouts, or selected route
+      taps).
+    - Material 3 Expressive `HikeLibrarySortBar`, accessible reorder mode with
+      pinned active hike, predictive back exit, and scroll-to-top behavior in
+      `:core:ui` & `:feature:hikes`; reactive `LibraryTotalsScreen` with
+      grouped `LibraryMonthChart`, clickable personal records opening
+      `HikeDetailRoute`, error/retry card, and counting/redrawn footnotes,
+      verified with Tier 1/2/3, Robolectric journey, and Compose screenshot
+      tests.

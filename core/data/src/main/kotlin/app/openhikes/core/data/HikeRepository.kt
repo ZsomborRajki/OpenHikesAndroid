@@ -12,7 +12,9 @@ import app.openhikes.core.model.HikeMapRoute
 import app.openhikes.core.model.HikePhoto
 import app.openhikes.core.model.HikeSummary
 import app.openhikes.core.model.HikeWalk
+import app.openhikes.core.model.LibraryLine
 import app.openhikes.core.model.LibraryPhotoMatch
+import app.openhikes.core.model.LibraryTotals
 import app.openhikes.core.model.PreparedRecording
 import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteEditOutcome
@@ -23,6 +25,7 @@ import app.openhikes.core.model.TrailPoint
 import app.openhikes.core.model.TrailWalkEndReason
 import app.openhikes.core.model.TrailWalkRecord
 import java.io.File
+import java.time.ZoneId
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -39,6 +42,8 @@ interface HikeRepository {
     val hikes: Flow<List<HikeSummary>>
 
     val mapRoutes: Flow<List<HikeMapRoute>>
+
+    val libraryLines: Flow<List<LibraryLine>>
 
     fun observeHike(hikeId: HikeId): Flow<Hike?>
 
@@ -170,6 +175,17 @@ interface HikeRepository {
     suspend fun measurePhotoStorageBytes(): Long
 
     suspend fun reclaimOrphanedPhotos(): Result<Int>
+
+    suspend fun saveCustomHikeOrder(orderedIds: List<HikeId>): Result<Unit>
+
+    suspend fun clearCustomHikeOrder(): Result<Unit>
+
+    suspend fun validateElevationMetrics(hikeIds: List<HikeId>): Result<Boolean>
+
+    suspend fun computeLibraryTotals(
+        asOfEpochMillis: Long,
+        zoneId: ZoneId = ZoneId.systemDefault()
+    ): Result<LibraryTotals>
 
     suspend fun seedFixtureIfConfigured(): HikeId?
 }

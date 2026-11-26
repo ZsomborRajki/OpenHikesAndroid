@@ -13,5 +13,6 @@ data class MapOverlayState(
     val showsHikingRoutes: Boolean = true,
     val attribution: MapAttribution = MapAttribution.forStyle(mapStyleId, showsHikingRoutes),
     val routes: List<MapRouteOverlay> = emptyList(),
+    val libraryLines: List<MapLibraryLineOverlay> = emptyList(),
     val countryOutlines: List<MapCountryOutline> = emptyList()
 )

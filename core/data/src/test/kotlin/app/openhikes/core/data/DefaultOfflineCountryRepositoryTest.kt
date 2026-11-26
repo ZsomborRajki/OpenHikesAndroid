@@ -470,5 +470,8 @@ class DefaultOfflineCountryRepositoryTest {
             val next = if (visible) current.hiddenPlaceSymbols - symbol else current.hiddenPlaceSymbols + symbol
             current.copy(hiddenPlaceSymbols = next)
         }
+
+        override suspend fun setHikeListSort(sort: app.openhikes.core.model.HikeListSort) =
+            state.update { it.copy(hikeListSort = sort) }
     }
 }

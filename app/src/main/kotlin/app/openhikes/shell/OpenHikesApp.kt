@@ -109,6 +109,7 @@ data class ShellHomeScope(
     val onClearSearch: () -> Unit,
     val onSearchFocusChanged: (Boolean) -> Unit,
     val onOpenSettings: () -> Unit,
+    val onOpenTotals: () -> Unit = {},
     val onOpenHike: (HikeId) -> Unit,
     val onHikeDeleted: (HikeId) -> Unit
 )
@@ -136,6 +137,7 @@ fun OpenHikesApp(
             onClearSearch = scope.onClearSearch,
             onSearchFocusChanged = scope.onSearchFocusChanged,
             onOpenSettings = scope.onOpenSettings,
+            onOpenTotals = scope.onOpenTotals,
             onOpenHike = scope.onOpenHike,
             onHikeDeleted = scope.onHikeDeleted
         )
@@ -153,6 +155,7 @@ fun OpenHikesApp(
     val isPhotoBusy by shellViewModel.isPhotoBusy.collectAsStateWithLifecycle()
     val pendingPhotoRequest by shellViewModel.pendingPhotoRequest.collectAsStateWithLifecycle()
     val photoAlert by shellViewModel.photoAlert.collectAsStateWithLifecycle()
+    val openLibraryLineHikeRequest by shellViewModel.openHikeFromMapRequest.collectAsStateWithLifecycle()
     val uriHandler = LocalUriHandler.current
 
     PhotoCaptureHost(
@@ -182,6 +185,7 @@ fun OpenHikesApp(
         onDismissWalkStartNotice = shellViewModel::onDismissWalkStartNotice,
         openRecordingRequestCount = openRecordingRequestCount,
         openWalkHikeRequest = openWalkHikeRequest,
+        openLibraryLineHikeRequest = openLibraryLineHikeRequest,
         onRequestAutoStartRecording = onRequestAutoStartRecording,
         onSyncBackStack = shellViewModel::syncBackStack,
         onSearchQueryChange = shellViewModel::onSearchQueryChange,
@@ -235,6 +239,7 @@ internal fun OpenHikesShellContent(
     onDismissWalkStartNotice: () -> Unit = {},
     openRecordingRequestCount: Int = 0,
     openWalkHikeRequest: Pair<Int, HikeId>? = null,
+    openLibraryLineHikeRequest: Pair<Int, HikeId>? = null,
     onRequestAutoStartRecording: () -> Unit = {},
     homeContent: @Composable (ShellHomeScope) -> Unit
 ) {
@@ -250,6 +255,7 @@ internal fun OpenHikesShellContent(
         isWalkActive = walkSession.isWalkActive,
         openRecordingRequestCount = openRecordingRequestCount,
         openWalkHikeRequest = openWalkHikeRequest,
+        openLibraryLineHikeRequest = openLibraryLineHikeRequest,
         defaultAddPlaceCoordinateProvider = placesRuntime.defaultAddPlaceCoordinateProvider,
         latestRecordingCoordinateProvider = placesRuntime.latestRecordingCoordinateProvider,
         onRequestAutoStartRecording = onRequestAutoStartRecording,

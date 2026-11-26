@@ -18,6 +18,12 @@ interface HikeWalkDao {
     @Query("SELECT * FROM hike_walks WHERE id = :walkId LIMIT 1")
     suspend fun getById(walkId: String): HikeWalkEntity?
 
+    @Query("SELECT * FROM hike_walks ORDER BY started_at_epoch_millis DESC")
+    suspend fun getAllWalks(): List<HikeWalkEntity>
+
+    @Query("SELECT hike_id AS hike_id, COUNT(*) AS walk_count FROM hike_walks GROUP BY hike_id")
+    fun observeWalkCounts(): Flow<List<HikeWalkCountRow>>
+
     @Query("SELECT * FROM hike_walks WHERE hike_id = :hikeId ORDER BY started_at_epoch_millis DESC")
     fun observeByHikeId(hikeId: String): Flow<List<HikeWalkEntity>>
 

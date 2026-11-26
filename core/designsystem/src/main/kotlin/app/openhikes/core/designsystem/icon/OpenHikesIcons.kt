@@ -152,4 +152,14 @@ object OpenHikesIcons {
     @DrawableRes val FolderZip: Int = R.drawable.ic_folder_zip_24
 
     @DrawableRes val RadioButtonUnchecked: Int = R.drawable.ic_radio_button_unchecked_24
+
+    @DrawableRes val BarChart: Int = R.drawable.ic_bar_chart_24
+
+    @DrawableRes val DragHandle: Int = R.drawable.ic_drag_handle_24
+
+    @DrawableRes val SwapVert: Int = R.drawable.ic_swap_vert_24
+
+    @DrawableRes val CalendarToday: Int = R.drawable.ic_calendar_today_24
+
+    @DrawableRes val SortByAlpha: Int = R.drawable.ic_sort_by_alpha_24
 }

@@ -1,5 +1,6 @@
 package app.openhikes.feature.hikes
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -15,7 +16,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -32,8 +35,12 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
@@ -51,6 +58,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openhikes.core.designsystem.icon.OpenHikesIcons
 import app.openhikes.core.model.GpxImportFailure
 import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.HikeListSort
 import app.openhikes.core.model.HikeSummary
 import app.openhikes.core.ui.components.HikeRow
 import app.openhikes.core.ui.testing.OpenHikesTestTags
@@ -79,6 +87,7 @@ fun HikeLibraryRoute(
     onOpenHike: (HikeId) -> Unit,
     onHikeDeleted: (HikeId) -> Unit,
     modifier: Modifier = Modifier,
+    onOpenTotals: () -> Unit = {},
     onImportGpxClick: (() -> Unit)? = null,
     viewModel: HikeLibraryViewModel = hiltViewModel()
 ) {
@@ -100,6 +109,7 @@ fun HikeLibraryRoute(
         onClearSearch = onClearSearch,
         onSearchFocusChanged = onSearchFocusChanged,
         onOpenSettings = onOpenSettings,
+        onOpenTotals = onOpenTotals,
         onImportGpxClick = handleImportClick,
         onOpenHike = onOpenHike,
         onRequestDelete = viewModel::onRequestDelete,
@@ -107,6 +117,10 @@ fun HikeLibraryRoute(
         onCancelDelete = viewModel::onCancelDelete,
         onDismissImportError = viewModel::onDismissImportError,
         onDismissActionError = viewModel::onDismissActionError,
+        onSelectSort = viewModel::onSelectSort,
+        onEnterReorderMode = viewModel::onEnterReorderMode,
+        onExitReorderMode = viewModel::onExitReorderMode,
+        onMoveHike = viewModel::onMoveHike,
         modifier = modifier
     )
 }
@@ -114,6 +128,7 @@ fun HikeLibraryRoute(
 /**
  * Stateless hike library screen shared across runtime, Compose tests, and screenshots.
  */
+@Suppress("LongParameterList", "LongMethod")
 @Composable
 fun HikeLibraryScreen(
     uiState: HikeLibraryUiState,
@@ -128,11 +143,28 @@ fun HikeLibraryScreen(
     onConfirmDelete: () -> Unit,
     onCancelDelete: () -> Unit,
     modifier: Modifier = Modifier,
+    onOpenTotals: () -> Unit = {},
     onDismissImportError: () -> Unit = {},
-    onDismissActionError: () -> Unit = {}
+    onDismissActionError: () -> Unit = {},
+    onSelectSort: (HikeListSort) -> Unit = {},
+    onEnterReorderMode: () -> Unit = {},
+    onExitReorderMode: () -> Unit = {},
+    onMoveHike: (Int, Int) -> Unit = { _, _ -> }
 ) {
     val filteredHikes = remember(uiState.hikes, searchQuery) {
         filterHikes(uiState.hikes, searchQuery)
+    }
+    val canReorder = remember(uiState.hikes, uiState.activeHikeId) {
+        val activePresent = uiState.activeHikeId != null && uiState.hikes.any { it.id == uiState.activeHikeId }
+        val movable = if (activePresent) uiState.hikes.size - 1 else uiState.hikes.size
+        movable > 1
+    }
+
+    BackHandler(enabled = uiState.isReordering && searchQuery.isBlank(), onBack = onExitReorderMode)
+    LaunchedEffect(searchQuery.isNotBlank()) {
+        if (searchQuery.isNotBlank() && uiState.isReordering) {
+            onExitReorderMode()
+        }
     }
 
     Column(
@@ -153,30 +185,35 @@ fun HikeLibraryScreen(
             isImporting = uiState.isImporting,
             onImportGpxClick = onImportGpxClick
         )
-        uiState.importError?.let { error ->
+        if (searchQuery.isBlank()) {
             Spacer(modifier = Modifier.height(ContentSpacing))
-            LibraryErrorBanner(
-                message = importErrorText(error),
-                onDismiss = onDismissImportError,
-                tag = OpenHikesTestTags.HIKE_IMPORT_ERROR
+            HikeLibrarySortBar(
+                sort = uiState.sort,
+                isCustomOrder = uiState.isCustomOrder,
+                isReordering = uiState.isReordering,
+                canReorder = canReorder,
+                onSelectSort = onSelectSort,
+                onEnterReorderMode = onEnterReorderMode,
+                onExitReorderMode = onExitReorderMode,
+                onOpenTotals = onOpenTotals
             )
         }
-        if (uiState.actionError != null) {
-            Spacer(modifier = Modifier.height(ContentSpacing))
-            LibraryErrorBanner(
-                message = stringResource(R.string.hikes_delete_failed_error),
-                onDismiss = onDismissActionError,
-                tag = OpenHikesTestTags.HIKE_ACTION_ERROR
-            )
-        }
+        LibraryErrorBanners(
+            uiState = uiState,
+            onDismissImportError = onDismissImportError,
+            onDismissActionError = onDismissActionError
+        )
         Spacer(modifier = Modifier.height(ContentSpacing))
         HikeLibraryBody(
             uiState = uiState,
             searchQuery = searchQuery,
             filteredHikes = filteredHikes,
+            canReorder = canReorder,
             onClearSearch = onClearSearch,
             onOpenHike = onOpenHike,
             onRequestDelete = onRequestDelete,
+            onEnterReorderMode = onEnterReorderMode,
+            onMoveHike = onMoveHike,
             modifier = Modifier.weight(1f)
         )
     }
@@ -191,13 +228,46 @@ fun HikeLibraryScreen(
 }
 
 @Composable
+private fun LibraryErrorBanners(
+    uiState: HikeLibraryUiState,
+    onDismissImportError: () -> Unit,
+    onDismissActionError: () -> Unit
+) {
+    uiState.importError?.let { error ->
+        Spacer(modifier = Modifier.height(ContentSpacing))
+        LibraryErrorBanner(
+            message = importErrorText(error),
+            onDismiss = onDismissImportError,
+            tag = OpenHikesTestTags.HIKE_IMPORT_ERROR
+        )
+    }
+    if (uiState.actionError != null) {
+        Spacer(modifier = Modifier.height(ContentSpacing))
+        val actionMessageRes = if (uiState.actionError == HikeLibraryViewModel.SORT_ERROR_KEY) {
+            R.string.hikes_save_failed_error
+        } else {
+            R.string.hikes_delete_failed_error
+        }
+        LibraryErrorBanner(
+            message = stringResource(actionMessageRes),
+            onDismiss = onDismissActionError,
+            tag = OpenHikesTestTags.HIKE_ACTION_ERROR
+        )
+    }
+}
+
+@Suppress("LongParameterList")
+@Composable
 private fun HikeLibraryBody(
     uiState: HikeLibraryUiState,
     searchQuery: String,
     filteredHikes: List<HikeSummary>,
+    canReorder: Boolean,
     onClearSearch: () -> Unit,
     onOpenHike: (HikeId) -> Unit,
     onRequestDelete: (HikeSummary) -> Unit,
+    onEnterReorderMode: () -> Unit,
+    onMoveHike: (Int, Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     when {
@@ -212,42 +282,116 @@ private fun HikeLibraryBody(
             }
         }
         else -> {
-            LazyColumn(
+            HikeLibraryRowsList(
+                uiState = uiState,
+                isSearching = searchQuery.isNotBlank(),
+                filteredHikes = filteredHikes,
+                canReorder = canReorder,
+                onOpenHike = onOpenHike,
+                onRequestDelete = onRequestDelete,
+                onEnterReorderMode = onEnterReorderMode,
+                onMoveHike = onMoveHike,
                 modifier = modifier
-                    .fillMaxWidth()
-                    .testTag(OpenHikesTestTags.HIKE_LIST),
-                contentPadding = PaddingValues(bottom = ListBottomPadding),
-                verticalArrangement = Arrangement.spacedBy(ContentSpacing)
-            ) {
-                if (searchQuery.isNotBlank()) {
-                    item(key = "your_hikes_header") {
-                        Text(
-                            text = stringResource(R.string.hikes_your_hikes_header),
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier
-                                .padding(horizontal = 4.dp)
-                                .semantics { heading() }
-                                .testTag(OpenHikesTestTags.HIKE_SEARCH_SECTION_HEADER)
-                        )
-                    }
-                }
-                items(
-                    items = filteredHikes,
-                    key = { it.id.value }
-                ) { hike ->
-                    HikeRow(
-                        hike = hike,
-                        distanceUnit = uiState.distanceUnit,
-                        isSelected = hike.id == uiState.selectedHikeId,
-                        walkPhase = if (hike.id == uiState.walkedHikeId) uiState.walkedPhase else null,
-                        onClick = { onOpenHike(hike.id) },
-                        onDeleteClick = { onRequestDelete(hike) }
-                    )
-                }
-            }
+            )
         }
     }
+}
+
+@Suppress("LongParameterList")
+@Composable
+private fun HikeLibraryRowsList(
+    uiState: HikeLibraryUiState,
+    isSearching: Boolean,
+    filteredHikes: List<HikeSummary>,
+    canReorder: Boolean,
+    onOpenHike: (HikeId) -> Unit,
+    onRequestDelete: (HikeSummary) -> Unit,
+    onEnterReorderMode: () -> Unit,
+    onMoveHike: (Int, Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val firstHikeId = filteredHikes.firstOrNull()?.id
+    val listState = rememberLibraryListState(
+        sort = uiState.sort,
+        isSearching = isSearching,
+        isReordering = uiState.isReordering,
+        firstHikeId = firstHikeId,
+        itemCount = filteredHikes.size
+    )
+    val isReorderingRows = !isSearching && uiState.isReordering
+    val hasActiveAtTop = uiState.activeHikeId != null && firstHikeId == uiState.activeHikeId
+    val minMovableIndex = if (hasActiveAtTop) 1 else 0
+    LazyColumn(
+        state = listState,
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag(OpenHikesTestTags.HIKE_LIST),
+        contentPadding = PaddingValues(bottom = ListBottomPadding),
+        verticalArrangement = Arrangement.spacedBy(ContentSpacing)
+    ) {
+        if (isSearching) {
+            item(key = "your_hikes_header") {
+                Text(
+                    text = stringResource(R.string.hikes_your_hikes_header),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier
+                        .padding(horizontal = 4.dp)
+                        .semantics { heading() }
+                        .testTag(OpenHikesTestTags.HIKE_SEARCH_SECTION_HEADER)
+                )
+            }
+        }
+        itemsIndexed(
+            items = filteredHikes,
+            key = { _, hike -> hike.id.value }
+        ) { index, hike ->
+            val isPinned = hike.id == uiState.activeHikeId
+            val rowReorderTrigger = if (!isSearching && canReorder && !isPinned) onEnterReorderMode else null
+            HikeRow(
+                hike = hike,
+                distanceUnit = uiState.distanceUnit,
+                isSelected = hike.id == uiState.selectedHikeId,
+                walkPhase = if (hike.id == uiState.walkedHikeId) uiState.walkedPhase else null,
+                isRecording = hike.id == uiState.recordingHikeId,
+                isReordering = isReorderingRows,
+                isPinned = isPinned,
+                canMoveUp = isReorderingRows && !isPinned && index > minMovableIndex,
+                canMoveDown = isReorderingRows && !isPinned && index < filteredHikes.lastIndex,
+                onClick = { onOpenHike(hike.id) },
+                onDeleteClick = { onRequestDelete(hike) },
+                onMoveUp = { onMoveHike(index, index - 1) },
+                onMoveDown = { onMoveHike(index, index + 1) },
+                onRequestReorder = rowReorderTrigger
+            )
+        }
+    }
+}
+
+@Composable
+private fun rememberLibraryListState(
+    sort: HikeListSort,
+    isSearching: Boolean,
+    isReordering: Boolean,
+    firstHikeId: HikeId?,
+    itemCount: Int
+): LazyListState {
+    val listState = rememberLazyListState()
+    var previousFirstId by remember { mutableStateOf(firstHikeId) }
+    var previousCount by remember { mutableIntStateOf(itemCount) }
+    LaunchedEffect(sort, isSearching) {
+        listState.scrollToItem(0)
+    }
+    LaunchedEffect(firstHikeId, itemCount, isReordering) {
+        val newTopItem = firstHikeId != null && firstHikeId != previousFirstId
+        val prependedAtTop = !isReordering && newTopItem && itemCount > previousCount
+        previousFirstId = firstHikeId
+        previousCount = itemCount
+        if (prependedAtTop) {
+            listState.scrollToItem(0)
+        }
+    }
+    return listState
 }
 
 @Composable

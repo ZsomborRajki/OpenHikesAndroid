@@ -25,6 +25,12 @@ interface HikeScopedRoute : OpenHikesRoute {
 data object MapHomeRoute : OpenHikesRoute
 
 /**
+ * Yearly, prior-year, monthly, and all-time hiking totals & records destination.
+ */
+@Serializable
+data object LibraryTotalsRoute : OpenHikesRoute
+
+/**
  * Hike detail screen pushed onto the shared adaptive back stack.
  */
 @Serializable

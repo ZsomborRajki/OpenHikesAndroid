@@ -25,7 +25,13 @@ import app.openhikes.core.model.HikePhotoSearchPlan
 import app.openhikes.core.model.HikeRouteStatistics
 import app.openhikes.core.model.HikeSummary
 import app.openhikes.core.model.HikeWalk
+import app.openhikes.core.model.LibraryFootprint
+import app.openhikes.core.model.LibraryHikeFacts
+import app.openhikes.core.model.LibraryLine
+import app.openhikes.core.model.LibraryLineOutline
 import app.openhikes.core.model.LibraryPhotoMatch
+import app.openhikes.core.model.LibraryTotals
+import app.openhikes.core.model.LibraryWalkFacts
 import app.openhikes.core.model.PickedPhotoMetadata
 import app.openhikes.core.model.PickedPhotoPlacement
 import app.openhikes.core.model.PreparedRecording
@@ -35,7 +41,9 @@ import app.openhikes.core.model.RouteEdit
 import app.openhikes.core.model.RouteEditOutcome
 import app.openhikes.core.model.RouteEditRefusal
 import app.openhikes.core.model.RouteEditSources
+import app.openhikes.core.model.RouteElevationRevision
 import app.openhikes.core.model.RouteLinePattern
+import app.openhikes.core.model.RouteProfile
 import app.openhikes.core.model.RouteStyleUpdate
 import app.openhikes.core.model.RouteTint
 import app.openhikes.core.model.TrailPlaceHolding
@@ -43,13 +51,16 @@ import app.openhikes.core.model.TrailPlaceSymbol
 import app.openhikes.core.model.TrailPoint
 import app.openhikes.core.model.TrailWalkEndReason
 import app.openhikes.core.model.TrailWalkRecord
+import app.openhikes.core.model.climb
 import java.io.File
 import java.io.IOException
+import java.time.ZoneId
 import java.util.UUID
 import kotlin.math.max
 import kotlin.math.min
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 
@@ -81,6 +92,10 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
     var nextPlaceSaveFailure: Throwable? = null
     var nextPhotoSaveFailure: Throwable? = null
     var nextPhotoRemoveFailure: Throwable? = null
+    var nextTotalsFailure: Throwable? = null
+    var nextOrderFailure: Throwable? = null
+    var validateElevationCalls: Int = 0
+        private set
     var simulatedPhotoStorageBytes: Long? = null
     var seededFixtureBytes: Pair<String, ByteArray>? = null
     var lastExportedUri: Pair<String, String>? = null
@@ -101,13 +116,22 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
         pickedPhotoUriPayloads[uriString] = assetId to bytes
     }
 
-    override val hikes: Flow<List<HikeSummary>> = hikesState.map { list ->
-        val local = localStateMap.value
+    override val hikes: Flow<List<HikeSummary>> = combine(
+        hikesState,
+        localStateMap,
+        walksState
+    ) { list, local, walks ->
+        val walkCounts = walks.groupingBy { it.hikeId }.eachCount()
         list.filterNot { it.isRecording }
             .sortedByDescending { it.dateEpochMillis }
             .map { hike ->
                 val state = local[hike.id]
-                hike.toSummary(climbMeters = state?.climbMeters, descentMeters = state?.descentMeters)
+                hike.toSummary(
+                    climbMeters = state?.climbMeters,
+                    descentMeters = state?.descentMeters,
+                    listOrder = state?.listOrder,
+                    walkCount = walkCounts[hike.id] ?: 0
+                )
             }
     }
 
@@ -116,16 +140,31 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
     }
 
     override val mapRoutes: Flow<List<HikeMapRoute>> = hikesState.map { list ->
-        list.filterNot { it.isRecording }.map { hike ->
-            HikeMapRoute(
-                hikeId = hike.id,
-                route = hike.route,
-                tintHex = hike.tintHex,
-                routeBorderHex = hike.routeBorderHex,
-                routeWidthDp = hike.routeWidthDp,
-                linePattern = hike.linePattern
-            )
-        }
+        list.filterNot { it.isRecording }
+            .sortedByDescending { it.dateEpochMillis }
+            .map { hike ->
+                HikeMapRoute(
+                    hikeId = hike.id,
+                    route = hike.route,
+                    tintHex = hike.tintHex,
+                    routeBorderHex = hike.routeBorderHex,
+                    routeWidthDp = hike.routeWidthDp,
+                    linePattern = hike.linePattern
+                )
+            }
+    }
+
+    override val libraryLines: Flow<List<LibraryLine>> = hikesState.map { list ->
+        list.filterNot { it.isRecording }
+            .sortedByDescending { it.dateEpochMillis }
+            .mapNotNull { hike ->
+                val runs = LibraryLineOutline.runs(hike.route)
+                if (runs.isEmpty()) {
+                    null
+                } else {
+                    LibraryLine(hikeId = hike.id, tintHex = hike.tintHex, runs = runs)
+                }
+            }
     }
 
     fun registerUriPayload(uriString: String, bytes: ByteArray, fileName: String? = null) {
@@ -1096,6 +1135,119 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
         simulatedPhotoStorageBytes ?: photoBytesById.values.sumOf { it.size.toLong() }
 
     override suspend fun reclaimOrphanedPhotos(): Result<Int> = Result.success(0)
+
+    override suspend fun saveCustomHikeOrder(orderedIds: List<HikeId>): Result<Unit> {
+        val failure = nextOrderFailure?.also { nextOrderFailure = null }
+        if (failure != null) return Result.failure(failure)
+        localStateMap.update { current ->
+            val updated = HashMap(current)
+            orderedIds.forEachIndexed { index, hikeId ->
+                val prior = updated[hikeId] ?: HikeLocalState(hikeId = hikeId)
+                updated[hikeId] = prior.copy(listOrder = index)
+            }
+            updated
+        }
+        return Result.success(Unit)
+    }
+
+    override suspend fun clearCustomHikeOrder(): Result<Unit> {
+        val failure = nextOrderFailure?.also { nextOrderFailure = null }
+        if (failure != null) return Result.failure(failure)
+        localStateMap.update { current ->
+            current.mapValues { (_, state) -> state.copy(listOrder = null) }
+        }
+        return Result.success(Unit)
+    }
+
+    override suspend fun validateElevationMetrics(hikeIds: List<HikeId>): Result<Boolean> {
+        validateElevationCalls += 1
+        var changed = false
+        val hikesById = hikesState.value.associateBy { it.id }
+        localStateMap.update { current ->
+            val updated = HashMap(current)
+            for (hikeId in hikeIds) {
+                val hike = hikesById[hikeId] ?: continue
+                val measured = RouteElevationRevision.measure(hike.route)
+                val prior = updated[hikeId]
+                val upToDate = prior?.elevationRouteRevision == measured.revision &&
+                    prior.climbMeters == measured.climbMeters &&
+                    prior.descentMeters == measured.descentMeters
+                val hasMeasuredElevation = measured.climbMeters != null || measured.descentMeters != null
+                val shouldUpdate = !upToDate && (prior != null || hasMeasuredElevation)
+                if (shouldUpdate) {
+                    updated[hikeId] = (prior ?: HikeLocalState(hikeId = hikeId)).copy(
+                        climbMeters = measured.climbMeters,
+                        descentMeters = measured.descentMeters,
+                        elevationRouteRevision = measured.revision
+                    )
+                    changed = true
+                }
+            }
+            updated
+        }
+        return Result.success(changed)
+    }
+
+    override suspend fun computeLibraryTotals(asOfEpochMillis: Long, zoneId: ZoneId): Result<LibraryTotals> {
+        val failure = nextTotalsFailure?.also { nextTotalsFailure = null }
+        if (failure != null) return Result.failure(failure)
+        val finished = hikesState.value.filterNot { it.isRecording }
+        val revisions = finished.associate { it.id to TrailWalkRecord.routeRevision(it.route) }
+        val routesById = finished.associate { it.id to it.route }
+        val hikeFacts = finished.map { hike ->
+            val stats = HikeRouteStatistics.from(hike.distanceMeters, hike.route)
+            val clockStart = stats.startEpochMillis
+                .takeIf { stats.durationSeconds != null && stats.endEpochMillis != null }
+            val clockEnd = if (clockStart != null) {
+                max(clockStart, stats.endEpochMillis ?: clockStart)
+            } else {
+                null
+            }
+            LibraryHikeFacts(
+                hikeId = hike.id,
+                title = hike.displayTitle,
+                dateEpochMillis = hike.dateEpochMillis,
+                distanceMeters = hike.distanceMeters,
+                climbMeters = stats.elevationGainMeters,
+                highestMeters = stats.maxElevationMeters,
+                movingSeconds = stats.movingDurationSeconds ?: stats.durationSeconds,
+                clockStartEpochMillis = clockStart,
+                clockEndEpochMillis = clockEnd,
+                isFromCommunity = false,
+                footprint = if (clockStart != null) LibraryFootprint.clockedPartOf(hike.route) else null
+            )
+        }
+        val walkFacts = walksState.value.map { walk ->
+            val coverage = walk.coverage
+            val isRecordingsOwn = walk.endReason == TrailWalkEndReason.RECORDED
+            val currentRevision = revisions[walk.hikeId]
+            val trailHasChanged = currentRevision != null && !walk.isAlong(currentRevision)
+            val route = if (!isRecordingsOwn && !trailHasChanged) routesById[walk.hikeId] else null
+            val profile = route?.let { RouteProfile.from(it) }
+            val climb = profile?.climb(coverage)?.gainMeters ?: 0.0
+            val footprint = profile?.let { LibraryFootprint.Line(it).footprint(coverage.ranges) }
+            LibraryWalkFacts(
+                hikeId = walk.hikeId,
+                startedAtEpochMillis = walk.startedAtEpochMillis,
+                endedAtEpochMillis = walk.endedAtEpochMillis,
+                coveredMeters = coverage.coveredMeters,
+                walkedMeters = coverage.walkedMeters,
+                activeSeconds = walk.activeSeconds,
+                climbMeters = climb,
+                isRecordingsOwn = isRecordingsOwn,
+                trailHasChanged = trailHasChanged,
+                footprint = footprint
+            )
+        }
+        return Result.success(
+            LibraryTotals.compute(
+                hikes = hikeFacts,
+                walks = walkFacts,
+                asOfEpochMillis = asOfEpochMillis,
+                zoneId = zoneId
+            )
+        )
+    }
 
     override suspend fun seedFixtureIfConfigured(): HikeId? {
         val (fileName, bytes) = seededFixtureBytes ?: return null

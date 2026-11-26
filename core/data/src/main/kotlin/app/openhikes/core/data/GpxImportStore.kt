@@ -20,6 +20,7 @@ import app.openhikes.core.model.HikeRouteStatistics
 import app.openhikes.core.model.HikeSummary
 import app.openhikes.core.model.RouteBorder
 import app.openhikes.core.model.RouteCoordinate
+import app.openhikes.core.model.RouteElevationRevision
 import app.openhikes.core.model.RouteLinePattern
 import app.openhikes.core.model.RouteTint
 import java.util.UUID
@@ -61,54 +62,77 @@ internal class GpxImportStore(
         GpxImportResult.Success(prepared.map { it.hike.toSummary(it.localState) })
     }
 
+    internal data class DrawnTrailDraft(
+        val title: String,
+        val distanceMeters: Double,
+        val route: List<RouteCoordinate>,
+        val madeOnEpochMillis: Long
+    )
+
+    suspend fun persistDrawnTrails(trails: List<DrawnTrailDraft>): List<Hike> = withContext(ioDispatcher) {
+        if (trails.isEmpty()) return@withContext emptyList()
+        val baseCount = hikeDao.getHikeCount()
+        val prepared = withContext(defaultDispatcher) {
+            trails.mapIndexed { offset, trail -> prepareDrawnRecord(trail, baseCount + offset) }
+        }
+        database.withTransaction {
+            for ((entity, chunks, _) in prepared) {
+                hikeDao.insertHikeWithRoute(entity, chunks)
+            }
+        }
+        for ((_, _, local) in prepared) {
+            localStateRepairer.upsertBestEffort(local)
+        }
+        prepared.map { (entity, chunks, _) -> entity.toDomain(chunks, emptyList()) }
+    }
+
     suspend fun persistDrawnTrail(
         title: String,
         distanceMeters: Double,
         route: List<RouteCoordinate>,
         madeOnEpochMillis: Long
-    ): Hike = withContext(ioDispatcher) {
-        val tintIndex = hikeDao.getHikeCount()
+    ): Hike = persistDrawnTrails(
+        listOf(DrawnTrailDraft(title, distanceMeters, route, madeOnEpochMillis))
+    ).single()
+
+    private fun prepareDrawnRecord(
+        trail: DrawnTrailDraft,
+        tintIndex: Int
+    ): Triple<HikeEntity, List<HikeRouteChunkEntity>, HikeLocalStateEntity> {
         val hikeId = UUID.randomUUID().toString()
-        val boundedTitle = HikeTitle.drawn(title, madeOnEpochMillis)
-        val (hikeEntity, routeChunks, localEntity) = withContext(defaultDispatcher) {
-            val stats = HikeRouteStatistics.from(distanceMeters, route)
-            val entity = HikeEntity(
-                id = hikeId,
-                title = boundedTitle,
-                customName = null,
-                distanceMeters = distanceMeters,
-                durationSeconds = null,
-                dateEpochMillis = madeOnEpochMillis,
-                tintHex = RouteTint.forIndex(tintIndex),
-                routeWidthDp = HikeSummary.DEFAULT_ROUTE_WIDTH_DP,
-                routeLinePatternId = RouteLinePattern.Default.id,
-                routeBorderHex = RouteBorder.NONE_HEX,
-                isRecording = false,
-                autoFollowEnabled = true,
-                trackDescription = null,
-                author = null,
-                keywords = null,
-                routePointCount = route.size
-            )
-            val chunks = RouteBlobCodec.encodeChunked(route).mapIndexed { index, blob ->
-                HikeRouteChunkEntity(hikeId = hikeId, chunkIndex = index, chunkBlob = blob)
-            }
-            val local = HikeLocalStateEntity(
-                hikeId = hikeId,
-                listOrder = null,
-                climbMeters = stats.elevationGainMeters,
-                descentMeters = stats.elevationLossMeters,
-                elevationRouteRevision = null,
-                ownsRecordingDraft = false,
-                autoSavedTileKeysJson = "[]"
-            )
-            Triple(entity, chunks, local)
+        val boundedTitle = HikeTitle.drawn(trail.title, trail.madeOnEpochMillis)
+        val stats = HikeRouteStatistics.from(trail.distanceMeters, trail.route)
+        val entity = HikeEntity(
+            id = hikeId,
+            title = boundedTitle,
+            customName = null,
+            distanceMeters = trail.distanceMeters,
+            durationSeconds = null,
+            dateEpochMillis = trail.madeOnEpochMillis,
+            tintHex = RouteTint.forIndex(tintIndex),
+            routeWidthDp = HikeSummary.DEFAULT_ROUTE_WIDTH_DP,
+            routeLinePatternId = RouteLinePattern.Default.id,
+            routeBorderHex = RouteBorder.NONE_HEX,
+            isRecording = false,
+            autoFollowEnabled = true,
+            trackDescription = null,
+            author = null,
+            keywords = null,
+            routePointCount = trail.route.size
+        )
+        val chunks = RouteBlobCodec.encodeChunked(trail.route).mapIndexed { index, blob ->
+            HikeRouteChunkEntity(hikeId = hikeId, chunkIndex = index, chunkBlob = blob)
         }
-        database.withTransaction {
-            hikeDao.insertHikeWithRoute(hikeEntity, routeChunks)
-        }
-        localStateRepairer.upsertBestEffort(localEntity)
-        hikeEntity.toDomain(routeChunks, emptyList())
+        val local = HikeLocalStateEntity(
+            hikeId = hikeId,
+            listOrder = null,
+            climbMeters = stats.elevationGainMeters,
+            descentMeters = stats.elevationLossMeters,
+            elevationRouteRevision = RouteElevationRevision.of(trail.route),
+            ownsRecordingDraft = false,
+            autoSavedTileKeysJson = "[]"
+        )
+        return Triple(entity, chunks, local)
     }
 
     private fun prepareRecord(track: GpxTrack, fileName: String?, tintIndex: Int): PreparedImportRecord {
@@ -144,7 +168,7 @@ internal class GpxImportStore(
             listOrder = null,
             climbMeters = stats.elevationGainMeters,
             descentMeters = stats.elevationLossMeters,
-            elevationRouteRevision = null,
+            elevationRouteRevision = RouteElevationRevision.of(track.route),
             ownsRecordingDraft = false,
             autoSavedTileKeysJson = "[]"
         )

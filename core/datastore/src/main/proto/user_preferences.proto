@@ -23,4 +23,5 @@ message UserPreferences {
     bool junction_warnings_enabled = 11;
     optional bool shows_place_pins = 12;
     repeated string hidden_place_symbols = 13;
+    string hike_list_sort = 14;
 }
