@@ -1,6 +1,8 @@
 package app.openhikes.core.data
 
 import android.content.Context
+import android.graphics.Bitmap
+import androidx.core.graphics.createBitmap
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import app.openhikes.core.common.LaunchConfig
@@ -18,7 +20,10 @@ import app.openhikes.core.model.TrailPoint
 import app.openhikes.core.testing.TestClock
 import app.openhikes.core.testing.TestFixtures
 import com.google.common.truth.Truth.assertThat
+import java.io.ByteArrayInputStream
 import java.io.File
+import java.time.ZoneOffset
+import java.util.zip.ZipInputStream
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -178,6 +183,151 @@ class HikePhotoImportStoreTest {
         assertThat(repo.observeHike(hikeId).first()!!.photos).hasSize(1)
     }
 
+    @Test
+    fun prepareSharePhotoFileCreatesUniqueImmutableFilesWithReadableDisplayName() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = createRepository(dispatcher)
+        val hikeIdA = importFixtureHike(repo)
+        val hikeIdB = importFixtureHike(repo)
+        val jpegA = createSizedJpeg(width = 32, height = 24)
+        val jpegB = createSizedJpeg(width = 24, height = 32)
+
+        val photoA = repo.addCameraPhoto(
+            hikeId = hikeIdA,
+            rawBytes = jpegA,
+            capturedAtEpochMillis = 1_780_000_100_000L,
+            coordinate = GeoCoordinate(47.7185, 12.8318)
+        ).getOrThrow()
+        val photoB = repo.addCameraPhoto(
+            hikeId = hikeIdB,
+            rawBytes = jpegB,
+            capturedAtEpochMillis = 1_780_000_200_000L,
+            coordinate = GeoCoordinate(47.7190, 12.8325)
+        ).getOrThrow()
+
+        val preparedA = repo.prepareSharePhotoFile("Thumsee Loop", 1, photoA).getOrThrow()
+        val snapshotA = preparedA.file.readBytes()
+        val preparedB = repo.prepareSharePhotoFile("Thumsee Loop", 1, photoB).getOrThrow()
+
+        assertThat(preparedA.file.absolutePath).isNotEqualTo(preparedB.file.absolutePath)
+        assertThat(preparedA.displayName).isEqualTo("Thumsee Loop-1.jpeg")
+        assertThat(preparedB.displayName).isEqualTo("Thumsee Loop-1.jpeg")
+        assertThat(preparedA.file.readBytes()).isEqualTo(snapshotA)
+        assertThat(preparedB.file.readBytes()).isNotEqualTo(snapshotA)
+    }
+
+    @Test
+    fun cameraCapturePrefersExifTimestampBeforeFallbackMillis() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = createRepository(dispatcher)
+        val hikeId = importFixtureHike(repo)
+        val exifMillis = 1_780_000_060_000L
+        val callbackFallbackMillis = 1_780_000_360_000L
+
+        val stampedFile = File.createTempFile("exif-camera-", ".jpg")
+        try {
+            stampedFile.writeBytes(SeededPhotoGenerator.generateJpeg(4))
+            assertThat(
+                PhotoMetadataCodec.stampCaptureMetadata(
+                    file = stampedFile,
+                    capturedAtEpochMillis = exifMillis,
+                    coordinate = GeoCoordinate(47.7185, 12.8318),
+                    zone = ZoneOffset.UTC
+                )
+            ).isTrue()
+            val stampedBytes = stampedFile.readBytes()
+
+            val fromExif = repo.addCameraPhoto(
+                hikeId = hikeId,
+                rawBytes = stampedBytes,
+                capturedAtEpochMillis = callbackFallbackMillis,
+                coordinate = GeoCoordinate(47.7185, 12.8318)
+            ).getOrThrow()
+            assertThat(fromExif.capturedAtEpochMillis).isEqualTo(exifMillis)
+        } finally {
+            stampedFile.delete()
+        }
+
+        val withoutExif = repo.addCameraPhoto(
+            hikeId = hikeId,
+            rawBytes = SeededPhotoGenerator.generateJpeg(5),
+            capturedAtEpochMillis = callbackFallbackMillis,
+            coordinate = GeoCoordinate(47.7190, 12.8325)
+        ).getOrThrow()
+        assertThat(withoutExif.capturedAtEpochMillis).isEqualTo(callbackFallbackMillis)
+    }
+
+    @Test
+    fun exportHikeArchiveToUriStreamsValidZipToDestination() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val fileIo = TestPhotoFileIo()
+        val repo = createRepository(dispatcher, photoFileIo = fileIo)
+        val hikeId = importFixtureHike(repo)
+        val jpeg = SeededPhotoGenerator.generateJpeg(6)
+        repo.addCameraPhoto(
+            hikeId = hikeId,
+            rawBytes = jpeg,
+            capturedAtEpochMillis = 1_780_000_120_000L,
+            coordinate = GeoCoordinate(47.7185, 12.8318)
+        ).getOrThrow()
+
+        repo.exportHikeArchiveToUri(hikeId, "content://exports/thumsee.zip").getOrThrow()
+
+        val zipBytes = requireNotNull(fileIo.writtenArchiveByUri["content://exports/thumsee.zip"])
+        val entryNames = mutableListOf<String>()
+        ZipInputStream(ByteArrayInputStream(zipBytes)).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                entryNames.add(entry.name)
+                zis.closeEntry()
+                entry = zis.nextEntry
+            }
+        }
+        assertThat(entryNames.any { it.endsWith(".gpx") }).isTrue()
+        assertThat(entryNames.any { it.endsWith("/Photos/photo-1.jpeg") }).isTrue()
+    }
+
+    @Test
+    fun uniqueAssetIndexAllowsMultipleNullCameraPhotosAndRejectsDuplicateAssetRows() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val repo = createRepository(dispatcher)
+        val hikeId = importFixtureHike(repo)
+
+        val cam1 = repo.addCameraPhoto(
+            hikeId = hikeId,
+            rawBytes = SeededPhotoGenerator.generateJpeg(1),
+            capturedAtEpochMillis = 1_780_000_100_000L,
+            coordinate = GeoCoordinate(47.7185, 12.8318)
+        ).getOrThrow()
+        val cam2 = repo.addCameraPhoto(
+            hikeId = hikeId,
+            rawBytes = SeededPhotoGenerator.generateJpeg(2),
+            capturedAtEpochMillis = 1_780_000_200_000L,
+            coordinate = GeoCoordinate(47.7190, 12.8325)
+        ).getOrThrow()
+        assertThat(cam1.id).isNotEqualTo(cam2.id)
+
+        val picked = repo.addPickedPhoto(
+            hikeId = hikeId,
+            bytes = SeededPhotoGenerator.generateJpeg(3),
+            assetLocalIdentifier = "asset-unique-42",
+            fallbackCoordinate = GeoCoordinate(47.7188, 12.8320)
+        ).getOrThrow()
+        val conflictingRowId = portableDb.hikePhotoDao().insert(
+            picked.copy(id = "conflicting-duplicate-id").toEntity()
+        )
+        assertThat(conflictingRowId).isEqualTo(-1L)
+        assertThat(portableDb.hikePhotoDao().getByHikeId(hikeId.value)).hasSize(3)
+    }
+
+    private fun createSizedJpeg(width: Int, height: Int): ByteArray {
+        val bitmap = createBitmap(width, height)
+        val out = java.io.ByteArrayOutputStream()
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 85, out)
+        bitmap.recycle()
+        return out.toByteArray()
+    }
+
     private suspend fun importFixtureHike(repo: OfflineFirstHikeRepository): HikeId {
         val result = repo.importGpxBytes(
             bytes = TestFixtures.thumseeLoopFastGpxBytes(),
@@ -189,6 +339,7 @@ class HikePhotoImportStoreTest {
     private fun createRepository(
         dispatcher: kotlinx.coroutines.CoroutineDispatcher,
         mirror: TestPhotoLibraryMirror = TestPhotoLibraryMirror(),
+        photoFileIo: TestPhotoFileIo = TestPhotoFileIo(),
         clock: TestClock = TestClock(1_780_000_000_000L)
     ): OfflineFirstHikeRepository {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -204,7 +355,7 @@ class HikePhotoImportStoreTest {
             hikeLocalStateDao = localDb.hikeLocalStateDao(),
             photoStore = photoStore,
             photoLibraryMirror = mirror,
-            photoFileIo = TestPhotoFileIo(),
+            photoFileIo = photoFileIo,
             gpxFileSource = object : GpxFileSource {
                 override suspend fun read(uriString: String): GpxFilePayload? = null
             },

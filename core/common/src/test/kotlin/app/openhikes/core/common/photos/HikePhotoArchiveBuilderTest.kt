@@ -11,8 +11,11 @@ import app.openhikes.core.model.HikePhotoLicense
 import app.openhikes.core.model.RouteCoordinate
 import com.google.common.truth.Truth.assertThat
 import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.FilterInputStream
 import java.time.Instant
 import java.time.ZoneOffset
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.ZipInputStream
 import org.junit.Test
 
@@ -57,6 +60,51 @@ class HikePhotoArchiveBuilderTest {
         val credits = entries.getValue("Thumsee Loop-2026-07-10/Credits.txt").toString(Charsets.UTF_8)
         assertThat(credits).contains("Alex Trail")
         assertThat(credits).contains("CC BY-SA 4.0")
+    }
+
+    @Test
+    fun writeStreamingStreamsPhotosOneAtATimeAndMatchesBuildEntries() {
+        val hike = sampleArchiveHike()
+        val fakeJpeg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte())
+        val fakePng = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+        val openStreams = AtomicInteger(0)
+        val maxConcurrentOpen = AtomicInteger(0)
+        val bytesById = mapOf("p-1" to fakeJpeg, "p-2" to fakePng)
+
+        val expectedFileName = HikePhotoArchiveBuilder.fileName(hike, ZoneOffset.UTC)
+        assertThat(expectedFileName).isEqualTo("Thumsee Loop-2026-07-10.zip")
+
+        val output = ByteArrayOutputStream()
+        HikePhotoArchiveBuilder.writeStreaming(
+            hike = hike,
+            stem = HikePhotoArchiveBuilder.archiveStem(hike, ZoneOffset.UTC),
+            hasPhoto = { photo -> bytesById.containsKey(photo.id) },
+            openPhotoStream = { photo ->
+                bytesById[photo.id]?.let { bytes ->
+                    val nowOpen = openStreams.incrementAndGet()
+                    maxConcurrentOpen.accumulateAndGet(nowOpen, ::maxOf)
+                    object : FilterInputStream(ByteArrayInputStream(bytes)) {
+                        override fun close() {
+                            super.close()
+                            openStreams.decrementAndGet()
+                        }
+                    }
+                }
+            },
+            output = output
+        )
+
+        assertThat(openStreams.get()).isEqualTo(0)
+        assertThat(maxConcurrentOpen.get()).isEqualTo(1)
+        val streamedEntries = unzip(output.toByteArray())
+        val builtArchive = HikePhotoArchiveBuilder.build(
+            hike = hike,
+            readPhotoBytes = { photo -> bytesById[photo.id] },
+            zoneId = ZoneOffset.UTC
+        )
+        assertThat(streamedEntries.keys).isEqualTo(unzip(builtArchive.zipBytes).keys)
+        assertThat(streamedEntries["Thumsee Loop-2026-07-10/Photos/photo-1.jpeg"]).isEqualTo(fakeJpeg)
+        assertThat(streamedEntries["Thumsee Loop-2026-07-10/Photos/photo-2.png"]).isEqualTo(fakePng)
     }
 
     private fun sampleArchiveHike(): Hike {

@@ -1,6 +1,5 @@
 package app.openhikes.feature.places
 
-import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -31,7 +30,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -43,12 +41,14 @@ import app.openhikes.core.ui.components.HikePhotoStrip
 import app.openhikes.core.ui.components.HikePhotoTileCornerRadius
 import app.openhikes.core.ui.components.HikePhotoTileSize
 import app.openhikes.core.ui.components.HikePhotoTileSpacing
+import app.openhikes.core.ui.components.PhotoBitmapDecoder
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 private val PlacePhotoIconSize = 18.dp
 private val RemoveBadgeSize = 28.dp
+private const val STAGED_TILE_MAX_EDGE_PX = 400
 
 /**
  * In-memory photograph staged while composing a new place on [AddHikePlaceScreen].
@@ -222,9 +222,7 @@ private fun PlacePhotoActionButtonsRow(
 private fun StagedPhotoTile(staged: StagedPlacePhoto, onRemove: () -> Unit) {
     val bitmap by produceState<ImageBitmap?>(initialValue = null, key1 = staged.id) {
         value = withContext(Dispatchers.Default) {
-            runCatching {
-                BitmapFactory.decodeByteArray(staged.bytes, 0, staged.bytes.size)?.asImageBitmap()
-            }.getOrNull()
+            PhotoBitmapDecoder.decodeUpright(staged.bytes, STAGED_TILE_MAX_EDGE_PX)
         }
     }
     Box(

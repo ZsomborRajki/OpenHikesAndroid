@@ -30,10 +30,10 @@ interface HikePhotoDao {
     )
     suspend fun findByHikeAndAssetId(hikeId: String, assetLocalIdentifier: String): HikePhotoEntity?
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insert(photo: HikePhotoEntity)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insert(photo: HikePhotoEntity): Long
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertAll(photos: List<HikePhotoEntity>)
 
     @Query("UPDATE hike_photos SET place_id = :placeId WHERE hike_id = :hikeId AND id = :photoId")

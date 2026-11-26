@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.openhikes.core.common.DefaultDispatcher
 import app.openhikes.core.common.LaunchConfigHolder
+import app.openhikes.core.common.photos.HikePhotoArchiveBuilder
 import app.openhikes.core.data.HikeRepository
 import app.openhikes.core.data.OfflineCountryRepository
 import app.openhikes.core.data.UserSettingsRepository
@@ -30,7 +31,6 @@ import app.openhikes.core.map.TrailPlacesClaim
 import app.openhikes.core.map.TrailPlacesMapInteractionHandler
 import app.openhikes.core.map.TrailPlacesOverlayState
 import app.openhikes.core.model.ExportedGpx
-import app.openhikes.core.model.ExportedHikeArchive
 import app.openhikes.core.model.GeoBoundingBox
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.Hike
@@ -123,7 +123,7 @@ class HikeDetailViewModel @AssistedInject constructor(
     private val showDeleteDialogState = MutableStateFlow(false)
     private val actionErrorState = MutableStateFlow<HikeDetailError?>(null)
     private val pendingExportState = MutableStateFlow<ExportedGpx?>(null)
-    private val pendingArchiveExportState = MutableStateFlow<ExportedHikeArchive?>(null)
+    private val pendingArchiveFileNameState = MutableStateFlow<String?>(null)
     private val exportSuccessState = MutableStateFlow(false)
     private val showOfflineDialogState = MutableStateFlow(false)
     private val selectedTabState = MutableStateFlow(HikeDetailTab.DETAILS)
@@ -181,9 +181,9 @@ class HikeDetailViewModel @AssistedInject constructor(
         actionErrorState,
         combine(
             pendingExportState,
-            pendingArchiveExportState,
+            pendingArchiveFileNameState,
             exportSuccessState
-        ) { pending, archive, success -> Triple(pending, archive, success) }
+        ) { pending, archiveFileName, success -> Triple(pending, archiveFileName, success) }
     ) { isRenaming, draft, showDelete, error, exportTriple ->
         TransientDetailState(
             isRenaming = isRenaming,
@@ -191,7 +191,7 @@ class HikeDetailViewModel @AssistedInject constructor(
             showDeleteDialog = showDelete,
             actionError = error,
             pendingExport = exportTriple.first,
-            pendingArchiveExport = exportTriple.second,
+            pendingArchiveFileName = exportTriple.second,
             exportSuccess = exportTriple.third
         )
     }
@@ -330,7 +330,7 @@ class HikeDetailViewModel @AssistedInject constructor(
             showDeleteDialog = transient.showDeleteDialog,
             actionError = transient.actionError,
             pendingExport = transient.pendingExport,
-            pendingArchiveExport = transient.pendingArchiveExport,
+            pendingArchiveFileName = transient.pendingArchiveFileName,
             exportSuccess = transient.exportSuccess,
             orderedPhotos = bundle.placesBundle.photosSummary.orderedPhotos,
             anchoredPhotoCount = bundle.placesBundle.photosSummary.anchoredCount,
@@ -472,17 +472,18 @@ class HikeDetailViewModel @AssistedInject constructor(
     fun onRequestExportArchive() {
         actionErrorState.value = null
         exportSuccessState.value = false
-        viewModelScope.launch {
-            hikeRepository.exportHikeArchive(hikeId)
-                .onSuccess { archive -> pendingArchiveExportState.value = archive }
-                .onFailure { actionErrorState.value = HikeDetailError.EXPORT_FAILED }
+        val currentHike = uiState.value.hike
+        if (currentHike != null) {
+            pendingArchiveFileNameState.value = HikePhotoArchiveBuilder.fileName(currentHike)
+        } else {
+            actionErrorState.value = HikeDetailError.EXPORT_FAILED
         }
     }
 
     fun onArchiveExportDestinationPicked(uriString: String?) {
-        val pending = pendingArchiveExportState.value
-        pendingArchiveExportState.value = null
-        if (uriString == null || pending == null) return
+        val pendingFileName = pendingArchiveFileNameState.value
+        pendingArchiveFileNameState.value = null
+        if (uriString == null || pendingFileName == null) return
         viewModelScope.launch {
             val result = hikeRepository.exportHikeArchiveToUri(hikeId, uriString)
             if (result.isSuccess) {
@@ -795,7 +796,7 @@ class HikeDetailViewModel @AssistedInject constructor(
         val showDeleteDialog: Boolean,
         val actionError: HikeDetailError?,
         val pendingExport: ExportedGpx?,
-        val pendingArchiveExport: ExportedHikeArchive?,
+        val pendingArchiveFileName: String?,
         val exportSuccess: Boolean
     )
 

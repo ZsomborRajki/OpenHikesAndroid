@@ -55,6 +55,7 @@ class PhotoDiscoveryViewModel @AssistedInject constructor(
     private var searchJob: Job? = null
     private var importJob: Job? = null
     private var activeFingerprint: Long? = null
+    private var lastObservedAccess: PhotoLibraryAccess? = null
     private var hasPromptedPermissions = false
     private var untickedIds: Set<String> = emptySet()
 
@@ -74,6 +75,7 @@ class PhotoDiscoveryViewModel @AssistedInject constructor(
             PhotoDiscoveryAction.SelectMorePhotos ->
                 stateFlow.update { it.copy(shouldRequestLimitedMoreToken = tokenGenerator.incrementAndGet()) }
             PhotoDiscoveryAction.PermissionResultReceived -> startSearch(promptIfDenied = false)
+            PhotoDiscoveryAction.LifecycleResumed -> onLifecycleResumed()
             PhotoDiscoveryAction.ConsumePermissionRequest ->
                 stateFlow.update { it.copy(shouldRequestPermissionsToken = 0L) }
             PhotoDiscoveryAction.ConsumeLimitedMoreRequest ->
@@ -112,6 +114,23 @@ class PhotoDiscoveryViewModel @AssistedInject constructor(
         }
     }
 
+    private fun onLifecycleResumed() {
+        val phase = stateFlow.value.phase
+        if (phase is PhotoDiscoveryPhase.Searching ||
+            phase is PhotoDiscoveryPhase.Importing ||
+            phase is PhotoDiscoveryPhase.Unsupported
+        ) {
+            return
+        }
+        viewModelScope.launch {
+            val currentAccess = photoLibrarySource.currentAccess()
+            if (currentAccess != lastObservedAccess) {
+                captureUntickedIds()
+                startSearch(promptIfDenied = false)
+            }
+        }
+    }
+
     private fun startSearch(promptIfDenied: Boolean) {
         searchJob?.cancel()
         stateFlow.update { it.copy(phase = PhotoDiscoveryPhase.Searching) }
@@ -137,6 +156,7 @@ class PhotoDiscoveryViewModel @AssistedInject constructor(
             return
         }
         val access = photoLibrarySource.currentAccess()
+        lastObservedAccess = access
         when (access) {
             PhotoLibraryAccess.RESTRICTED ->
                 stateFlow.update { it.copy(phase = PhotoDiscoveryPhase.AccessRestricted) }
@@ -166,6 +186,7 @@ class PhotoDiscoveryViewModel @AssistedInject constructor(
             }
         }
         val postQueryAccess = photoLibrarySource.currentAccess()
+        lastObservedAccess = postQueryAccess
         when (postQueryAccess) {
             PhotoLibraryAccess.DENIED -> {
                 stateFlow.update { it.copy(phase = PhotoDiscoveryPhase.AccessDenied) }

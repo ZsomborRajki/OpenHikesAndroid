@@ -3,7 +3,9 @@ package app.openhikes.core.data
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import app.openhikes.core.model.GeoCoordinate
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.OutputStream
 import java.util.UUID
 import kotlinx.coroutines.CoroutineDispatcher
 
@@ -33,6 +35,13 @@ internal class TestPhotoFileIo : PhotoFileIo {
         writtenArchiveByUri[uriString] = bytes
         return Result.success(Unit)
     }
+
+    override suspend fun writeStreamToUri(uriString: String, writer: (OutputStream) -> Unit): Result<Unit> =
+        runCatching {
+            val out = ByteArrayOutputStream()
+            writer(out)
+            writtenArchiveByUri[uriString] = out.toByteArray()
+        }
 }
 
 internal fun createTestPhotoStore(

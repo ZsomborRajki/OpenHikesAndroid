@@ -171,7 +171,8 @@ data class HikeWalkEntity(
     ],
     indices = [
         Index(value = ["hike_id"]),
-        Index(value = ["place_id"])
+        Index(value = ["place_id"]),
+        Index(value = ["hike_id", "asset_local_identifier"], unique = true)
     ]
 )
 data class HikePhotoEntity(

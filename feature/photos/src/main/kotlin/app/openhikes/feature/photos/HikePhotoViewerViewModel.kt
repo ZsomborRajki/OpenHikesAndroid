@@ -116,7 +116,7 @@ class HikePhotoViewerViewModel @AssistedInject constructor(
             HikePhotoViewerAction.ConsumeRevealMap -> stateFlow.update { it.copy(pendingRevealMapToken = 0L) }
             HikePhotoViewerAction.ConsumeExpandFullHeight ->
                 stateFlow.update { it.copy(pendingExpandFullHeightToken = 0L) }
-            HikePhotoViewerAction.ConsumeShareFile -> stateFlow.update { it.copy(pendingShareFile = null) }
+            HikePhotoViewerAction.ConsumeShareFile -> stateFlow.update { it.copy(pendingSharePhoto = null) }
         }
     }
 
@@ -291,7 +291,9 @@ class HikePhotoViewerViewModel @AssistedInject constructor(
                 positionOneBased = positionOneBased,
                 photo = current
             ).fold(
-                onSuccess = { file -> stateFlow.update { currentState -> currentState.copy(pendingShareFile = file) } },
+                onSuccess = { prepared ->
+                    stateFlow.update { currentState -> currentState.copy(pendingSharePhoto = prepared) }
+                },
                 onFailure = {
                     stateFlow.update { currentState ->
                         currentState.copy(errorMessage = PhotoViewerError.SHARE_FAILED)

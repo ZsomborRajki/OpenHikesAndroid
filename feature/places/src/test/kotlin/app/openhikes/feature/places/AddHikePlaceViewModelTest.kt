@@ -15,6 +15,7 @@ import app.openhikes.core.testing.MainDispatcherRule
 import app.openhikes.core.testing.android.FakeHikeRepository
 import app.openhikes.core.testing.android.FakeUserSettingsRepository
 import com.google.common.truth.Truth.assertThat
+import java.io.IOException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -139,5 +140,110 @@ class AddHikePlaceViewModelTest {
         advanceUntilIdle()
 
         assertThat(repo.observeHike(hikeId).first()!!.places.single().coordinate).isEqualTo(reticlePoint)
+    }
+
+    @Test
+    fun retainsFailedStagedPhotosForRetryWithoutDuplicatingPlace() = runTest {
+        val hikeId = HikeId("h-staged")
+        val initial = GeoCoordinate(47.7185, 12.8318)
+        val repo = FakeHikeRepository(
+            listOf(
+                Hike(
+                    id = hikeId,
+                    title = "Ridge Loop",
+                    distanceMeters = 1_000.0,
+                    dateEpochMillis = 10_000L,
+                    route = listOf(RouteCoordinate(47.7184, 12.8317), RouteCoordinate(47.7220, 12.8290))
+                )
+            )
+        )
+        val viewModel = AddHikePlaceViewModel(
+            rawHikeId = hikeId.value,
+            initialLatitude = initial.latitude,
+            initialLongitude = initial.longitude,
+            hikeRepository = repo,
+            userSettingsRepository = FakeUserSettingsRepository(),
+            mapClaimCoordinator = MapClaimCoordinator(),
+            mapCameraTracker = MapCameraTracker().apply { update(MapCameraState(center = initial, zoom = 15.0)) },
+            trailPlacesOverlayState = TrailPlacesOverlayState(),
+            photoCaptureController = PhotoCaptureController()
+        )
+        advanceUntilIdle()
+
+        val jpegA = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte(), 0x01)
+        val jpegB = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte(), 0x02)
+        viewModel.onNameChange("Summit Bench")
+        viewModel.onStageCameraPhoto(jpegA, capturedAtEpochMillis = 12_000L)
+        viewModel.onStageLibraryPhotos(listOf(jpegB))
+        assertThat(viewModel.uiState.value.stagedPhotos).hasSize(2)
+
+        // First staged photo fails while the second succeeds; place is saved once and only the failed photo remains.
+        repo.nextPhotoSaveFailure = IOException("Disk temporarily full")
+        viewModel.onConfirmAdd(currentKindLabel = "Viewpoint")
+        advanceUntilIdle()
+
+        val afterFirstAttempt = viewModel.uiState.value
+        assertThat(afterFirstAttempt.addedPlaceId).isNull()
+        assertThat(afterFirstAttempt.photoAttachFailureCount).isEqualTo(1)
+        assertThat(afterFirstAttempt.stagedPhotos).hasSize(1)
+        assertThat(afterFirstAttempt.stagedPhotos.single().fromCamera).isTrue()
+        val savedAfterFirst = repo.observeHike(hikeId).first()!!
+        assertThat(savedAfterFirst.places).hasSize(1)
+        assertThat(savedAfterFirst.photos).hasSize(1)
+
+        // Retrying attaches only the remaining failed photo without creating a second place.
+        viewModel.onConfirmAdd(currentKindLabel = "Viewpoint")
+        advanceUntilIdle()
+
+        val afterRetry = viewModel.uiState.value
+        assertThat(afterRetry.photoAttachFailureCount).isEqualTo(0)
+        assertThat(afterRetry.stagedPhotos).isEmpty()
+        assertThat(afterRetry.addedPlaceId).isEqualTo(savedAfterFirst.places.single().id)
+        val savedAfterRetry = repo.observeHike(hikeId).first()!!
+        assertThat(savedAfterRetry.places).hasSize(1)
+        assertThat(savedAfterRetry.photos).hasSize(2)
+    }
+
+    @Test
+    fun continueWithoutFailedPhotosNavigatesAndKeepsSavedPlace() = runTest {
+        val hikeId = HikeId("h-continue")
+        val initial = GeoCoordinate(47.7185, 12.8318)
+        val repo = FakeHikeRepository(
+            listOf(
+                Hike(
+                    id = hikeId,
+                    title = "Lake Loop",
+                    distanceMeters = 1_000.0,
+                    dateEpochMillis = 10_000L,
+                    route = listOf(RouteCoordinate(47.7184, 12.8317), RouteCoordinate(47.7220, 12.8290))
+                )
+            )
+        )
+        val viewModel = AddHikePlaceViewModel(
+            rawHikeId = hikeId.value,
+            initialLatitude = initial.latitude,
+            initialLongitude = initial.longitude,
+            hikeRepository = repo,
+            userSettingsRepository = FakeUserSettingsRepository(),
+            mapClaimCoordinator = MapClaimCoordinator(),
+            mapCameraTracker = MapCameraTracker().apply { update(MapCameraState(center = initial, zoom = 15.0)) },
+            trailPlacesOverlayState = TrailPlacesOverlayState(),
+            photoCaptureController = PhotoCaptureController()
+        )
+        advanceUntilIdle()
+
+        viewModel.onNameChange("Lake Pier")
+        viewModel.onStageCameraPhoto(byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xD9.toByte()), 15_000L)
+        repo.nextPhotoSaveFailure = IOException("Disk full")
+        viewModel.onConfirmAdd(currentKindLabel = "Viewpoint")
+        advanceUntilIdle()
+        assertThat(viewModel.uiState.value.photoAttachFailureCount).isEqualTo(1)
+
+        viewModel.onContinueWithoutFailedPhotos()
+        val finalState = viewModel.uiState.value
+        val persistedPlace = repo.observeHike(hikeId).first()!!.places.single()
+        assertThat(finalState.addedPlaceId).isEqualTo(persistedPlace.id)
+        assertThat(finalState.stagedPhotos).isEmpty()
+        assertThat(finalState.photoAttachFailureCount).isEqualTo(0)
     }
 }

@@ -2,6 +2,7 @@ package app.openhikes.core.data
 
 import android.content.Context
 import android.database.SQLException
+import android.database.sqlite.SQLiteConstraintException
 import app.openhikes.core.common.OpenHikesClock
 import app.openhikes.core.common.gpx.GpxExporter
 import app.openhikes.core.common.photos.HikePhotoArchiveBuilder
@@ -23,6 +24,7 @@ import app.openhikes.core.model.PickedPhotoPlacement
 import app.openhikes.core.model.RouteProfile
 import java.io.File
 import java.io.IOException
+import java.time.ZoneOffset
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -184,28 +186,52 @@ internal class HikePhotoImportStore(
         }
     }
 
-    suspend fun prepareSharePhotoFile(hikeTitle: String, positionOneBased: Int, photo: HikePhoto): Result<File> =
-        withContext(ioDispatcher) {
-            runPhotoCatching {
-                val sourceBytes = photoStore.readOriginalBytes(photo)
-                    ?: return@runPhotoCatching Result.failure(IOException("Photo file is not on this device"))
-                val shareDir = File(context.cacheDir, SHARE_CACHE_DIR).apply { mkdirs() }
-                val safeTitle = sanitizeFileStem(hikeTitle)
-                val target = File(shareDir, "$safeTitle-$positionOneBased.${photo.pathExtension}")
-                target.writeBytes(sourceBytes)
-                val credited = if (photo.license != null) {
-                    PhotoMetadataCodec.stampCreditMetadata(target, photo)
-                } else {
-                    true
-                }
-                if (!credited) {
-                    target.delete()
-                    Result.failure(IOException("Unable to write photo attribution credit"))
-                } else {
-                    Result.success(target)
-                }
+    suspend fun exportHikeArchiveToUri(hike: Hike, uriString: String): Result<Unit> = withContext(ioDispatcher) {
+        runPhotoCatching {
+            val ordered = hike.orderedPhotos
+            val filesById = LinkedHashMap<String, File>(ordered.size)
+            for (photo in ordered) {
+                photoStore.originalFile(photo)?.let { filesById[photo.id] = it }
+            }
+            val stem = HikePhotoArchiveBuilder.archiveStem(hike)
+            photoFileIo.writeStreamToUri(uriString) { output ->
+                HikePhotoArchiveBuilder.writeStreaming(
+                    hike = hike,
+                    stem = stem,
+                    hasPhoto = { photo -> filesById.containsKey(photo.id) },
+                    openPhotoStream = { photo -> filesById[photo.id]?.inputStream() },
+                    output = output
+                )
             }
         }
+    }
+
+    suspend fun prepareSharePhotoFile(
+        hikeTitle: String,
+        positionOneBased: Int,
+        photo: HikePhoto
+    ): Result<PreparedSharePhoto> = withContext(ioDispatcher) {
+        runPhotoCatching {
+            val sourceBytes = photoStore.readOriginalBytes(photo)
+                ?: return@runPhotoCatching Result.failure(IOException("Photo file is not on this device"))
+            val shareDir = File(context.cacheDir, SHARE_CACHE_DIR).apply { mkdirs() }
+            val safeTitle = sanitizeFileStem(hikeTitle)
+            val displayName = "$safeTitle-$positionOneBased.${photo.pathExtension}"
+            val target = File(shareDir, "share-${UUID.randomUUID()}.${photo.pathExtension}")
+            target.writeBytes(sourceBytes)
+            val credited = if (photo.license != null) {
+                PhotoMetadataCodec.stampCreditMetadata(target, photo)
+            } else {
+                true
+            }
+            if (!credited) {
+                target.delete()
+                Result.failure(IOException("Unable to write photo attribution credit"))
+            } else {
+                Result.success(PreparedSharePhoto(file = target, displayName = displayName))
+            }
+        }
+    }
 
     suspend fun measurePhotoStorageBytes(): Long = photoStore.totalStorageBytes()
 
@@ -253,9 +279,10 @@ internal class HikePhotoImportStore(
         }
     }
 
-    private fun resolveCameraCaptureTimestamp(rawBytes: ByteArray, explicitMillis: Long?): Long = explicitMillis
-        ?: PhotoMetadataCodec.readMetadata(rawBytes).capturedAtEpochMillis
-        ?: clock.now().toEpochMilli()
+    private fun resolveCameraCaptureTimestamp(rawBytes: ByteArray, explicitMillis: Long?): Long =
+        PhotoMetadataCodec.readMetadata(rawBytes).capturedAtEpochMillis
+            ?: explicitMillis
+            ?: clock.now().toEpochMilli()
 
     private suspend fun commitCameraPhotoRow(
         hikeId: HikeId,
@@ -343,35 +370,47 @@ internal class HikePhotoImportStore(
         assetLocalIdentifier: String?,
         placeId: String?
     ): Result<HikePhoto> {
+        val normalizedAssetId = assetLocalIdentifier?.takeIf { it.isNotBlank() }
         val candidate = HikePhoto(
             id = photoId,
             hikeId = hikeId,
             capturedAtEpochMillis = capturedAtEpochMillis,
             pathExtension = extension,
             coordinate = coordinate,
-            assetLocalIdentifier = assetLocalIdentifier,
+            assetLocalIdentifier = normalizedAssetId,
             matchEvidence = matchEvidence,
             placeId = resolveExistingPlaceId(hikeId, placeId)
         )
         val hikeExists = hikeDao.getHikeById(hikeId.value) != null
-        val raceDuplicate = if (hikeExists) findExistingByAsset(hikeId, assetLocalIdentifier, placeId) else null
-        return when {
-            !hikeExists -> {
-                photoStore.deleteFiles(candidate)
-                Result.failure(NoSuchElementException("Hike not found: ${hikeId.value}"))
-            }
-            raceDuplicate != null -> {
-                photoStore.deleteFiles(candidate)
-                Result.success(raceDuplicate)
-            }
-            else -> try {
-                hikePhotoDao.insert(candidate.toEntity())
-                Result.success(candidate)
-            } catch (error: SQLException) {
-                photoStore.deleteFiles(candidate)
-                Result.failure(error)
+        return if (!hikeExists) {
+            photoStore.deleteFiles(candidate)
+            Result.failure(NoSuchElementException("Hike not found: ${hikeId.value}"))
+        } else {
+            insertPickedPhotoAtomically(hikeId, candidate, normalizedAssetId, placeId)
+        }
+    }
+
+    private suspend fun insertPickedPhotoAtomically(
+        hikeId: HikeId,
+        candidate: HikePhoto,
+        normalizedAssetId: String?,
+        requestedPlaceId: String?
+    ): Result<HikePhoto> = try {
+        val insertedRowId = hikePhotoDao.insert(candidate.toEntity())
+        if (insertedRowId != -1L) {
+            Result.success(candidate)
+        } else {
+            photoStore.deleteFiles(candidate)
+            val winner = findExistingByAsset(hikeId, normalizedAssetId, requestedPlaceId)
+            if (winner != null) {
+                Result.success(winner)
+            } else {
+                Result.failure(IOException("Duplicate photo conflict for ${candidate.id}"))
             }
         }
+    } catch (error: SQLException) {
+        photoStore.deleteFiles(candidate)
+        Result.failure(error)
     }
 
     private suspend fun persistDiscoveredBytes(
@@ -385,39 +424,42 @@ internal class HikePhotoImportStore(
         photoStore.writeOriginal(photoId, bytes, extension).getOrElse {
             return Result.failure(it)
         }
+        val normalizedAssetId = match.asset.localIdentifier.takeIf { it.isNotBlank() }
         val candidate = HikePhoto(
             id = photoId,
             hikeId = hikeId,
             capturedAtEpochMillis = match.asset.createdAtEpochMillis,
             pathExtension = extension,
             coordinate = match.coordinate,
-            assetLocalIdentifier = match.asset.localIdentifier,
+            assetLocalIdentifier = normalizedAssetId,
             matchEvidence = match.evidence
         )
         val currentPlan = buildSearchPlan(hikeId)
         val pinStillHolds = currentPlan != null && currentPlan.fingerprint == expectedPlanFingerprint
-        val existingRace = if (pinStillHolds) {
-            hikePhotoDao.findByHikeAndAssetId(hikeId.value, match.asset.localIdentifier)?.toDomain()
+        return if (!pinStillHolds) {
+            photoStore.deleteFiles(candidate)
+            Result.success(null)
         } else {
-            null
+            insertDiscoveredPhotoAtomically(hikeId, candidate, normalizedAssetId)
         }
-        return when {
-            !pinStillHolds -> {
-                photoStore.deleteFiles(candidate)
-                Result.success(null)
-            }
-            existingRace != null -> {
-                photoStore.deleteFiles(candidate)
-                Result.success(existingRace)
-            }
-            else -> try {
-                hikePhotoDao.insert(candidate.toEntity())
-                Result.success(candidate)
-            } catch (error: SQLException) {
-                photoStore.deleteFiles(candidate)
-                Result.failure(error)
-            }
+    }
+
+    private suspend fun insertDiscoveredPhotoAtomically(
+        hikeId: HikeId,
+        candidate: HikePhoto,
+        normalizedAssetId: String?
+    ): Result<HikePhoto?> = try {
+        val insertedRowId = hikePhotoDao.insert(candidate.toEntity())
+        if (insertedRowId != -1L) {
+            Result.success(candidate)
+        } else {
+            photoStore.deleteFiles(candidate)
+            val winner = normalizedAssetId?.let { hikePhotoDao.findByHikeAndAssetId(hikeId.value, it)?.toDomain() }
+            Result.success(winner)
         }
+    } catch (error: SQLException) {
+        photoStore.deleteFiles(candidate)
+        Result.failure(error)
     }
 
     private suspend fun mirrorCapturedPhotoBestEffort(photo: HikePhoto, writtenFile: File) {
@@ -426,7 +468,15 @@ internal class HikePhotoImportStore(
             jpegBytes = bytes,
             capturedAtEpochMillis = photo.capturedAtEpochMillis,
             coordinate = photo.coordinate
-        ).getOrNull() ?: return
+        ).getOrNull()?.takeIf { it.isNotBlank() } ?: return
+        try {
+            linkOrDeduplicateMirroredAsset(photo, mirroredAssetId)
+        } catch (_: SQLiteConstraintException) {
+            runCatching { linkOrDeduplicateMirroredAsset(photo, mirroredAssetId) }
+        }
+    }
+
+    private suspend fun linkOrDeduplicateMirroredAsset(photo: HikePhoto, mirroredAssetId: String) {
         val concurrentDuplicate = hikePhotoDao.findByHikeAndAssetId(photo.hikeId.value, mirroredAssetId)
         if (concurrentDuplicate != null && concurrentDuplicate.id != photo.id) {
             val mergedPlaceId = photo.placeId ?: concurrentDuplicate.placeId
@@ -479,12 +529,13 @@ internal class HikePhotoImportStore(
 
     private fun sanitizeFileStem(title: String): String {
         val gpxName = GpxExporter.fileName(
-            Hike(
+            hike = Hike(
                 id = HikeId("share"),
                 title = title.ifBlank { "Hike" },
                 distanceMeters = 0.0,
                 dateEpochMillis = 0L
-            )
+            ),
+            zoneId = ZoneOffset.UTC
         )
         return gpxName.substringBeforeLast("-1970-01-01.gpx").ifBlank { "Hike" }
     }

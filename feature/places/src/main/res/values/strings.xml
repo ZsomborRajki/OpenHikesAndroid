@@ -29,6 +29,12 @@
     <string name="places_adder_remove_staged_photo">Remove photo</string>
     <string name="places_save_refused_title">Couldn’t Save</string>
     <string name="places_save_refused_message">OpenHikes couldn’t save your change right now. Try again.</string>
+    <string name="places_photo_attach_failed_title">Place Saved, Photos Incomplete</string>
+    <plurals name="places_photo_attach_failed_message">
+        <item quantity="one">The place was saved, but %1$d photo couldn’t be attached. Try again, or finish without it.</item>
+        <item quantity="other">The place was saved, but %1$d photos couldn’t be attached. Try again, or finish without them.</item>
+    </plurals>
+    <string name="places_photo_attach_continue_without">Done</string>
     <string name="places_section_details">Details</string>
     <string name="places_section_location">Location</string>
     <string name="places_section_note">Note</string>

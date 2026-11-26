@@ -208,6 +208,49 @@ class PhotoDiscoveryViewModelTest {
         assertThat(afterEdit.selectedIds).containsExactly("asset-2")
     }
 
+    @Test
+    fun lifecycleResumedRefreshesDiscoveryWhenAccessChangesAfterReturningFromSettings() = runTest {
+        val hikeId = HikeId("h1")
+        val repo = FakeHikeRepository(listOf(timedHike(hikeId)))
+        val library = FakePhotoLibrarySource(
+            access = PhotoLibraryAccess.DENIED,
+            initialAssets = sampleMatchingAssets()
+        )
+        val viewModel = PhotoDiscoveryViewModel(
+            rawHikeId = hikeId.value,
+            hikeRepository = repo,
+            photoLibrarySource = library,
+            defaultDispatcher = mainDispatcherRule.testDispatcher
+        )
+
+        advanceUntilIdle()
+        viewModel.onAction(PhotoDiscoveryAction.ConsumePermissionRequest)
+        viewModel.onAction(PhotoDiscoveryAction.PermissionResultReceived)
+        advanceUntilIdle()
+        assertThat(viewModel.uiState.value.phase).isEqualTo(PhotoDiscoveryPhase.AccessDenied)
+        assertThat(library.queryCount).isEqualTo(0)
+
+        // Resuming with unchanged access stays on AccessDenied without querying.
+        viewModel.onAction(PhotoDiscoveryAction.LifecycleResumed)
+        advanceUntilIdle()
+        assertThat(viewModel.uiState.value.phase).isEqualTo(PhotoDiscoveryPhase.AccessDenied)
+        assertThat(library.queryCount).isEqualTo(0)
+
+        // Granting permission in App Settings and resuming triggers discovery automatically.
+        library.access = PhotoLibraryAccess.GRANTED
+        viewModel.onAction(PhotoDiscoveryAction.LifecycleResumed)
+        advanceUntilIdle()
+        val results = viewModel.uiState.value.phase as? PhotoDiscoveryPhase.Results
+        assertThat(results?.matches).hasSize(2)
+        val queriesAfterResume = library.queryCount
+        assertThat(queriesAfterResume).isGreaterThan(0)
+
+        // Subsequent resumes with unchanged access do not trigger redundant re-queries.
+        viewModel.onAction(PhotoDiscoveryAction.LifecycleResumed)
+        advanceUntilIdle()
+        assertThat(library.queryCount).isEqualTo(queriesAfterResume)
+    }
+
     private fun timedHike(hikeId: HikeId): Hike = Hike(
         id = hikeId,
         title = "Thumsee Loop",

@@ -7,9 +7,11 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ImageDecoder
 import android.graphics.Paint
 import android.net.Uri
 import android.provider.MediaStore
+import android.util.Size
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.createBitmap
 import app.openhikes.core.common.DefaultDispatcher
@@ -22,6 +24,8 @@ import java.io.ByteArrayOutputStream
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.math.max
+import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
 
@@ -143,8 +147,41 @@ internal class AndroidPhotoLibrarySource @Inject constructor(
         }
     }
 
-    override suspend fun readThumbnailBytes(localIdentifier: String, maxDimensionPx: Int): ByteArray? =
-        readImageBytes(localIdentifier)
+    override suspend fun readThumbnailBytes(localIdentifier: String, maxDimensionPx: Int): ByteArray? {
+        if (localIdentifier.startsWith(STUB_ID_PREFIX)) {
+            return readImageBytes(localIdentifier)
+        }
+        val targetMax = maxDimensionPx.coerceAtLeast(1)
+        return withContext(ioDispatcher) {
+            val id = localIdentifier.toLongOrNull() ?: return@withContext null
+            val contentUri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
+            val bitmap = runCatching {
+                context.contentResolver.loadThumbnail(contentUri, Size(targetMax, targetMax), null)
+            }.getOrNull() ?: decodeUriBounded(contentUri, targetMax)
+            bitmap?.let { compressThumbnailAndRecycle(it) }
+        }
+    }
+
+    private fun decodeUriBounded(contentUri: Uri, maxDimensionPx: Int): Bitmap? = runCatching {
+        val source = ImageDecoder.createSource(context.contentResolver, contentUri)
+        ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+            val longest = max(info.size.width, info.size.height)
+            if (longest > maxDimensionPx && longest > 0) {
+                val ratio = maxDimensionPx.toFloat() / longest.toFloat()
+                val targetW = (info.size.width * ratio).roundToInt().coerceAtLeast(1)
+                val targetH = (info.size.height * ratio).roundToInt().coerceAtLeast(1)
+                decoder.setTargetSize(targetW, targetH)
+            }
+            decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+        }
+    }.getOrNull()
+
+    private fun compressThumbnailAndRecycle(bitmap: Bitmap): ByteArray? {
+        val output = ByteArrayOutputStream()
+        val encoded = bitmap.compress(Bitmap.CompressFormat.JPEG, THUMBNAIL_JPEG_QUALITY, output)
+        bitmap.recycle()
+        return if (encoded) output.toByteArray() else null
+    }
 
     private fun queryMediaStoreAssets(window: LongRange): List<PhotoLibraryAsset> {
         if (querySystemPermissionAccess() == PhotoLibraryAccess.DENIED) return emptyList()
@@ -258,5 +295,6 @@ internal class AndroidPhotoLibrarySource @Inject constructor(
         const val STUB_ID_PREFIX = "stub-photo-"
         const val MAX_STUB_ASSETS = 24
         const val MILLIS_PER_SECOND = 1000L
+        const val THUMBNAIL_JPEG_QUALITY = 80
     }
 }

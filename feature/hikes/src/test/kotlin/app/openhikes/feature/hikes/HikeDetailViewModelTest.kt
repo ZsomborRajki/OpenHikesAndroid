@@ -241,6 +241,46 @@ class HikeDetailViewModelTest {
         }
     }
 
+    @Test
+    fun exportArchiveComputesFilenameFirstAndStreamsOnlyAfterDestinationIsPicked() = runTest {
+        val hike = sampleDetailHike()
+        val repo = FakeHikeRepository(listOf(hike))
+        val viewModel = createViewModel(hike = hike, repo = repo)
+
+        viewModel.uiState.test {
+            awaitItem()
+            advanceUntilIdle()
+
+            viewModel.onRequestExportArchive()
+            advanceUntilIdle()
+            val requested = expectMostRecentItem()
+            assertThat(requested.pendingArchiveFileName).isNotNull()
+            assertThat(requested.pendingArchiveFileName).startsWith("Thumsee Loop-")
+            assertThat(requested.pendingArchiveFileName).endsWith(".zip")
+            assertThat(repo.exportHikeArchiveCalls).isEqualTo(0)
+            assertThat(repo.exportHikeArchiveToUriCalls).isEqualTo(0)
+
+            // Cancelling the document picker never builds the ZIP archive.
+            viewModel.onArchiveExportDestinationPicked(null)
+            advanceUntilIdle()
+            assertThat(expectMostRecentItem().pendingArchiveFileName).isNull()
+            assertThat(repo.exportHikeArchiveCalls).isEqualTo(0)
+            assertThat(repo.exportHikeArchiveToUriCalls).isEqualTo(0)
+
+            // Picking a destination streams the archive exactly once.
+            viewModel.onRequestExportArchive()
+            advanceUntilIdle()
+            viewModel.onArchiveExportDestinationPicked("content://exports/thumsee.zip")
+            advanceUntilIdle()
+            assertThat(expectMostRecentItem().exportSuccess).isTrue()
+            assertThat(repo.exportHikeArchiveCalls).isEqualTo(0)
+            assertThat(repo.exportHikeArchiveToUriCalls).isEqualTo(1)
+            assertThat(repo.lastExportedArchiveUri?.first).isEqualTo("content://exports/thumsee.zip")
+
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
     private fun createViewModel(
         hike: Hike,
         repo: FakeHikeRepository = FakeHikeRepository(listOf(hike)),

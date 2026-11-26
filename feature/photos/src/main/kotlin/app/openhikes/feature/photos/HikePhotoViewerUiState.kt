@@ -1,9 +1,9 @@
 package app.openhikes.feature.photos
 
 import androidx.compose.runtime.Immutable
+import app.openhikes.core.data.PreparedSharePhoto
 import app.openhikes.core.model.HikePhoto
 import app.openhikes.core.model.PhotoUnavailableReason
-import java.io.File
 
 /**
  * Load status for a single page inside [HikePhotoViewerScreen].
@@ -34,7 +34,7 @@ data class HikePhotoViewerUiState(
     val showDeleteDialog: Boolean = false,
     val pendingRevealMapToken: Long = 0L,
     val pendingExpandFullHeightToken: Long = 0L,
-    val pendingShareFile: File? = null,
+    val pendingSharePhoto: PreparedSharePhoto? = null,
     val errorMessage: PhotoViewerError? = null,
     val shouldClose: Boolean = false
 ) {
