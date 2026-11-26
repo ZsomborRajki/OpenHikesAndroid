@@ -75,37 +75,69 @@ internal class RouteEditStore(
         expectedCurrentRoute: List<RouteCoordinate>,
         edited: EditedLine
     ): RouteEditOutcome = withContext(ioDispatcher) {
-        if (edited.route.size <= 1) return@withContext RouteEditOutcome.Refused(RouteEditRefusal.NOT_SAVED)
-        if (shouldFailFirstSave()) return@withContext RouteEditOutcome.Refused(RouteEditRefusal.NOT_SAVED)
+        if (edited.route.size <= 1 || shouldFailFirstSave()) {
+            return@withContext RouteEditOutcome.Refused(RouteEditRefusal.NOT_SAVED)
+        }
 
+        val (newStats, newChunks) = withContext(defaultDispatcher) {
+            HikeRouteStatistics.from(edited.lengthMeters, edited.route) to encodeRouteChunks(hikeId.value, edited.route)
+        }
         runOutcomeCatching {
-            val loaded = loadVerifiedCurrentRoute(hikeId.value, expectedCurrentRoute)
-                ?: return@runOutcomeCatching RouteEditOutcome.Refused(RouteEditRefusal.LINE_CHANGED)
-            val (hike, currentRoute) = loaded
-            val rawEdit = hike.routeEditJson
-            val decoded = decodeRouteEditOrNull(rawEdit)
-            if (rawEdit != null && decoded == null) {
-                return@runOutcomeCatching RouteEditOutcome.Refused(RouteEditRefusal.NOT_HERE_YET)
+            val outcome = database.withTransaction {
+                commitRouteEditInTransaction(
+                    hikeId = hikeId.value,
+                    expectedCurrentRoute = expectedCurrentRoute,
+                    edited = edited,
+                    newStats = newStats,
+                    newChunks = newChunks
+                )
             }
-            val isRebased = decoded != null && !withContext(defaultDispatcher) { decoded.describes(currentRoute) }
-            val baseEdit = when {
-                decoded == null -> RouteEdit()
-                isRebased -> decoded.rebased
-                else -> decoded
+            if (outcome is RouteEditOutcome.Saved) {
+                invalidateLocalElevationCache(hikeId.value, newStats.elevationGainMeters, newStats.elevationLossMeters)
             }
-            commitRouteEdit(hike, currentRoute, baseEdit, edited)
+            outcome
         }
     }
 
-    private suspend fun commitRouteEdit(
+    private suspend fun commitRouteEditInTransaction(
+        hikeId: String,
+        expectedCurrentRoute: List<RouteCoordinate>,
+        edited: EditedLine,
+        newStats: HikeRouteStatistics,
+        newChunks: List<HikeRouteChunkEntity>
+    ): RouteEditOutcome {
+        val hike = hikeDao.getHikeById(hikeId)
+        val currentChunks = if (hike != null) hikeDao.getRouteChunks(hikeId) else emptyList()
+        val currentRoute = if (hike != null) decodeSortedChunks(currentChunks) else emptyList()
+        if (hike == null || currentRoute != expectedCurrentRoute) {
+            return RouteEditOutcome.Refused(RouteEditRefusal.LINE_CHANGED)
+        }
+        val rawEdit = hike.routeEditJson
+        val decoded = decodeRouteEditOrNull(rawEdit)
+        return if (rawEdit != null && decoded == null) {
+            RouteEditOutcome.Refused(RouteEditRefusal.NOT_HERE_YET)
+        } else {
+            writeEditedHikeInTransaction(hike, currentRoute, currentChunks, decoded, edited, newStats, newChunks)
+        }
+    }
+
+    @Suppress("LongParameterList")
+    private suspend fun writeEditedHikeInTransaction(
         hike: HikeEntity,
         currentRoute: List<RouteCoordinate>,
-        baseEdit: RouteEdit,
-        edited: EditedLine
+        currentChunks: List<HikeRouteChunkEntity>,
+        decoded: RouteEdit?,
+        edited: EditedLine,
+        newStats: HikeRouteStatistics,
+        newChunks: List<HikeRouteChunkEntity>
     ): RouteEditOutcome {
+        val baseEdit = when {
+            decoded == null -> RouteEdit()
+            !decoded.describes(currentRoute) -> decoded.rebased
+            else -> decoded
+        }
         val recordedWalkEntity = hikeWalkDao.getByHikeId(hike.id)
             .firstOrNull { it.endReasonId == TrailWalkEndReason.RECORDED.storedId }
-        val needsOriginal = baseEdit.original == null
         val original = baseEdit.original ?: RouteEdit.Original(
             distanceMeters = hike.distanceMeters,
             dateEpochMillis = hike.dateEpochMillis,
@@ -113,42 +145,23 @@ internal class RouteEditStore(
             recordedWalk = recordedWalkEntity?.let { RouteEdit.RecordedWalk.from(it.toDomain()) },
             notOnFoot = baseEdit.notOnFoot
         )
-        val updatedEdit = baseEdit.copy(
-            original = original,
-            trimStartMeters = edited.cuts.range?.start,
-            trimEndMeters = edited.cuts.range?.endInclusive,
-            trimEndPauses = if (edited.cuts.range == null || edited.cuts.takingOff.isEmpty) {
-                null
-            } else {
-                edited.cuts.takingOff.rawValue
-            },
-            steps = edited.steps,
-            notOnFoot = edited.notOnFoot,
-            lineRevision = edited.revision
-        )
-        val newDistance = max(0.0, min(edited.lengthMeters, hike.distanceMeters - edited.removedMeters))
-        val newStats = withContext(defaultDispatcher) { HikeRouteStatistics.from(newDistance, edited.route) }
-        val updatedHike = hike.copy(
-            distanceMeters = newDistance,
-            durationSeconds = newStats.durationSeconds,
-            dateEpochMillis = resolveStartDate(hike.dateEpochMillis, edited.start, original),
-            routePointCount = edited.route.size,
-            routeEditJson = if (updatedEdit.isEmpty) null else json.encodeToString(updatedEdit)
-        )
-        val updatedWalk = recordedWalkEntity?.let { updateRecordedWalk(it, edited, original) }
-        val newChunks = withContext(defaultDispatcher) { encodeRouteChunks(hike.id, edited.route) }
-        val originalChunks = if (needsOriginal) {
-            withContext(defaultDispatcher) { encodeOriginalChunks(hike.id, currentRoute) }
+        val updatedHike = RouteEditEntityMapper.updatedHike(hike, baseEdit, original, edited, newStats, json)
+        val updatedWalk = recordedWalkEntity?.let {
+            RouteEditEntityMapper.updateRecordedWalk(it, edited, original, json)
+        }
+        if (baseEdit.original == null) {
+            hikeDao.replaceOriginalRouteChunks(
+                hike.id,
+                RouteEditEntityMapper.copyAsOriginalChunks(hike.id, currentChunks)
+            )
+        }
+        val updated = hikeDao.updateExistingHikeWithRoute(updatedHike, newChunks)
+        if (updated && updatedWalk != null) hikeWalkDao.insert(updatedWalk)
+        return if (updated) {
+            RouteEditOutcome.Saved(edited.route)
         } else {
-            null
+            RouteEditOutcome.Refused(RouteEditRefusal.LINE_CHANGED)
         }
-        database.withTransaction {
-            if (originalChunks != null) hikeDao.replaceOriginalRouteChunks(hike.id, originalChunks)
-            hikeDao.replaceHikeWithRoute(updatedHike, newChunks)
-            if (updatedWalk != null) hikeWalkDao.insert(updatedWalk)
-        }
-        invalidateLocalElevationCache(hike.id, newStats.elevationGainMeters, newStats.elevationLossMeters)
-        return RouteEditOutcome.Saved(edited.route)
     }
 
     suspend fun revertRouteEdit(hikeId: HikeId, expectedCurrentRoute: List<RouteCoordinate>): RouteEditOutcome =
@@ -156,38 +169,51 @@ internal class RouteEditStore(
             if (shouldFailFirstSave()) return@withContext RouteEditOutcome.Refused(RouteEditRefusal.NOT_SAVED)
 
             runOutcomeCatching {
-                val loaded = loadVerifiedCurrentRoute(hikeId.value, expectedCurrentRoute)
-                    ?: return@runOutcomeCatching RouteEditOutcome.Refused(RouteEditRefusal.LINE_CHANGED)
-                val (hike, currentRoute) = loaded
-                val edit = decodeRouteEditOrNull(hike.routeEditJson)
-                val original = edit?.original
-                    ?: return@runOutcomeCatching RouteEditOutcome.Refused(RouteEditRefusal.NO_ORIGINAL)
-                if (!withContext(defaultDispatcher) { edit.describes(currentRoute) }) {
-                    return@runOutcomeCatching RouteEditOutcome.Refused(RouteEditRefusal.NO_ORIGINAL)
+                val (outcome, restoredStats) = database.withTransaction {
+                    commitRouteRevertInTransaction(hikeId.value, expectedCurrentRoute)
                 }
-                val originalChunks = hikeDao.getOriginalRouteChunks(hikeId.value)
-                val originalRoute = withContext(defaultDispatcher) {
-                    RouteBlobCodec.decodeChunksOrEmpty(originalChunks.sortedBy { it.chunkIndex }.map { it.chunkBlob })
+                if (outcome is RouteEditOutcome.Saved && restoredStats != null) {
+                    invalidateLocalElevationCache(
+                        hikeId.value,
+                        restoredStats.elevationGainMeters,
+                        restoredStats.elevationLossMeters
+                    )
                 }
-                if (originalRoute.size <= 1) {
-                    return@runOutcomeCatching RouteEditOutcome.Refused(RouteEditRefusal.NO_ORIGINAL)
-                }
-                commitRouteRevert(hike, original, originalRoute)
+                outcome
             }
         }
 
-    private suspend fun commitRouteRevert(
+    private suspend fun commitRouteRevertInTransaction(
+        hikeId: String,
+        expectedCurrentRoute: List<RouteCoordinate>
+    ): Pair<RouteEditOutcome, HikeRouteStatistics?> {
+        val hike = hikeDao.getHikeById(hikeId)
+        val currentRoute = if (hike != null) decodeSortedChunks(hikeDao.getRouteChunks(hikeId)) else emptyList()
+        if (hike == null || currentRoute != expectedCurrentRoute) {
+            return RouteEditOutcome.Refused(RouteEditRefusal.LINE_CHANGED) to null
+        }
+        val edit = decodeRouteEditOrNull(hike.routeEditJson)
+        val original = edit?.original?.takeIf { edit.describes(currentRoute) }
+        val originalChunks = if (original != null) hikeDao.getOriginalRouteChunks(hikeId) else emptyList()
+        val originalRoute = if (original != null) decodeOriginalChunks(originalChunks) else emptyList()
+        return if (original == null || originalRoute.size <= 1) {
+            RouteEditOutcome.Refused(RouteEditRefusal.NO_ORIGINAL) to null
+        } else {
+            writeRevertedHikeInTransaction(hike, original, originalRoute, originalChunks)
+        }
+    }
+
+    private suspend fun writeRevertedHikeInTransaction(
         hike: HikeEntity,
         original: RouteEdit.Original,
-        originalRoute: List<RouteCoordinate>
-    ): RouteEditOutcome {
+        originalRoute: List<RouteCoordinate>,
+        originalChunks: List<HikeOriginalRouteChunkEntity>
+    ): Pair<RouteEditOutcome, HikeRouteStatistics?> {
         val restoredEdit = RouteEdit(
             notOnFoot = original.notOnFoot?.copy(isChecked = true),
             lineRevision = TrailWalkRecord.routeRevision(originalRoute)
         )
-        val restoredStats = withContext(defaultDispatcher) {
-            HikeRouteStatistics.from(original.distanceMeters, originalRoute)
-        }
+        val restoredStats = HikeRouteStatistics.from(original.distanceMeters, originalRoute)
         val restoredHike = hike.copy(
             distanceMeters = original.distanceMeters,
             durationSeconds = original.durationSeconds ?: restoredStats.durationSeconds,
@@ -198,29 +224,28 @@ internal class RouteEditStore(
         val recordedWalkEntity = hikeWalkDao.getByHikeId(hike.id)
             .firstOrNull { it.endReasonId == TrailWalkEndReason.RECORDED.storedId }
         val restoredWalk = recordedWalkEntity?.let { walk ->
-            original.recordedWalk?.let { savedWalk -> restoreRecordedWalk(walk, savedWalk) }
+            original.recordedWalk?.let { savedWalk -> RouteEditEntityMapper.restoreRecordedWalk(walk, savedWalk, json) }
         }
-        val restoredChunks = withContext(defaultDispatcher) { encodeRouteChunks(hike.id, originalRoute) }
-        database.withTransaction {
-            hikeDao.replaceHikeWithRoute(restoredHike, restoredChunks)
+        val restoredChunks = originalChunks.map { chunk ->
+            HikeRouteChunkEntity(hikeId = hike.id, chunkIndex = chunk.chunkIndex, chunkBlob = chunk.chunkBlob)
+        }
+        val updated = hikeDao.updateExistingHikeWithRoute(restoredHike, restoredChunks)
+        if (updated) {
             hikeDao.deleteOriginalRouteChunks(hike.id)
             if (restoredWalk != null) hikeWalkDao.insert(restoredWalk)
         }
-        invalidateLocalElevationCache(hike.id, restoredStats.elevationGainMeters, restoredStats.elevationLossMeters)
-        return RouteEditOutcome.Saved(originalRoute)
+        return if (updated) {
+            RouteEditOutcome.Saved(originalRoute) to restoredStats
+        } else {
+            RouteEditOutcome.Refused(RouteEditRefusal.LINE_CHANGED) to null
+        }
     }
 
-    private suspend fun loadVerifiedCurrentRoute(
-        hikeId: String,
-        expectedCurrentRoute: List<RouteCoordinate>
-    ): Pair<HikeEntity, List<RouteCoordinate>>? {
-        val hike = hikeDao.getHikeById(hikeId) ?: return null
-        val currentChunks = hikeDao.getRouteChunks(hikeId)
-        val currentRoute = withContext(defaultDispatcher) {
-            RouteBlobCodec.decodeChunksOrEmpty(currentChunks.sortedBy { it.chunkIndex }.map { it.chunkBlob })
-        }
-        return if (currentRoute == expectedCurrentRoute) hike to currentRoute else null
-    }
+    private fun decodeSortedChunks(chunks: List<HikeRouteChunkEntity>): List<RouteCoordinate> =
+        RouteBlobCodec.decodeChunksOrEmpty(chunks.sortedBy { it.chunkIndex }.map { it.chunkBlob })
+
+    private fun decodeOriginalChunks(chunks: List<HikeOriginalRouteChunkEntity>): List<RouteCoordinate> =
+        RouteBlobCodec.decodeChunksOrEmpty(chunks.sortedBy { it.chunkIndex }.map { it.chunkBlob })
 
     private suspend fun loadOriginalSources(
         hikeId: String,
@@ -240,56 +265,6 @@ internal class RouteEditStore(
         )
     }
 
-    private fun resolveStartDate(
-        currentDateMillis: Long,
-        startClock: EditedLine.ClockEnd,
-        original: RouteEdit.Original
-    ): Long = when (startClock) {
-        EditedLine.ClockEnd.Unchanged -> currentDateMillis
-        is EditedLine.ClockEnd.Cut -> startClock.epochMillis
-        EditedLine.ClockEnd.Uncut -> original.dateEpochMillis
-    }
-
-    private fun updateRecordedWalk(
-        walk: HikeWalkEntity,
-        edited: EditedLine,
-        original: RouteEdit.Original
-    ): HikeWalkEntity {
-        val savedWalk = original.recordedWalk
-        val startedAt = when (val startClock = edited.start) {
-            EditedLine.ClockEnd.Unchanged -> walk.startedAtEpochMillis
-            is EditedLine.ClockEnd.Cut -> startClock.epochMillis
-            EditedLine.ClockEnd.Uncut -> savedWalk?.startedAtEpochMillis ?: walk.startedAtEpochMillis
-        }
-        val endedAt = when (val endClock = edited.end) {
-            EditedLine.ClockEnd.Unchanged -> walk.endedAtEpochMillis
-            is EditedLine.ClockEnd.Cut -> endClock.epochMillis
-            EditedLine.ClockEnd.Uncut -> savedWalk?.endedAtEpochMillis ?: walk.endedAtEpochMillis
-        }
-        val activeSeconds = max(0.0, walk.durationSeconds - edited.removedSeconds)
-        return walk.copy(
-            startedAtEpochMillis = startedAt,
-            endedAtEpochMillis = max(startedAt, endedAt),
-            distanceMeters = edited.lengthMeters,
-            durationSeconds = activeSeconds,
-            coveredIntervalsJson = json.encodeToString(listOf(0.0, edited.lengthMeters)),
-            furthestDistanceMeters = edited.lengthMeters,
-            routeDistanceMeters = edited.lengthMeters,
-            routeRevision = edited.revision
-        )
-    }
-
-    private fun restoreRecordedWalk(walk: HikeWalkEntity, original: RouteEdit.RecordedWalk): HikeWalkEntity = walk.copy(
-        startedAtEpochMillis = original.startedAtEpochMillis,
-        endedAtEpochMillis = original.endedAtEpochMillis,
-        distanceMeters = original.routeDistanceMeters,
-        durationSeconds = original.durationSeconds,
-        coveredIntervalsJson = json.encodeToString(original.coveredIntervals),
-        furthestDistanceMeters = original.furthestDistanceMeters,
-        routeDistanceMeters = original.routeDistanceMeters,
-        routeRevision = original.routeRevision
-    )
-
     private suspend fun invalidateLocalElevationCache(hikeId: String, climbMeters: Double?, descentMeters: Double?) {
         val existing = hikeLocalStateDao.getByHikeId(hikeId) ?: return
         localStateRepairer.upsertBestEffort(
@@ -306,11 +281,6 @@ internal class RouteEditStore(
             HikeRouteChunkEntity(hikeId = hikeId, chunkIndex = index, chunkBlob = blob)
         }
 
-    private fun encodeOriginalChunks(hikeId: String, route: List<RouteCoordinate>): List<HikeOriginalRouteChunkEntity> =
-        RouteBlobCodec.encodeChunked(route).mapIndexed { index, blob ->
-            HikeOriginalRouteChunkEntity(hikeId = hikeId, chunkIndex = index, chunkBlob = blob)
-        }
-
     private fun decodeRouteEditOrNull(raw: String?): RouteEdit? =
         raw?.let { runCatching { json.decodeFromString<RouteEdit>(it) }.getOrNull() }
 
@@ -324,5 +294,97 @@ internal class RouteEditStore(
         RouteEditOutcome.Refused(RouteEditRefusal.NOT_SAVED)
     } catch (_: IllegalStateException) {
         RouteEditOutcome.Refused(RouteEditRefusal.NOT_SAVED)
+    }
+}
+
+private object RouteEditEntityMapper {
+    @Suppress("LongParameterList")
+    fun updatedHike(
+        hike: HikeEntity,
+        baseEdit: RouteEdit,
+        original: RouteEdit.Original,
+        edited: EditedLine,
+        newStats: HikeRouteStatistics,
+        json: Json
+    ): HikeEntity {
+        val updatedEdit = baseEdit.copy(
+            original = original,
+            trimStartMeters = edited.cuts.range?.start,
+            trimEndMeters = edited.cuts.range?.endInclusive,
+            trimEndPauses = if (edited.cuts.range == null || edited.cuts.takingOff.isEmpty) {
+                null
+            } else {
+                edited.cuts.takingOff.rawValue
+            },
+            steps = edited.steps,
+            notOnFoot = edited.notOnFoot,
+            lineRevision = edited.revision
+        )
+        val newDistance = max(0.0, min(edited.lengthMeters, hike.distanceMeters - edited.removedMeters))
+        val updatedDuration = newStats.durationSeconds
+            ?: hike.durationSeconds?.let { prior -> max(0.0, prior - edited.removedSeconds).takeIf { it > 0.0 } }
+        return hike.copy(
+            distanceMeters = newDistance,
+            durationSeconds = updatedDuration,
+            dateEpochMillis = resolveStartDate(hike.dateEpochMillis, edited.start, original),
+            routePointCount = edited.route.size,
+            routeEditJson = if (updatedEdit.isEmpty) null else json.encodeToString(updatedEdit)
+        )
+    }
+
+    fun copyAsOriginalChunks(hikeId: String, chunks: List<HikeRouteChunkEntity>): List<HikeOriginalRouteChunkEntity> =
+        chunks.map { chunk ->
+            HikeOriginalRouteChunkEntity(hikeId = hikeId, chunkIndex = chunk.chunkIndex, chunkBlob = chunk.chunkBlob)
+        }
+
+    fun updateRecordedWalk(
+        walk: HikeWalkEntity,
+        edited: EditedLine,
+        original: RouteEdit.Original,
+        json: Json
+    ): HikeWalkEntity {
+        val savedWalk = original.recordedWalk
+        val startedAt = when (val startClock = edited.start) {
+            EditedLine.ClockEnd.Unchanged -> walk.startedAtEpochMillis
+            is EditedLine.ClockEnd.Cut -> startClock.epochMillis
+            EditedLine.ClockEnd.Uncut -> savedWalk?.startedAtEpochMillis ?: walk.startedAtEpochMillis
+        }
+        val endedAt = when (val endClock = edited.end) {
+            EditedLine.ClockEnd.Unchanged -> walk.endedAtEpochMillis
+            is EditedLine.ClockEnd.Cut -> endClock.epochMillis
+            EditedLine.ClockEnd.Uncut -> savedWalk?.endedAtEpochMillis ?: walk.endedAtEpochMillis
+        }
+        return walk.copy(
+            startedAtEpochMillis = startedAt,
+            endedAtEpochMillis = max(startedAt, endedAt),
+            distanceMeters = edited.lengthMeters,
+            durationSeconds = max(0.0, walk.durationSeconds - edited.removedSeconds),
+            coveredIntervalsJson = json.encodeToString(listOf(0.0, edited.lengthMeters)),
+            furthestDistanceMeters = edited.lengthMeters,
+            routeDistanceMeters = edited.lengthMeters,
+            routeRevision = edited.revision
+        )
+    }
+
+    fun restoreRecordedWalk(walk: HikeWalkEntity, original: RouteEdit.RecordedWalk, json: Json): HikeWalkEntity =
+        walk.copy(
+            startedAtEpochMillis = original.startedAtEpochMillis,
+            endedAtEpochMillis = original.endedAtEpochMillis,
+            distanceMeters = original.routeDistanceMeters,
+            durationSeconds = original.durationSeconds,
+            coveredIntervalsJson = json.encodeToString(original.coveredIntervals),
+            furthestDistanceMeters = original.furthestDistanceMeters,
+            routeDistanceMeters = original.routeDistanceMeters,
+            routeRevision = original.routeRevision
+        )
+
+    private fun resolveStartDate(
+        currentDateMillis: Long,
+        startClock: EditedLine.ClockEnd,
+        original: RouteEdit.Original
+    ): Long = when (startClock) {
+        EditedLine.ClockEnd.Unchanged -> currentDateMillis
+        is EditedLine.ClockEnd.Cut -> startClock.epochMillis
+        EditedLine.ClockEnd.Uncut -> original.dateEpochMillis
     }
 }

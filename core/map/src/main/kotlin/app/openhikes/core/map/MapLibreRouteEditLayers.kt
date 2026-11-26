@@ -100,7 +100,7 @@ internal fun RouteEditOverlayLayers(routeEditOverlayState: StateFlow<MapRouteEdi
                 isSelected = true
             )
         }
-        RouteOverlayLayers(routes = listOf(keptRoute))
+        RouteOverlayLayers(routes = listOf(keptRoute), idPrefix = "edit-kept-")
     }
 
     if (current.pullCoverSegments.isNotEmpty()) {

@@ -141,10 +141,11 @@ class RouteEditJourneyTest {
             openEditRouteFromLibrary()
             composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.ROUTE_TRIM_END), timeoutMillis = 5_000L)
 
-            // Canceling a stretch leaves nothing changed.
+            // Canceling a stretch leaves nothing changed; Follow Trails stays hidden without mapped routing.
             composeRule.onNodeWithTag(OpenHikesTestTags.ROUTE_EDIT_SCREEN).performScrollToKey("steps")
             composeRule.onNodeWithTag(OpenHikesTestTags.ROUTE_STRETCH_BEGIN).performClick()
             composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.ROUTE_STRETCH_CANCEL))
+            composeRule.onNodeWithTag(OpenHikesTestTags.ROUTE_STRETCH_FOLLOW).assertDoesNotExist()
             composeRule.onNodeWithTag(OpenHikesTestTags.ROUTE_EDIT_SCREEN).performScrollToKey("trimmer")
             composeRule.onNodeWithTag(OpenHikesTestTags.ROUTE_TRIM_START)
                 .assertContentDescriptionEquals("Start of stretch")

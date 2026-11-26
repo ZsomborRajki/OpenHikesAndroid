@@ -91,9 +91,9 @@ internal data class WalkedRouteRenderPlan(
 
 @Composable
 @MaplibreComposable
-internal fun RouteOverlayLayers(routes: List<MapRouteOverlay>) {
+internal fun RouteOverlayLayers(routes: List<MapRouteOverlay>, idPrefix: String = "") {
     for (route in routes) {
-        key(route.hikeId.value) {
+        key("$idPrefix${route.hikeId.value}") {
             val lineColor = parseHexColorOrDefault(
                 route.tintHex,
                 parseHexColorOrDefault(RouteTint.DEFAULT_HEX, Color.Green)
@@ -102,10 +102,10 @@ internal fun RouteOverlayLayers(routes: List<MapRouteOverlay>) {
             val opacity = if (route.isSelected) SELECTED_OPACITY else UNSELECTED_OPACITY
 
             if (route.walkedSegments.isNotEmpty()) {
-                WalkedRouteLayers(route = route, opacity = opacity)
+                WalkedRouteLayers(route = route, opacity = opacity, idPrefix = idPrefix)
             }
             if (route.pausedSegments.isNotEmpty()) {
-                PausedRouteLayer(route = route, lineColor = lineColor, widthDp = widthDp)
+                PausedRouteLayer(route = route, lineColor = lineColor, widthDp = widthDp, idPrefix = idPrefix)
             }
         }
     }
@@ -113,7 +113,7 @@ internal fun RouteOverlayLayers(routes: List<MapRouteOverlay>) {
 
 @Composable
 @MaplibreComposable
-private fun WalkedRouteLayers(route: MapRouteOverlay, opacity: Float) {
+private fun WalkedRouteLayers(route: MapRouteOverlay, opacity: Float, idPrefix: String = "") {
     val plan = remember(route) { buildWalkedRouteRenderPlan(route) }
     val walkedSourceData = remember(route.walkedSegments) {
         buildMultiLineFeatureCollection(route.walkedSegments)
@@ -122,7 +122,7 @@ private fun WalkedRouteLayers(route: MapRouteOverlay, opacity: Float) {
 
     if (plan.drawsLine && plan.borderColor != null && plan.borderWidthDp != null) {
         LineLayer(
-            id = "route-border-${route.hikeId.value}",
+            id = "${idPrefix}route-border-${route.hikeId.value}",
             source = walkedSource,
             color = const(plan.borderColor),
             width = const(plan.borderWidthDp.dp),
@@ -135,7 +135,7 @@ private fun WalkedRouteLayers(route: MapRouteOverlay, opacity: Float) {
 
     if (plan.drawsLine) {
         LineLayer(
-            id = "route-line-${route.hikeId.value}",
+            id = "${idPrefix}route-line-${route.hikeId.value}",
             source = walkedSource,
             color = const(plan.lineColor),
             width = const(plan.lineWidthDp.dp),
@@ -149,7 +149,7 @@ private fun WalkedRouteLayers(route: MapRouteOverlay, opacity: Float) {
     plan.chevronSpec?.let { chevron ->
         val chevronPainter = remember(chevron) { RouteChevronPainter(chevron) }
         SymbolLayer(
-            id = "route-chevrons-${route.hikeId.value}",
+            id = "${idPrefix}route-chevrons-${route.hikeId.value}",
             source = walkedSource,
             placement = const(SymbolPlacement.Line),
             spacing = const(chevron.spacingDp.dp),
@@ -292,13 +292,13 @@ private data class RouteChevronPainter(private val spec: RouteChevronRenderSpec)
 
 @Composable
 @MaplibreComposable
-private fun PausedRouteLayer(route: MapRouteOverlay, lineColor: Color, widthDp: Float) {
+private fun PausedRouteLayer(route: MapRouteOverlay, lineColor: Color, widthDp: Float, idPrefix: String = "") {
     val pausedSourceData = remember(route.pausedSegments) {
         buildMultiLineFeatureCollection(route.pausedSegments)
     }
     val pausedSource = rememberGeoJsonSource(data = pausedSourceData)
     LineLayer(
-        id = "route-paused-${route.hikeId.value}",
+        id = "${idPrefix}route-paused-${route.hikeId.value}",
         source = pausedSource,
         color = const(lineColor),
         width = const(widthDp.dp),

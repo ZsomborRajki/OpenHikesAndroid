@@ -14,6 +14,8 @@ import javax.inject.Singleton
  */
 @Singleton
 internal class StraightFallbackRouteStretchRouter @Inject constructor() : RouteStretchRouter {
+    override val supportsMappedRouting: Boolean = false
+
     override suspend fun routeWay(from: GeoCoordinate, to: GeoCoordinate, through: GeoCoordinate?): RoutedStretchWay {
         val points = buildList {
             add(from)

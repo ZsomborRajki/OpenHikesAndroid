@@ -87,6 +87,20 @@ interface HikeDao {
         }
     }
 
+    /**
+     * Updates an already-existing hike row in place and replaces only its active `hike_route_chunks`.
+     * Returns `false` without inserting anything if the hike was deleted concurrently.
+     */
+    @Transaction
+    suspend fun updateExistingHikeWithRoute(hike: HikeEntity, routeChunks: List<HikeRouteChunkEntity>): Boolean {
+        if (updateHike(hike) == 0) return false
+        deleteRouteChunks(hike.id)
+        if (routeChunks.isNotEmpty()) {
+            insertRouteChunks(routeChunks)
+        }
+        return true
+    }
+
     @Query("UPDATE hikes SET custom_name = :customName WHERE id = :hikeId")
     suspend fun updateCustomName(hikeId: String, customName: String?): Int
 

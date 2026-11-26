@@ -319,15 +319,17 @@ private fun WholeRouteMenuItems(uiState: RouteEditUiState, onSelect: (RouteEditA
 private fun RouteStretchVerbsCard(uiState: RouteEditUiState, onAction: (RouteEditAction) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         RouteEditSectionCard(title = stringResource(R.string.route_edit_stretch_section)) {
-            RouteEditActionRow(
-                label = stringResource(R.string.route_edit_stretch_follow),
-                iconRes = OpenHikesIcons.Directions,
-                enabled = uiState.canMakeSteps,
-                isBusy = uiState.isRouting,
-                onClick = { onAction(RouteEditAction.FollowTrails) },
-                testTag = OpenHikesTestTags.ROUTE_STRETCH_FOLLOW
-            )
-            RouteEditCardDivider()
+            if (uiState.canFollowTrails) {
+                RouteEditActionRow(
+                    label = stringResource(R.string.route_edit_stretch_follow),
+                    iconRes = OpenHikesIcons.Directions,
+                    enabled = uiState.canMakeSteps,
+                    isBusy = uiState.isRouting,
+                    onClick = { onAction(RouteEditAction.FollowTrails) },
+                    testTag = OpenHikesTestTags.ROUTE_STRETCH_FOLLOW
+                )
+                RouteEditCardDivider()
+            }
             RouteEditActionRow(
                 label = stringResource(R.string.route_edit_stretch_straighten),
                 iconRes = OpenHikesIcons.Straighten,

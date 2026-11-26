@@ -334,6 +334,8 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
     private fun applyEditedHikeState(hikeId: HikeId, hike: Hike, original: RouteEdit.Original, edited: EditedLine) {
         val newDistance = max(0.0, min(edited.lengthMeters, hike.distanceMeters - edited.removedMeters))
         val newStats = HikeRouteStatistics.from(newDistance, edited.route)
+        val updatedDuration = newStats.durationSeconds
+            ?: hike.durationSeconds?.let { prior -> max(0.0, prior - edited.removedSeconds).takeIf { it > 0.0 } }
         val newDate = when (val s = edited.start) {
             EditedLine.ClockEnd.Unchanged -> hike.dateEpochMillis
             is EditedLine.ClockEnd.Cut -> s.epochMillis
@@ -344,7 +346,7 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
                 if (item.id == hikeId) {
                     item.copy(
                         distanceMeters = newDistance,
-                        durationSeconds = newStats.durationSeconds,
+                        durationSeconds = updatedDuration,
                         dateEpochMillis = newDate,
                         route = edited.route
                     )
