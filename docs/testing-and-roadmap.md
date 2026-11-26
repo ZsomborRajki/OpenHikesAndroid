@@ -212,3 +212,31 @@ GitHub issues once created.)*
      stops, in-tree stop search (My Location, recents, geocoder results), and
      Save Trail naming flow wired into `:app`'s adaptive shell & root floating
      toolbar with ported Tier 1/2/3 & screenshot tests.
+10. **Phase 9 — Places Along a Trail (Slice 9):**
+    - Pure-JVM places, search, and Wikidata domain (`TrailPlaceSymbol`,
+      `TrailPlaceOsm`, `TrailPlaceFact`, `TrailPlaceOrder`,
+      `TrailPlaceHolding`, `TrailPlaceCorridorSearch`, `PlaceSquareGrid`,
+      `TrailPointQuery`, `PlacesNearbyFrame`, `NearbyPlaceSuggestions`,
+      `WikidataPlace`/`WikidataPhoto`, `OHPS` v2 `PlaceSquareFile`,
+      `TrailPointDecoding`, `WikidataQuery`/`CommonsPhotoQuery`, GPX `<wpt>`
+      `<link href>` OSM round-trip, and bundled `ThumseeLoopPlaces.gpx` fixture)
+      across `:core:model`, `:core:common`, and `:core:testing`.
+    - Proto DataStore `shows_place_pins` & `hidden_place_symbols`, Room v4
+      `trail_points` OSM/facts/Wikidata schema, `HikePlaceStore` (deduplication,
+      own-only edit guard, cascade-safe recording draft survival), in-memory
+      32-entry `WikidataPlaceLookup`, `noBackupFilesDir` cached
+      `HttpPlaceSquareDataSource` & `OverpassPlaceDataSource`,
+      `HttpWikidataPlaceSource`, and launch-aware UI test scenarios across
+      `:core:datastore`, `:core:database`, `:core:network`, and `:core:data`.
+    - `TrailPlacesOverlayState`, `MapCameraTracker`, and interactive MapLibre +
+      fake place pins, pale candidate pins, center placement pin, long-press
+      drop, and *Search This Area* pill hooks across `:core:map` and
+      `:core:testing-android`.
+    - `:feature:places` Material 3 Expressive place detail (inline editing,
+      OSM/Wikidata facts, Wikipedia extract + CC BY-SA 4.0 license, Wikimedia
+      Commons photo + author/license credit dialog, Show on Map, Share, Remove),
+      map-pan *Add Place*, *Places Around Trail* (kind chips, reach selector,
+      in-place add & card preview, *Search This Area*), *Places Nearby*, and
+      live recording place picker wired into `:feature:hikes`,
+      `:feature:recording`, `:core:location` (`holdsKeepsakes`), and `:app`
+      with Tier 1/2/3 & screenshot tests.

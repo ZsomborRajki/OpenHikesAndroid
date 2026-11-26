@@ -75,6 +75,10 @@
         <item quantity="other">%1$s · %2$d points</item>
     </plurals>
     <string name="hike_detail_section_on_map">On the Map</string>
+    <string name="hike_detail_section_places">Places</string>
+    <string name="hike_detail_places_pins_label">Pins</string>
+    <string name="hike_detail_places_pins_toggle_description">Show place pins on map</string>
+    <string name="hike_detail_places_around_trail">Places Around Trail</string>
     <string name="hike_detail_route_style">Route Style</string>
     <string name="hike_detail_edit_route">Edit Route</string>
     <string name="hike_detail_rename_hike">Rename Hike</string>

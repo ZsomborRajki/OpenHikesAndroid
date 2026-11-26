@@ -49,6 +49,46 @@ data class RouteEditRoute(override val hikeId: HikeId) : HikeScopedRoute
 data class WalkSummaryRoute(override val hikeId: HikeId, val walkId: String) : HikeScopedRoute
 
 /**
+ * Saved or recording hike place detail destination pushed from a hike's Places list or map pin.
+ */
+@Serializable
+data class HikePlaceDetailRoute(override val hikeId: HikeId, val placeId: String) : HikeScopedRoute
+
+/**
+ * Center-map placement form for adding a custom place to a hike.
+ */
+@Serializable
+data class AddHikePlaceRoute(override val hikeId: HikeId, val initialLatitude: Double, val initialLongitude: Double) :
+    HikeScopedRoute
+
+/**
+ * OpenStreetMap corridor and area search around a saved hike's route.
+ */
+@Serializable
+data class PlacesAroundRoute(override val hikeId: HikeId) : HikeScopedRoute
+
+/**
+ * OpenStreetMap nearby places browser around an active recording.
+ */
+@Serializable
+data class PlacesNearbyRoute(
+    override val hikeId: HikeId,
+    val initialLatitude: Double? = null,
+    val initialLongitude: Double? = null
+) : HikeScopedRoute
+
+/**
+ * Quick place picker opened while recording: offers *Places Nearby*, nearby OSM matches,
+ * and *Add Your Own Place*.
+ */
+@Serializable
+data class RecordingAddPlaceRoute(
+    override val hikeId: HikeId,
+    val latitude: Double? = null,
+    val longitude: Double? = null
+) : HikeScopedRoute
+
+/**
  * Application settings destination pushed onto the shared adaptive back stack.
  */
 @Serializable

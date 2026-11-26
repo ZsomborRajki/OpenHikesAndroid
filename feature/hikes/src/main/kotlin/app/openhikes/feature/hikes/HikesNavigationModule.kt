@@ -1,7 +1,10 @@
 package app.openhikes.feature.hikes
 
+import app.openhikes.core.ui.navigation.AddHikePlaceRoute
 import app.openhikes.core.ui.navigation.EntryProviderInstaller
 import app.openhikes.core.ui.navigation.HikeDetailRoute
+import app.openhikes.core.ui.navigation.HikePlaceDetailRoute
+import app.openhikes.core.ui.navigation.PlacesAroundRoute
 import app.openhikes.core.ui.navigation.RouteEditRoute
 import app.openhikes.core.ui.navigation.RouteStyleRoute
 import app.openhikes.core.ui.navigation.WalkSummaryRoute
@@ -26,6 +29,17 @@ object HikesNavigationModule {
                 onBack = { navigator.pop() },
                 onOpenRouteStyle = { hikeId -> navigator.navigate(RouteStyleRoute(hikeId)) },
                 onOpenRouteEdit = { hikeId -> navigator.navigate(RouteEditRoute(hikeId)) },
+                onOpenPlace = { hikeId, placeId -> navigator.navigate(HikePlaceDetailRoute(hikeId, placeId)) },
+                onOpenPlacesAround = { hikeId -> navigator.navigate(PlacesAroundRoute(hikeId)) },
+                onAddPlaceAt = { hikeId, coordinate ->
+                    navigator.navigate(
+                        AddHikePlaceRoute(
+                            hikeId = hikeId,
+                            initialLatitude = coordinate.latitude,
+                            initialLongitude = coordinate.longitude
+                        )
+                    )
+                },
                 onOpenWalkSummary = { hikeId, walkId -> navigator.navigate(WalkSummaryRoute(hikeId, walkId)) },
                 onHikeDeleted = { hikeId -> navigator.removeRoutesForHike(hikeId) },
                 onCollapseSheet = { navigator.collapseSheet() }

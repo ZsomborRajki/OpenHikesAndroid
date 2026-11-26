@@ -13,6 +13,8 @@ import app.openhikes.core.model.TrailWalkRecord
 object TestFixtures {
     const val THUMSEE_LOOP_FAST_NAME = "ThumseeLoopFast"
     const val THUMSEE_LOOP_FAST_TITLE = "Thumsee Loop (fast, simulated)"
+    const val THUMSEE_LOOP_PLACES_NAME = "ThumseeLoopPlaces"
+    const val THUMSEE_LOOP_PLACES_TITLE = "Thumsee Loop (places)"
     const val THUMSEE_WALK_THEN_DRIVE_NAME = "ThumseeWalkThenDrive"
     const val THUMSEE_WALK_THEN_DRIVE_TITLE = "Thumsee Walk Then Drive (simulated)"
     const val THUMSEE_RIDGE_PATH_GRAPH_NAME = "ThumseeRidgePath"
@@ -37,6 +39,7 @@ object TestFixtures {
     )
 
     private const val THUMSEE_LOOP_FAST_RESOURCE = "/fixtures/ThumseeLoopFast.gpx"
+    private const val THUMSEE_LOOP_PLACES_RESOURCE = "/fixtures/ThumseeLoopPlaces.gpx"
     private const val THUMSEE_WALK_THEN_DRIVE_RESOURCE = "/fixtures/ThumseeWalkThenDrive.gpx"
     private const val OFFLINE_COUNTRIES_SEED_RESOURCE = "/fixtures/OfflineCountriesSeed.json"
     private const val THUMSEE_RIDGE_PATH_RESOURCE = "/fixtures/ThumseeRidgePath.json"
@@ -46,6 +49,13 @@ object TestFixtures {
     fun thumseeLoopFastGpxBytes(): ByteArray {
         val stream = requireNotNull(TestFixtures::class.java.getResourceAsStream(THUMSEE_LOOP_FAST_RESOURCE)) {
             "Missing bundled GPX fixture: $THUMSEE_LOOP_FAST_RESOURCE"
+        }
+        return stream.use { it.readBytes() }
+    }
+
+    fun thumseeLoopPlacesGpxBytes(): ByteArray {
+        val stream = requireNotNull(TestFixtures::class.java.getResourceAsStream(THUMSEE_LOOP_PLACES_RESOURCE)) {
+            "Missing bundled GPX fixture: $THUMSEE_LOOP_PLACES_RESOURCE"
         }
         return stream.use { it.readBytes() }
     }

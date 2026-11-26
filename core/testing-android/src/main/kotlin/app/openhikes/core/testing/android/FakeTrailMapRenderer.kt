@@ -29,10 +29,12 @@ import app.openhikes.core.map.MapRouteEditOverlay
 import app.openhikes.core.map.MapRouteHighlight
 import app.openhikes.core.map.MapRouteOverlay
 import app.openhikes.core.map.MapTrailDraftOverlay
+import app.openhikes.core.map.MapTrailPlacesOverlay
 import app.openhikes.core.map.MapWalkCoverageOverlay
 import app.openhikes.core.map.RouteEditMapInteractionHandler
 import app.openhikes.core.map.TrailDraftMapInteractionHandler
 import app.openhikes.core.map.TrailMapRenderer
+import app.openhikes.core.map.TrailPlacesMapInteractionHandler
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.RouteTrimHandle
 import app.openhikes.core.model.TrailLegEnds
@@ -49,6 +51,7 @@ import kotlinx.coroutines.flow.asStateFlow
  * Records camera state, overlay configuration, route highlights, route-edit handles, viewport padding,
  * and applied commands without initializing MapLibre native libraries or OpenGL surfaces.
  */
+@Suppress("TooManyFunctions")
 @Singleton
 class FakeTrailMapRenderer @Inject constructor() : TrailMapRenderer {
     private val cameraStateFlow = MutableStateFlow(MapCameraState())
@@ -58,6 +61,7 @@ class FakeTrailMapRenderer @Inject constructor() : TrailMapRenderer {
     private val walkCoverageOverlayFlow = MutableStateFlow<MapWalkCoverageOverlay?>(null)
     private val routeEditOverlayFlow = MutableStateFlow<MapRouteEditOverlay?>(null)
     private val trailDraftOverlayFlow = MutableStateFlow<MapTrailDraftOverlay?>(null)
+    private val trailPlacesOverlayFlow = MutableStateFlow<MapTrailPlacesOverlay?>(null)
     private val viewportPaddingFlow = MutableStateFlow<PaddingValues?>(null)
     private val handledCommandsFlow = MutableStateFlow<List<MapCameraCommand>>(emptyList())
 
@@ -68,6 +72,7 @@ class FakeTrailMapRenderer @Inject constructor() : TrailMapRenderer {
     val lastWalkCoverageOverlay: StateFlow<MapWalkCoverageOverlay?> = walkCoverageOverlayFlow.asStateFlow()
     val lastRouteEditOverlay: StateFlow<MapRouteEditOverlay?> = routeEditOverlayFlow.asStateFlow()
     val lastTrailDraftOverlay: StateFlow<MapTrailDraftOverlay?> = trailDraftOverlayFlow.asStateFlow()
+    val lastTrailPlacesOverlay: StateFlow<MapTrailPlacesOverlay?> = trailPlacesOverlayFlow.asStateFlow()
     val lastViewportPadding: StateFlow<PaddingValues?> = viewportPaddingFlow.asStateFlow()
     val handledCommands: StateFlow<List<MapCameraCommand>> = handledCommandsFlow.asStateFlow()
 
@@ -75,13 +80,36 @@ class FakeTrailMapRenderer @Inject constructor() : TrailMapRenderer {
     private var latestOnMapTap: ((GeoCoordinate) -> Unit)? = null
 
     @Volatile
+    private var latestOnCameraChanged: ((MapCameraState) -> Unit)? = null
+
+    @Volatile
     private var latestRouteEditHandlerProvider: () -> RouteEditMapInteractionHandler? = { null }
 
     @Volatile
     private var latestTrailDraftHandlerProvider: () -> TrailDraftMapInteractionHandler? = { null }
 
+    @Volatile
+    private var latestTrailPlacesHandlerProvider: () -> TrailPlacesMapInteractionHandler? = { null }
+
     fun simulateMapTap(coordinate: GeoCoordinate) {
         latestOnMapTap?.invoke(coordinate)
+    }
+
+    fun simulateCameraMove(next: MapCameraState) {
+        cameraStateFlow.value = next
+        latestOnCameraChanged?.invoke(next)
+    }
+
+    fun simulatePlaceLongPress(coordinate: GeoCoordinate) {
+        latestTrailPlacesHandlerProvider()?.onLongPressMap(coordinate)
+    }
+
+    fun simulatePlacePinTap(placeId: String) {
+        latestTrailPlacesHandlerProvider()?.onTapPlacePin(placeId)
+    }
+
+    fun simulateCandidatePinTap(placeId: String) {
+        latestTrailPlacesHandlerProvider()?.onTapCandidatePin(placeId)
     }
 
     fun simulateTrailDraftLongPress(coordinate: GeoCoordinate, legEnds: TrailLegEnds? = null) {
@@ -135,46 +163,34 @@ class FakeTrailMapRenderer @Inject constructor() : TrailMapRenderer {
         routeEditOverlayState: StateFlow<MapRouteEditOverlay?>,
         routeEditHandlerProvider: () -> RouteEditMapInteractionHandler?,
         trailDraftOverlayState: StateFlow<MapTrailDraftOverlay?>,
-        trailDraftHandlerProvider: () -> TrailDraftMapInteractionHandler?
+        trailDraftHandlerProvider: () -> TrailDraftMapInteractionHandler?,
+        trailPlacesOverlayState: StateFlow<MapTrailPlacesOverlay?>,
+        trailPlacesHandlerProvider: () -> TrailPlacesMapInteractionHandler?
     ) {
         latestOnMapTap = interactions.onMapTap
+        latestOnCameraChanged = interactions.onCameraChanged
         latestRouteEditHandlerProvider = routeEditHandlerProvider
         latestTrailDraftHandlerProvider = trailDraftHandlerProvider
+        latestTrailPlacesHandlerProvider = trailPlacesHandlerProvider
 
-        LaunchedEffect(cameraState) {
-            cameraStateFlow.value = cameraState
-        }
-        LaunchedEffect(highlightState) {
-            highlightState.collect { highlightStateFlow.value = it }
-        }
-        LaunchedEffect(liveRecordingOverlayState) {
-            liveRecordingOverlayState.collect { liveRecordingOverlayFlow.value = it }
-        }
-        LaunchedEffect(walkCoverageOverlayState) {
-            walkCoverageOverlayState.collect { walkCoverageOverlayFlow.value = it }
-        }
-        LaunchedEffect(routeEditOverlayState) {
-            routeEditOverlayState.collect { routeEditOverlayFlow.value = it }
-        }
-        LaunchedEffect(trailDraftOverlayState) {
-            trailDraftOverlayState.collect { trailDraftOverlayFlow.value = it }
-        }
-        LaunchedEffect(overlayState, viewportPadding) {
-            overlayStateFlow.value = overlayState
-            viewportPaddingFlow.value = viewportPadding
-            interactions.onStyleReady()
-        }
-        LaunchedEffect(cameraCommand?.id) {
-            val command = cameraCommand ?: return@LaunchedEffect
-            val nextCamera = applyCommand(cameraStateFlow.value, command)
-            cameraStateFlow.value = nextCamera
-            handledCommandsFlow.value = handledCommandsFlow.value + command
-            interactions.onCameraChanged(nextCamera)
-            onCameraCommandHandled(command.id)
-        }
+        ObserveOverlayFlows(
+            cameraState = cameraState,
+            cameraCommand = cameraCommand,
+            overlayState = overlayState,
+            viewportPadding = viewportPadding,
+            interactions = interactions,
+            onCameraCommandHandled = onCameraCommandHandled,
+            highlightState = highlightState,
+            liveRecordingOverlayState = liveRecordingOverlayState,
+            walkCoverageOverlayState = walkCoverageOverlayState,
+            routeEditOverlayState = routeEditOverlayState,
+            trailDraftOverlayState = trailDraftOverlayState,
+            trailPlacesOverlayState = trailPlacesOverlayState
+        )
 
         val editOverlay by routeEditOverlayState.collectAsStateWithLifecycle()
         val draftOverlay by trailDraftOverlayState.collectAsStateWithLifecycle()
+        val placesOverlay by trailPlacesOverlayState.collectAsStateWithLifecycle()
         Box(
             modifier = modifier
                 .fillMaxSize()
@@ -192,6 +208,91 @@ class FakeTrailMapRenderer @Inject constructor() : TrailMapRenderer {
                 FakeTrailDraftOverlayControls(
                     overlay = currentDraft,
                     handlerProvider = trailDraftHandlerProvider
+                )
+            }
+            placesOverlay?.takeIf { it.hasVisibleContent }?.let { currentPlaces ->
+                FakeTrailPlacesOverlayControls(
+                    overlay = currentPlaces,
+                    handlerProvider = trailPlacesHandlerProvider
+                )
+            }
+        }
+    }
+
+    @Suppress("LongParameterList")
+    @Composable
+    private fun ObserveOverlayFlows(
+        cameraState: MapCameraState,
+        cameraCommand: MapCameraCommand?,
+        overlayState: MapOverlayState,
+        viewportPadding: PaddingValues,
+        interactions: MapInteractionEvents,
+        onCameraCommandHandled: (Long) -> Unit,
+        highlightState: StateFlow<MapRouteHighlight?>,
+        liveRecordingOverlayState: StateFlow<MapRouteOverlay?>,
+        walkCoverageOverlayState: StateFlow<MapWalkCoverageOverlay?>,
+        routeEditOverlayState: StateFlow<MapRouteEditOverlay?>,
+        trailDraftOverlayState: StateFlow<MapTrailDraftOverlay?>,
+        trailPlacesOverlayState: StateFlow<MapTrailPlacesOverlay?>
+    ) {
+        LaunchedEffect(cameraState) { cameraStateFlow.value = cameraState }
+        LaunchedEffect(highlightState) { highlightState.collect { highlightStateFlow.value = it } }
+        LaunchedEffect(liveRecordingOverlayState) {
+            liveRecordingOverlayState.collect { liveRecordingOverlayFlow.value = it }
+        }
+        LaunchedEffect(walkCoverageOverlayState) {
+            walkCoverageOverlayState.collect { walkCoverageOverlayFlow.value = it }
+        }
+        LaunchedEffect(routeEditOverlayState) { routeEditOverlayState.collect { routeEditOverlayFlow.value = it } }
+        LaunchedEffect(trailDraftOverlayState) { trailDraftOverlayState.collect { trailDraftOverlayFlow.value = it } }
+        LaunchedEffect(trailPlacesOverlayState) {
+            trailPlacesOverlayState.collect { trailPlacesOverlayFlow.value = it }
+        }
+        LaunchedEffect(overlayState, viewportPadding) {
+            overlayStateFlow.value = overlayState
+            viewportPaddingFlow.value = viewportPadding
+            interactions.onStyleReady()
+        }
+        LaunchedEffect(cameraCommand?.id) {
+            val command = cameraCommand ?: return@LaunchedEffect
+            val nextCamera = applyCommand(cameraStateFlow.value, command)
+            cameraStateFlow.value = nextCamera
+            handledCommandsFlow.value = handledCommandsFlow.value + command
+            interactions.onCameraChanged(nextCamera)
+            onCameraCommandHandled(command.id)
+        }
+    }
+
+    @Composable
+    private fun FakeTrailPlacesOverlayControls(
+        overlay: MapTrailPlacesOverlay,
+        handlerProvider: () -> TrailPlacesMapInteractionHandler?
+    ) {
+        Row(modifier = Modifier.fillMaxSize()) {
+            overlay.candidates.forEach { candidate ->
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clickable { handlerProvider()?.onTapCandidatePin(candidate.id) }
+                        .semantics { contentDescription = candidate.title }
+                        .testTag(OpenHikesTestTags.HIKE_PLACE_CANDIDATE_PIN)
+                )
+            }
+            overlay.pins.forEach { pin ->
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clickable { handlerProvider()?.onTapPlacePin(pin.id) }
+                        .semantics { contentDescription = pin.title }
+                        .testTag(OpenHikesTestTags.HIKE_PLACE_PIN)
+                )
+            }
+            if (overlay.showCenterPlacementPin) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .semantics { contentDescription = "New place location" }
+                        .testTag(OpenHikesTestTags.HIKE_PLACE_PLACEHOLDER_PIN)
                 )
             }
         }

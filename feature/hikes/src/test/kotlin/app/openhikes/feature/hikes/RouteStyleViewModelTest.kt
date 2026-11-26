@@ -241,6 +241,15 @@ class RouteStyleViewModelTest {
         ) = error("Unused")
         override suspend fun revertRouteEdit(hikeId: HikeId, expectedCurrentRoute: List<RouteCoordinate>) =
             error("Unused")
+        override suspend fun addPlace(hikeId: HikeId, place: app.openhikes.core.model.TrailPoint) = Result.success(true)
+        override suspend fun editPlace(
+            hikeId: HikeId,
+            placeId: String,
+            name: String,
+            symbol: app.openhikes.core.model.TrailPlaceSymbol?,
+            note: String
+        ) = Result.success(true)
+        override suspend fun removePlace(hikeId: HikeId, placeId: String) = Result.success(Unit)
         override suspend fun seedFixtureIfConfigured(): HikeId? = null
 
         override suspend fun updateRouteStyle(hikeId: HikeId, style: RouteStyleUpdate): Result<Unit> {

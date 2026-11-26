@@ -3,6 +3,7 @@ package app.openhikes.core.data
 import app.openhikes.core.common.IoDispatcher
 import app.openhikes.core.datastore.OpenHikesPreferencesDataSource
 import app.openhikes.core.model.DistanceUnit
+import app.openhikes.core.model.TrailPlaceSymbol
 import app.openhikes.core.model.UserSettings
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineDispatcher
@@ -60,5 +61,13 @@ internal class OfflineFirstUserSettingsRepository @Inject constructor(
 
     override suspend fun setJunctionWarningsEnabled(enabled: Boolean) = withContext(ioDispatcher) {
         preferencesDataSource.setJunctionWarningsEnabled(enabled)
+    }
+
+    override suspend fun setShowsPlacePins(enabled: Boolean) = withContext(ioDispatcher) {
+        preferencesDataSource.setShowsPlacePins(enabled)
+    }
+
+    override suspend fun setPlaceSymbolVisible(symbol: TrailPlaceSymbol, visible: Boolean) = withContext(ioDispatcher) {
+        preferencesDataSource.setPlaceSymbolVisible(symbol, visible)
     }
 }

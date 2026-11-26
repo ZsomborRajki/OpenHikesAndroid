@@ -1,7 +1,9 @@
 package app.openhikes.core.testing.android
 
+import app.openhikes.core.common.BoundedText
 import app.openhikes.core.common.HikeTitle
 import app.openhikes.core.common.HikeTitleEdit
+import app.openhikes.core.common.TextBound
 import app.openhikes.core.common.gpx.GpxExporter
 import app.openhikes.core.common.gpx.GpxParseResult
 import app.openhikes.core.common.gpx.GpxParser
@@ -27,6 +29,8 @@ import app.openhikes.core.model.RouteEditSources
 import app.openhikes.core.model.RouteLinePattern
 import app.openhikes.core.model.RouteStyleUpdate
 import app.openhikes.core.model.RouteTint
+import app.openhikes.core.model.TrailPlaceHolding
+import app.openhikes.core.model.TrailPlaceSymbol
 import app.openhikes.core.model.TrailPoint
 import app.openhikes.core.model.TrailWalkEndReason
 import app.openhikes.core.model.TrailWalkRecord
@@ -62,6 +66,7 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
     var nextDrawnTrailSaveFailure: Throwable? = null
     var nextWalkPersistFailure: Throwable? = null
     var nextWalkFinishFailure: Throwable? = null
+    var nextPlaceSaveFailure: Throwable? = null
     var seededFixtureBytes: Pair<String, ByteArray>? = null
     var lastExportedUri: Pair<String, String>? = null
         private set
@@ -165,7 +170,8 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
                         elevationMeters = wpt.elevationMeters,
                         name = wpt.name,
                         symbol = wpt.symbol,
-                        note = wpt.note
+                        note = wpt.note,
+                        osm = wpt.osm
                     )
                 }
             )
@@ -691,6 +697,87 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
                 )
         }
         return hike
+    }
+
+    override suspend fun addPlace(hikeId: HikeId, place: TrailPoint): Result<Boolean> {
+        val failure = nextPlaceSaveFailure?.also { nextPlaceSaveFailure = null }
+        val target = if (failure == null) hikesState.value.firstOrNull { it.id == hikeId } else null
+        return when {
+            failure != null -> Result.failure(failure)
+            target == null -> Result.failure(NoSuchElementException("Hike not found"))
+            TrailPlaceHolding.isSameElement(place, target.places) -> Result.success(false)
+            else -> {
+                val normalized = place.copy(
+                    hikeId = hikeId,
+                    name = BoundedText.boundedOrEmpty(place.name, TextBound.TITLE),
+                    note = BoundedText.boundedOrEmpty(place.note, TextBound.NOTES)
+                )
+                hikesState.update { list ->
+                    list.map { hike ->
+                        if (hike.id == hikeId) hike.copy(places = hike.places + normalized) else hike
+                    }
+                }
+                Result.success(true)
+            }
+        }
+    }
+
+    override suspend fun editPlace(
+        hikeId: HikeId,
+        placeId: String,
+        name: String,
+        symbol: TrailPlaceSymbol?,
+        note: String
+    ): Result<Boolean> {
+        val failure = nextPlaceSaveFailure?.also { nextPlaceSaveFailure = null }
+        val existing = if (failure == null) {
+            hikesState.value.firstOrNull { it.id == hikeId }?.places?.firstOrNull { it.id == placeId }
+        } else {
+            null
+        }
+        return when {
+            failure != null -> Result.failure(failure)
+            existing == null || !existing.isHikersOwn -> Result.success(false)
+            else -> {
+                val boundedName = BoundedText.boundedOrEmpty(name, TextBound.TITLE)
+                val boundedNote = BoundedText.boundedOrEmpty(note, TextBound.NOTES)
+                hikesState.update { list ->
+                    list.map { hike ->
+                        if (hike.id == hikeId) {
+                            hike.copy(
+                                places = hike.places.map { place ->
+                                    if (place.id == placeId) {
+                                        place.copy(name = boundedName, symbol = symbol?.rawValue, note = boundedNote)
+                                    } else {
+                                        place
+                                    }
+                                }
+                            )
+                        } else {
+                            hike
+                        }
+                    }
+                }
+                Result.success(true)
+            }
+        }
+    }
+
+    override suspend fun removePlace(hikeId: HikeId, placeId: String): Result<Unit> {
+        nextPlaceSaveFailure?.let {
+            nextPlaceSaveFailure = null
+            return Result.failure(it)
+        }
+        hikesState.update { list ->
+            list.map { hike ->
+                if (hike.id == hikeId) {
+                    hike.copy(places = hike.places.filterNot { it.id == placeId })
+                } else {
+                    hike
+                }
+            }
+        }
+        return Result.success(Unit)
     }
 
     override suspend fun seedFixtureIfConfigured(): HikeId? {

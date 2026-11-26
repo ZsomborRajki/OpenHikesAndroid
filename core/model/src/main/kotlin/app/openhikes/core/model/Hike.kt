@@ -1,7 +1,7 @@
 package app.openhikes.core.model
 
 /**
- * Marked point of interest along a hike (imported GPX waypoint or user-pinned place).
+ * Marked point of interest along a hike (imported GPX waypoint, OpenStreetMap place, or user-pinned place).
  */
 data class TrailPoint(
     val id: String,
@@ -10,8 +10,20 @@ data class TrailPoint(
     val elevationMeters: Double? = null,
     val name: String = "",
     val symbol: String? = null,
-    val note: String = ""
-)
+    val note: String = "",
+    val osm: TrailPlaceOsm? = null,
+    val createdAtEpochMillis: Long = 0L
+) {
+    val symbolKind: TrailPlaceSymbol?
+        get() = TrailPlaceSymbol.fromStoredId(symbol)
+
+    /**
+     * Places from OpenStreetMap stay OpenStreetMap's to name and categorize; only user-created
+     * or non-OSM imported places can be edited.
+     */
+    val isHikersOwn: Boolean
+        get() = osm == null
+}
 
 /**
  * Finished walk recorded along a saved hike trail.

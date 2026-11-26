@@ -44,17 +44,50 @@ fun RecordingRoute(
     onSaved: (HikeId) -> Unit,
     onDiscarded: () -> Unit,
     modifier: Modifier = Modifier,
+    onOpenPlace: (HikeId, String) -> Unit = { _, _ -> },
     viewModel: RecordingViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    RecordingRouteEffects(
+        uiState = uiState,
+        onPermissionResult = { grantedFine ->
+            viewModel.onAction(RecordingAction.PermissionResult(grantedFine = grantedFine))
+        },
+        onConsumeNavigation = viewModel::consumeNavigation,
+        onSaved = onSaved,
+        onDiscarded = onDiscarded,
+        onConsumeOpenPlace = viewModel::consumePendingOpenPlace,
+        onOpenPlace = onOpenPlace
+    )
+    RecordingScreen(
+        uiState = uiState,
+        statsFlow = viewModel.stats,
+        elapsedSecondsProvider = viewModel::currentElapsedSeconds,
+        onBack = onBack,
+        onAction = viewModel::onAction,
+        onOpenPlace = { placeId ->
+            uiState.activeHikeId?.let { hikeId -> onOpenPlace(hikeId, placeId) }
+        },
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun RecordingRouteEffects(
+    uiState: RecordingUiState,
+    onPermissionResult: (Boolean) -> Unit,
+    onConsumeNavigation: () -> Unit,
+    onSaved: (HikeId) -> Unit,
+    onDiscarded: () -> Unit,
+    onConsumeOpenPlace: () -> Unit,
+    onOpenPlace: (HikeId, String) -> Unit
+) {
     val context = LocalContext.current
     val view = LocalView.current
-
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
-        val grantedFine = results[Manifest.permission.ACCESS_FINE_LOCATION] == true
-        viewModel.onAction(RecordingAction.PermissionResult(grantedFine = grantedFine))
+        onPermissionResult(results[Manifest.permission.ACCESS_FINE_LOCATION] == true)
     }
 
     LaunchedEffect(uiState.requestLocationPermission) {
@@ -64,49 +97,42 @@ fun RecordingRoute(
             Manifest.permission.ACCESS_FINE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
         if (hasFine) {
-            viewModel.onAction(RecordingAction.PermissionResult(grantedFine = true))
+            onPermissionResult(true)
         } else {
-            val permissions = mutableListOf(
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            )
-            if (ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.POST_NOTIFICATIONS
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
-                permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+            val permissions = buildList {
+                add(Manifest.permission.ACCESS_FINE_LOCATION)
+                add(Manifest.permission.ACCESS_COARSE_LOCATION)
+                if (ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.POST_NOTIFICATIONS
+                    ) != PackageManager.PERMISSION_GRANTED
+                ) {
+                    add(Manifest.permission.POST_NOTIFICATIONS)
+                }
             }
             permissionLauncher.launch(permissions.toTypedArray())
         }
     }
-
     LaunchedEffect(uiState.savedHikeId, uiState.discardCompleted) {
         uiState.savedHikeId?.let { hikeId ->
-            viewModel.consumeNavigation()
+            onConsumeNavigation()
             onSaved(hikeId)
         }
         if (uiState.discardCompleted) {
-            viewModel.consumeNavigation()
+            onConsumeNavigation()
             onDiscarded()
         }
     }
-
+    LaunchedEffect(uiState.pendingOpenPlaceId, uiState.activeHikeId) {
+        val placeId = uiState.pendingOpenPlaceId ?: return@LaunchedEffect
+        val hikeId = uiState.activeHikeId ?: return@LaunchedEffect
+        onConsumeOpenPlace()
+        onOpenPlace(hikeId, placeId)
+    }
     DisposableEffect(view, uiState.keepScreenAwake, uiState.session.isActive) {
         view.keepScreenOn = uiState.keepScreenAwake && uiState.session.isActive
-        onDispose {
-            view.keepScreenOn = false
-        }
+        onDispose { view.keepScreenOn = false }
     }
-
-    RecordingScreen(
-        uiState = uiState,
-        statsFlow = viewModel.stats,
-        elapsedSecondsProvider = viewModel::currentElapsedSeconds,
-        onBack = onBack,
-        onAction = viewModel::onAction,
-        modifier = modifier
-    )
 }
 
 /**
@@ -120,7 +146,8 @@ fun RecordingScreen(
     elapsedSecondsProvider: () -> Double,
     onBack: () -> Unit,
     onAction: (RecordingAction) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onOpenPlace: (String) -> Unit = {}
 ) {
     Box(
         modifier = modifier
@@ -133,11 +160,7 @@ fun RecordingScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item(key = "header") {
-                RecordingHeaderBar(
-                    session = uiState.session,
-                    statsFlow = statsFlow,
-                    onBack = onBack
-                )
+                RecordingHeaderBar(session = uiState.session, statsFlow = statsFlow, onBack = onBack)
             }
             item(key = "recovery") {
                 RecordingRecoveryNotice(
@@ -155,12 +178,8 @@ fun RecordingScreen(
                     )
                 }
             }
-            item(key = "conditions") {
-                RecordingConditionsNotice(session = uiState.session)
-            }
-            item(key = "controls") {
-                RecordingControlsBar(session = uiState.session, onAction = onAction)
-            }
+            item(key = "conditions") { RecordingConditionsNotice(session = uiState.session) }
+            item(key = "controls") { RecordingControlsBar(session = uiState.session, onAction = onAction) }
             if (uiState.session.phase != RecordingPhase.IDLE) {
                 item(key = "stats") {
                     RecordingStatsSection(
@@ -171,8 +190,16 @@ fun RecordingScreen(
                     )
                 }
             }
+            if (uiState.places.isNotEmpty()) {
+                item(key = "places") {
+                    RecordingPlacesSection(
+                        places = uiState.places,
+                        distanceUnit = uiState.distanceUnit,
+                        onOpenPlace = onOpenPlace
+                    )
+                }
+            }
         }
-
         RecordingDialogs(uiState = uiState, onAction = onAction)
     }
 }

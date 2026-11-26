@@ -14,21 +14,27 @@ import app.openhikes.core.location.TrailWalkEnd
 import app.openhikes.core.location.TrailWalkSessionState
 import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapCameraState
+import app.openhikes.core.map.MapCameraTracker
 import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.map.MapOverlayState
 import app.openhikes.core.map.MapRouteEditOverlay
 import app.openhikes.core.map.MapRouteHighlight
 import app.openhikes.core.map.MapRouteOverlay
+import app.openhikes.core.map.MapSearchAreaPillState
 import app.openhikes.core.map.MapTrailDraftOverlay
+import app.openhikes.core.map.MapTrailPlacesOverlay
 import app.openhikes.core.map.MapWalkCoverageOverlay
 import app.openhikes.core.map.RouteEditMapInteractionHandler
 import app.openhikes.core.map.RouteEditOverlayState
 import app.openhikes.core.map.RouteHighlightState
 import app.openhikes.core.map.TrailDraftMapInteractionHandler
 import app.openhikes.core.map.TrailDraftOverlayState
+import app.openhikes.core.map.TrailPlacesMapInteractionHandler
+import app.openhikes.core.map.TrailPlacesOverlayState
 import app.openhikes.core.map.WalkOverlayState
 import app.openhikes.core.map.toMapRouteOverlay
 import app.openhikes.core.model.GeoCoordinate
+import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeSummary
 import app.openhikes.core.model.MapAttribution
 import app.openhikes.core.model.MapProviderKeys
@@ -83,6 +89,8 @@ class MapShellViewModel @Inject constructor(
     walkOverlayState: WalkOverlayState,
     private val routeEditOverlayState: RouteEditOverlayState,
     private val trailDraftOverlayState: TrailDraftOverlayState,
+    private val mapCameraTracker: MapCameraTracker,
+    private val trailPlacesOverlayState: TrailPlacesOverlayState,
     private val mapProviderKeys: MapProviderKeys,
     launchConfigHolder: LaunchConfigHolder,
     @DefaultDispatcher defaultDispatcher: CoroutineDispatcher
@@ -93,6 +101,12 @@ class MapShellViewModel @Inject constructor(
     private val cameraStateFlow = MutableStateFlow(
         MapCameraState(center = launchConfigHolder.current.value.mapStart ?: MapCameraState.DEFAULT_CENTER)
     )
+
+    @Volatile
+    private var hasCameraMoved = false
+
+    @Volatile
+    private var latestRouteMidpoints: Map<HikeId, GeoCoordinate> = emptyMap()
 
     val initialCameraState: MapCameraState = cameraStateFlow.value
     val latestCameraState: StateFlow<MapCameraState> = cameraStateFlow.asStateFlow()
@@ -120,6 +134,36 @@ class MapShellViewModel @Inject constructor(
         started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
         initialValue = null
     )
+    val trailPlacesOverlay: StateFlow<MapTrailPlacesOverlay?> = combine(
+        trailPlacesOverlayState.claims,
+        mapClaimCoordinator.activeClaim
+    ) { claims, activeClaim ->
+        activeClaim?.routeKey?.let { claims[it]?.overlay }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = null
+    )
+    val searchAreaPillState: StateFlow<MapSearchAreaPillState?> = combine(
+        trailPlacesOverlayState.claims,
+        mapClaimCoordinator.activeClaim
+    ) { claims, activeClaim ->
+        activeClaim?.routeKey?.let { claims[it]?.searchAreaPill }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+        initialValue = null
+    )
+    val activeRecordingHikeId: StateFlow<HikeId?> = recordingController.state
+        .map { session -> session.sessionId?.takeIf { session.isActive }?.let(::HikeId) }
+        .distinctUntilChanged()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+            initialValue = recordingController.state.value.sessionId
+                ?.takeIf { recordingController.state.value.isActive }
+                ?.let(::HikeId)
+        )
     val walkSession: StateFlow<TrailWalkSessionState> = trailWalkController.sessionState
     val showEndWalkForRecordingDialog: StateFlow<Boolean> = showEndWalkForRecordingDialogState.asStateFlow()
     val walkTimeLeftMark: StateFlow<WalkTimeLeftMark?> = trailWalkController.progressState
@@ -148,6 +192,7 @@ class MapShellViewModel @Inject constructor(
         )
 
     init {
+        mapCameraTracker.update(initialCameraState)
         viewModelScope.launch {
             hikeRepository.seedFixtureIfConfigured()
             if (!launchConfigHolder.current.value.disableAutomaticRecovery) {
@@ -164,6 +209,10 @@ class MapShellViewModel @Inject constructor(
         hikeRepository.mapRoutes,
         mapClaimCoordinator.activeClaim
     ) { routes, activeClaim ->
+        latestRouteMidpoints = routes.mapNotNull { mapRoute ->
+            val mid = mapRoute.route.getOrNull(mapRoute.route.size / 2)?.coordinate
+            mid?.let { mapRoute.hikeId to it }
+        }.toMap()
         val selectedHikeId = activeClaim?.selectedHikeId
         val hiddenHikeId = activeClaim?.hiddenRouteHikeId
         routes
@@ -225,6 +274,53 @@ class MapShellViewModel @Inject constructor(
         } else {
             null
         }
+
+    fun trailPlacesHandler(): TrailPlacesMapInteractionHandler? =
+        trailPlacesOverlayState.claimFor(mapClaimCoordinator.activeClaim.value?.routeKey)?.handler
+
+    fun defaultAddPlaceCoordinate(hikeId: HikeId): GeoCoordinate {
+        val highlight = routeHighlight.value
+        return when {
+            hasCameraMoved -> cameraStateFlow.value.center
+            highlight != null && highlight.hikeId == hikeId -> highlight.coordinate
+            else -> latestRouteMidpoints[hikeId] ?: cameraStateFlow.value.center
+        }
+    }
+
+    fun latestRecordingCoordinate(): GeoCoordinate? = recordingController.trace.value.points.lastOrNull()?.coordinate
+
+    internal val mapOverlays: ShellMapOverlays by lazy {
+        ShellMapOverlays(
+            liveRecordingOverlayState = liveRecordingOverlay,
+            walkCoverageOverlayState = walkCoverageOverlay,
+            routeEditOverlayState = routeEditOverlay,
+            routeEditHandlerProvider = ::routeEditHandler,
+            trailDraftOverlayState = trailDraftOverlay,
+            trailDraftHandlerProvider = ::trailDraftHandler,
+            trailPlacesOverlayState = trailPlacesOverlay,
+            trailPlacesHandlerProvider = ::trailPlacesHandler
+        )
+    }
+
+    internal fun createPlacesRuntime(
+        searchAreaPill: MapSearchAreaPillState?,
+        activeRecordingHikeId: HikeId?
+    ): ShellPlacesRuntime = ShellPlacesRuntime(
+        searchAreaPill = searchAreaPill,
+        activeRecordingHikeId = activeRecordingHikeId,
+        defaultAddPlaceCoordinateProvider = ::defaultAddPlaceCoordinate,
+        latestRecordingCoordinateProvider = ::latestRecordingCoordinate
+    )
+
+    internal fun createWalkDialogs(showEndWalkForRecording: Boolean): ShellWalkDialogCallbacks =
+        ShellWalkDialogCallbacks(
+            showEndWalkForRecordingDialog = showEndWalkForRecording,
+            onRequestEndWalkForRecording = ::onRequestEndWalkForRecording,
+            onConfirmEndWalkForRecording = ::onConfirmEndWalkForRecording,
+            onCancelEndWalkForRecording = ::onCancelEndWalkForRecording,
+            onKeepFollowingOffTrail = ::onKeepFollowingOffTrail,
+            onRecordInsteadFromOffTrail = ::onRecordInsteadFromOffTrail
+        )
 
     fun syncBackStack(keysInOrder: List<Any>) {
         mapClaimCoordinator.syncBackStack(keysInOrder)
@@ -297,7 +393,9 @@ class MapShellViewModel @Inject constructor(
     }
 
     fun onCameraChanged(cameraState: MapCameraState) {
+        hasCameraMoved = true
         cameraStateFlow.value = cameraState
+        mapCameraTracker.update(cameraState)
     }
 
     fun onMapTap(coordinate: GeoCoordinate) {

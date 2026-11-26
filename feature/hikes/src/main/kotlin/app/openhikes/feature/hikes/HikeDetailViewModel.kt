@@ -15,10 +15,16 @@ import app.openhikes.core.location.TrailWalkSessionState
 import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapClaim
 import app.openhikes.core.map.MapClaimCoordinator
+import app.openhikes.core.map.MapPlacePin
 import app.openhikes.core.map.MapRouteHighlight
+import app.openhikes.core.map.MapTrailPlacesOverlay
 import app.openhikes.core.map.RouteHighlightState
+import app.openhikes.core.map.TrailPlacesClaim
+import app.openhikes.core.map.TrailPlacesMapInteractionHandler
+import app.openhikes.core.map.TrailPlacesOverlayState
 import app.openhikes.core.model.ExportedGpx
 import app.openhikes.core.model.GeoBoundingBox
+import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeRouteStatistics
@@ -34,6 +40,9 @@ import app.openhikes.core.model.RouteProfile
 import app.openhikes.core.model.RouteSegment
 import app.openhikes.core.model.RouteSegments
 import app.openhikes.core.model.RouteTint
+import app.openhikes.core.model.TrailPlaceOrder
+import app.openhikes.core.model.TrailPlaceRow
+import app.openhikes.core.model.TrailPointSource
 import app.openhikes.core.model.TrailWalkPhase
 import app.openhikes.core.model.UserSettings
 import app.openhikes.core.ui.navigation.HikeDetailRoute
@@ -70,12 +79,14 @@ import kotlinx.coroutines.launch
 class HikeDetailViewModel @AssistedInject constructor(
     @Assisted rawHikeId: String,
     private val hikeRepository: HikeRepository,
-    userSettingsRepository: UserSettingsRepository,
+    private val userSettingsRepository: UserSettingsRepository,
     private val offlineCountryRepository: OfflineCountryRepository,
     private val trailWalkController: TrailWalkController,
     recordingController: RecordingController,
     private val mapClaimCoordinator: MapClaimCoordinator,
     private val routeHighlightState: RouteHighlightState,
+    private val trailPlacesOverlayState: TrailPlacesOverlayState,
+    trailPointSource: TrailPointSource,
     mapProviderKeys: MapProviderKeys,
     private val launchConfigHolder: LaunchConfigHolder,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
@@ -102,6 +113,8 @@ class HikeDetailViewModel @AssistedInject constructor(
     private val showEndWalkRefusedDialogState = MutableStateFlow(false)
     private val requestLocationPermissionState = MutableStateFlow(false)
     private val scrubDistanceState = MutableStateFlow(0.0)
+    private val pendingOpenPlaceIdState = MutableStateFlow<String?>(null)
+    private val pendingAddPlaceCoordinateState = MutableStateFlow<GeoCoordinate?>(null)
     private var pendingPermissionAction: PendingWalkPermissionAction? = null
 
     @Volatile
@@ -192,17 +205,43 @@ class HikeDetailViewModel @AssistedInject constructor(
         }
     }.flowOn(defaultDispatcher)
 
+    private val placeRowsFlow = hikeRepository.observeHike(hikeId)
+        .map { hike -> hike?.let { it.places to it.route } }
+        .distinctUntilChanged()
+        .mapLatest { pair ->
+            if (pair == null) {
+                emptyList()
+            } else {
+                TrailPlaceOrder.ordered(pair.first, pair.second)
+            }
+        }
+        .flowOn(defaultDispatcher)
+
+    private val placesBundleFlow = combine(
+        placeRowsFlow,
+        pendingOpenPlaceIdState,
+        pendingAddPlaceCoordinateState
+    ) { rows, pendingPlaceId, pendingAddCoord ->
+        PlacesSectionBundle(
+            rows = rows,
+            pendingOpenPlaceId = pendingPlaceId,
+            pendingAddPlaceCoordinate = pendingAddCoord
+        )
+    }
+
     private val offlineAndWalkFlow = combine(
         routeCoverageFlow,
         offlineCountryRepository.state,
         showOfflineDialogState,
-        walkSectionStateFlow
-    ) { coverage, repoState, showDialog, walkState ->
+        walkSectionStateFlow,
+        placesBundleFlow
+    ) { coverage, repoState, showDialog, walkState, placesBundle ->
         OfflineAndWalkBundle(
             coverage = coverage,
             repoState = repoState,
             showOfflineDialog = showDialog,
-            walkState = walkState
+            walkState = walkState,
+            placesBundle = placesBundle
         )
     }
 
@@ -246,7 +285,12 @@ class HikeDetailViewModel @AssistedInject constructor(
             showDeleteDialog = transient.showDeleteDialog,
             actionError = transient.actionError,
             pendingExport = transient.pendingExport,
-            exportSuccess = transient.exportSuccess
+            exportSuccess = transient.exportSuccess,
+            placeRows = bundle.placesBundle.rows,
+            showsPlacePins = settings.showsPlacePins,
+            canSearchPlaces = trailPointSource.isAvailable && (hike?.route?.size ?: 0) > 1,
+            pendingOpenPlaceId = bundle.placesBundle.pendingOpenPlaceId,
+            pendingAddPlaceCoordinate = bundle.placesBundle.pendingAddPlaceCoordinate
         )
     }.stateIn(
         scope = viewModelScope,
@@ -293,12 +337,73 @@ class HikeDetailViewModel @AssistedInject constructor(
                 }
             }
         }
+        viewModelScope.launch {
+            combine(
+                hikeRepository.observeHike(hikeId).map { it?.places.orEmpty() }.distinctUntilChanged(),
+                userSettingsRepository.userSettings
+                    .catch { exception ->
+                        if (exception is IOException) emit(UserSettings()) else throw exception
+                    }
+                    .map { it.showsPlacePins }
+                    .distinctUntilChanged()
+            ) { places, showsPins ->
+                val pins = if (showsPins) {
+                    places.map { place ->
+                        MapPlacePin(
+                            id = place.id,
+                            coordinate = place.coordinate,
+                            symbol = place.symbolKind,
+                            title = place.name.ifBlank { place.symbol ?: DEFAULT_PIN_TITLE }
+                        )
+                    }
+                } else {
+                    emptyList()
+                }
+                pins
+            }.collect { pins ->
+                trailPlacesOverlayState.setClaim(
+                    TrailPlacesClaim(
+                        routeKey = routeKey,
+                        overlay = MapTrailPlacesOverlay(
+                            pins = pins,
+                            allowLongPressDrop = true
+                        ),
+                        handler = placesInteractionHandler
+                    )
+                )
+            }
+        }
     }
 
     override fun onCleared() {
         trailWalkController.detachForegroundHike(hikeId)
         routeHighlightState.clearIfHike(hikeId)
+        trailPlacesOverlayState.clearClaim(routeKey)
         mapClaimCoordinator.releaseClaim(routeKey)
+    }
+
+    private val placesInteractionHandler = object : TrailPlacesMapInteractionHandler {
+        override fun onTapPlacePin(placeId: String) {
+            pendingOpenPlaceIdState.value = placeId
+        }
+
+        override fun onLongPressMap(coordinate: GeoCoordinate) {
+            pendingAddPlaceCoordinateState.value = coordinate
+        }
+    }
+
+    fun onSetShowPlacePins(enabled: Boolean) {
+        viewModelScope.launch {
+            userSettingsRepository.setShowsPlacePins(enabled)
+        }
+    }
+
+    fun consumePendingOpenPlace() {
+        pendingOpenPlaceIdState.value = null
+    }
+
+    fun consumePendingAddPlaceCoordinate() {
+        pendingAddPlaceCoordinateState.value = null
     }
 
     fun walkActiveSeconds(): Double = trailWalkController.activeSeconds()
@@ -544,16 +649,24 @@ class HikeDetailViewModel @AssistedInject constructor(
         val requestLocationPermission: Boolean
     )
 
+    private data class PlacesSectionBundle(
+        val rows: List<TrailPlaceRow>,
+        val pendingOpenPlaceId: String?,
+        val pendingAddPlaceCoordinate: GeoCoordinate?
+    )
+
     private data class OfflineAndWalkBundle(
         val coverage: OfflineRouteCoverage,
         val repoState: OfflineCountriesState,
         val showOfflineDialog: Boolean,
-        val walkState: WalkSectionState
+        val walkState: WalkSectionState,
+        val placesBundle: PlacesSectionBundle
     )
 
     private companion object {
         const val STOP_TIMEOUT_MILLIS = 5_000L
         const val INITIAL_CLAIM_DEPTH = 1
+        const val DEFAULT_PIN_TITLE = "Place"
     }
 }
 

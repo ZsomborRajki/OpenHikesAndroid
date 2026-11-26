@@ -128,4 +128,12 @@ object OpenHikesIcons {
     @DrawableRes val ArrowUpward: Int = R.drawable.ic_arrow_upward_24
 
     @DrawableRes val ArrowDownward: Int = R.drawable.ic_arrow_downward_24
+
+    @DrawableRes val PoiCamp: Int = R.drawable.ic_poi_camp_24
+
+    @DrawableRes val PoiJunction: Int = R.drawable.ic_poi_junction_24
+
+    @DrawableRes val AddLocation: Int = R.drawable.ic_add_location_24
+
+    @DrawableRes val AddCircle: Int = R.drawable.ic_add_circle_24
 }

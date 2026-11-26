@@ -5,6 +5,7 @@ import app.openhikes.core.location.RecordingSessionState
 import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.RecordingStopStep
+import app.openhikes.core.model.TrailPoint
 
 /**
  * Coarse UI state for live recording chrome and dialogs.
@@ -25,8 +26,13 @@ data class RecordingUiState(
     val showDiscardDialog: Boolean = false,
     val savedHikeId: HikeId? = null,
     val discardCompleted: Boolean = false,
-    val requestLocationPermission: Boolean = false
-)
+    val requestLocationPermission: Boolean = false,
+    val places: List<TrailPoint> = emptyList(),
+    val pendingOpenPlaceId: String? = null
+) {
+    val activeHikeId: HikeId?
+        get() = session.sessionId?.takeIf { session.isActive }?.let(::HikeId)
+}
 
 /**
  * User actions dispatched from [RecordingScreen] into [RecordingViewModel].

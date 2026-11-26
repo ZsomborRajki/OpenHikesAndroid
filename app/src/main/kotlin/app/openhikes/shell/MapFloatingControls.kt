@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FloatingToolbarDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -48,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import app.openhikes.R
 import app.openhikes.core.designsystem.icon.OpenHikesIcons
 import app.openhikes.core.map.MapOverlayState
+import app.openhikes.core.map.MapSearchAreaPillState
 import app.openhikes.core.model.MapAttribution
 import app.openhikes.core.model.MapAttributionCredit
 import app.openhikes.core.ui.testing.OpenHikesTestTags
@@ -92,7 +94,8 @@ fun MapFloatingControls(
     onOpenRecording: () -> Unit = {},
     showTrailMakerButton: Boolean = false,
     onOpenTrailMaker: () -> Unit = {},
-    walkChrome: MapWalkChromeState = MapWalkChromeState()
+    walkChrome: MapWalkChromeState = MapWalkChromeState(),
+    placesChrome: MapPlacesChromeState = MapPlacesChromeState()
 ) {
     val safePadding = WindowInsets.safeDrawing.asPaddingValues()
     val layoutDirection = LocalLayoutDirection.current
@@ -110,13 +113,23 @@ fun MapFloatingControls(
             modifier = Modifier.align(Alignment.TopStart)
         )
 
+        placesChrome.searchAreaPill?.takeIf { it.isVisible }?.let { pill ->
+            SearchAreaPillOverlay(
+                pill = pill,
+                topStartPadding = topStartPadding,
+                topPadding = safePadding.calculateTopPadding() + ControlsEdgePadding
+            )
+        }
+
         MapActionToolbar(
             isMapModesOpen = isMapModesOpen,
             isRecordingActive = isRecordingActive,
             showTrailMakerButton = showTrailMakerButton,
+            showAddPlaceButton = placesChrome.showAddPlaceButton,
             walkChrome = walkChrome,
             onOpenRecording = onOpenRecording,
             onOpenTrailMaker = onOpenTrailMaker,
+            onAddPlace = placesChrome.onAddPlace,
             onOpenMapModes = onOpenMapModes,
             onZoomIn = onZoomIn,
             onZoomOut = onZoomOut,
@@ -127,19 +140,16 @@ fun MapFloatingControls(
                 .padding(ControlsEdgePadding)
         )
 
-        if (overlayState.attribution.credits.isNotEmpty() &&
-            !(shellLayout == ShellLayout.BOTTOM_SHEET && sheetDetent == SheetDetent.EXPANDED)
-        ) {
-            AttributionBadge(
-                shellLayout = shellLayout,
-                sheetTopOffsetProvider = sheetTopOffsetProvider,
-                sidePanelOffset = sidePanelEdge + ControlsEdgePadding,
-                safeStart = safePadding.calculateStartPadding(layoutDirection),
-                safeBottom = safePadding.calculateBottomPadding(),
-                compactText = overlayState.attribution.compactText,
-                onClick = onOpenAttributionDialog
-            )
-        }
+        MapFloatingAttribution(
+            shellLayout = shellLayout,
+            sheetDetent = sheetDetent,
+            sheetTopOffsetProvider = sheetTopOffsetProvider,
+            sidePanelEdge = sidePanelEdge,
+            safeStart = safePadding.calculateStartPadding(layoutDirection),
+            safeBottom = safePadding.calculateBottomPadding(),
+            overlayState = overlayState,
+            onOpenAttributionDialog = onOpenAttributionDialog
+        )
     }
 
     if (showAttributionDialog) {
@@ -147,6 +157,32 @@ fun MapFloatingControls(
             attribution = overlayState.attribution,
             onDismiss = onDismissAttributionDialog,
             onOpenUrl = onOpenUrl
+        )
+    }
+}
+
+@Composable
+private fun MapFloatingAttribution(
+    shellLayout: ShellLayout,
+    sheetDetent: SheetDetent,
+    sheetTopOffsetProvider: () -> Float,
+    sidePanelEdge: Dp,
+    safeStart: Dp,
+    safeBottom: Dp,
+    overlayState: MapOverlayState,
+    onOpenAttributionDialog: () -> Unit
+) {
+    if (overlayState.attribution.credits.isNotEmpty() &&
+        !(shellLayout == ShellLayout.BOTTOM_SHEET && sheetDetent == SheetDetent.EXPANDED)
+    ) {
+        AttributionBadge(
+            shellLayout = shellLayout,
+            sheetTopOffsetProvider = sheetTopOffsetProvider,
+            sidePanelOffset = sidePanelEdge + ControlsEdgePadding,
+            safeStart = safeStart,
+            safeBottom = safeBottom,
+            compactText = overlayState.attribution.compactText,
+            onClick = onOpenAttributionDialog
         )
     }
 }
@@ -177,15 +213,58 @@ private fun WalkChromeStack(
     }
 }
 
+@Composable
+private fun SearchAreaPillOverlay(pill: MapSearchAreaPillState, topStartPadding: Dp, topPadding: Dp) {
+    Box(
+        contentAlignment = Alignment.TopCenter,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = topStartPadding, top = topPadding, end = WalkStackEndClearance)
+    ) {
+        SearchAreaFloatingPill(pill = pill)
+    }
+}
+
+@Composable
+private fun SearchAreaFloatingPill(pill: MapSearchAreaPillState) {
+    FilledTonalButton(
+        onClick = pill.onSearchArea,
+        enabled = pill.isEnabled && !pill.isSearching,
+        shape = CircleShape,
+        modifier = Modifier
+            .defaultMinSize(minHeight = TouchTargetMinSize)
+            .testTag(OpenHikesTestTags.MAP_SEARCH_AREA_BUTTON)
+    ) {
+        Icon(
+            painter = painterResource(OpenHikesIcons.Search),
+            contentDescription = null,
+            modifier = Modifier
+                .padding(end = 6.dp)
+                .size(DialogIconSize)
+        )
+        Text(
+            text = if (pill.isSearching) {
+                stringResource(R.string.map_search_area_searching)
+            } else {
+                stringResource(R.string.map_search_area_label)
+            },
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun MapActionToolbar(
     isMapModesOpen: Boolean,
     isRecordingActive: Boolean,
     showTrailMakerButton: Boolean,
+    showAddPlaceButton: Boolean,
     walkChrome: MapWalkChromeState,
     onOpenRecording: () -> Unit,
     onOpenTrailMaker: () -> Unit,
+    onAddPlace: () -> Unit,
     onOpenMapModes: () -> Unit,
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
@@ -204,6 +283,14 @@ private fun MapActionToolbar(
                 contentDescription = stringResource(R.string.action_make_trail),
                 testTag = OpenHikesTestTags.MAP_TRAIL_MAKER_BUTTON,
                 onClick = onOpenTrailMaker
+            )
+        }
+        if (showAddPlaceButton) {
+            MapToolbarIconButton(
+                iconRes = OpenHikesIcons.AddLocation,
+                contentDescription = stringResource(R.string.action_add_place),
+                testTag = OpenHikesTestTags.MAP_ADD_PLACE_BUTTON,
+                onClick = onAddPlace
             )
         }
         if (walkChrome.session.isJunctionWarningsOffered) {

@@ -460,5 +460,15 @@ class DefaultOfflineCountryRepositoryTest {
 
         override suspend fun setJunctionWarningsEnabled(enabled: Boolean) =
             state.update { it.copy(junctionWarningsEnabled = enabled) }
+
+        override suspend fun setShowsPlacePins(enabled: Boolean) = state.update { it.copy(showsPlacePins = enabled) }
+
+        override suspend fun setPlaceSymbolVisible(
+            symbol: app.openhikes.core.model.TrailPlaceSymbol,
+            visible: Boolean
+        ) = state.update { current ->
+            val next = if (visible) current.hiddenPlaceSymbols - symbol else current.hiddenPlaceSymbols + symbol
+            current.copy(hiddenPlaceSymbols = next)
+        }
     }
 }

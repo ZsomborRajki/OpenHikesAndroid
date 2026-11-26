@@ -23,7 +23,7 @@ import app.openhikes.core.database.entity.TrailPointEntity
         TrailPointEntity::class,
         HikeWalkEntity::class
     ],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class OpenHikesDatabase : RoomDatabase() {

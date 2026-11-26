@@ -8,4 +8,5 @@
     <string name="route_edit_handle_move_backward">Move backward along route</string>
     <string name="trail_draft_dropped_pin_description">Dropped Pin</string>
     <string name="trail_draft_stop_pin_open_action">Show stop details</string>
+    <string name="trail_place_placeholder_description">New place location</string>
 </resources>

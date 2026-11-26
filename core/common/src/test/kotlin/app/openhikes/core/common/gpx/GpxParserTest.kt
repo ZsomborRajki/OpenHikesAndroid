@@ -217,4 +217,43 @@ class GpxParserTest {
         assertThat(plainTrack.name).isEqualTo("Plain Walk")
         assertThat(plainTrack.route).hasSize(2)
     }
+
+    @Test
+    fun parsesOsmLinkHrefOnWaypointsAndLeavesNonOsmLinksHikersOwn() {
+        val gpx = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1">
+              <wpt lat="47.7185" lon="12.8318">
+                <name>Boathouse</name>
+                <desc>Rowing boats in summer</desc>
+                <sym>Shelter</sym>
+              </wpt>
+              <wpt lat="47.7210" lon="12.8300">
+                <name>Thumsee Spring</name>
+                <sym>Water</sym>
+                <link href="https://www.openstreetmap.org/node/123456"/>
+              </wpt>
+              <trk>
+                <name>Thumsee Loop</name>
+                <trkseg>
+                  <trkpt lat="47.7184" lon="12.8317"/>
+                  <trkpt lat="47.7215" lon="12.8295"/>
+                </trkseg>
+              </trk>
+            </gpx>
+        """.trimIndent().encodeToByteArray()
+
+        val track = (GpxParser.parseSingle(gpx) as GpxParseResult.Success).value
+        assertThat(track.places).hasSize(2)
+
+        val boathouse = track.places.first { it.name == "Boathouse" }
+        assertThat(boathouse.osm).isNull()
+        assertThat(boathouse.symbol).isEqualTo("Shelter")
+        assertThat(boathouse.note).isEqualTo("Rowing boats in summer")
+
+        val spring = track.places.first { it.name == "Thumsee Spring" }
+        assertThat(spring.osm?.elementType).isEqualTo("node")
+        assertThat(spring.osm?.elementId).isEqualTo(123456L)
+        assertThat(spring.symbol).isEqualTo("Water")
+    }
 }

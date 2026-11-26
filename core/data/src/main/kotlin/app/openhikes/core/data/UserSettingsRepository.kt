@@ -1,12 +1,14 @@
 package app.openhikes.core.data
 
 import app.openhikes.core.model.DistanceUnit
+import app.openhikes.core.model.TrailPlaceSymbol
 import app.openhikes.core.model.UserSettings
 import kotlinx.coroutines.flow.Flow
 
 /**
  * Main-safe repository contract for reading and updating OpenHikes user settings.
  */
+@Suppress("TooManyFunctions")
 interface UserSettingsRepository {
     val userSettings: Flow<UserSettings>
 
@@ -31,4 +33,8 @@ interface UserSettingsRepository {
     suspend fun setOfflineCountriesExtraDetail(enabled: Boolean)
 
     suspend fun setJunctionWarningsEnabled(enabled: Boolean)
+
+    suspend fun setShowsPlacePins(enabled: Boolean)
+
+    suspend fun setPlaceSymbolVisible(symbol: TrailPlaceSymbol, visible: Boolean)
 }

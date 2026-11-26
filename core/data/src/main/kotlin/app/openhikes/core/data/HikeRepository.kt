@@ -14,6 +14,8 @@ import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteEditOutcome
 import app.openhikes.core.model.RouteEditSources
 import app.openhikes.core.model.RouteStyleUpdate
+import app.openhikes.core.model.TrailPlaceSymbol
+import app.openhikes.core.model.TrailPoint
 import app.openhikes.core.model.TrailWalkEndReason
 import app.openhikes.core.model.TrailWalkRecord
 import kotlinx.coroutines.flow.Flow
@@ -92,6 +94,18 @@ interface HikeRepository {
         route: List<RouteCoordinate>,
         madeOnEpochMillis: Long
     ): Result<Hike>
+
+    suspend fun addPlace(hikeId: HikeId, place: TrailPoint): Result<Boolean>
+
+    suspend fun editPlace(
+        hikeId: HikeId,
+        placeId: String,
+        name: String,
+        symbol: TrailPlaceSymbol?,
+        note: String
+    ): Result<Boolean>
+
+    suspend fun removePlace(hikeId: HikeId, placeId: String): Result<Unit>
 
     suspend fun seedFixtureIfConfigured(): HikeId?
 }

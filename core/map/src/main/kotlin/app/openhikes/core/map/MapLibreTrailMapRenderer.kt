@@ -135,7 +135,9 @@ internal class MapLibreTrailMapRenderer @Inject constructor(
         routeEditOverlayState: StateFlow<MapRouteEditOverlay?>,
         routeEditHandlerProvider: () -> RouteEditMapInteractionHandler?,
         trailDraftOverlayState: StateFlow<MapTrailDraftOverlay?>,
-        trailDraftHandlerProvider: () -> TrailDraftMapInteractionHandler?
+        trailDraftHandlerProvider: () -> TrailDraftMapInteractionHandler?,
+        trailPlacesOverlayState: StateFlow<MapTrailPlacesOverlay?>,
+        trailPlacesHandlerProvider: () -> TrailPlacesMapInteractionHandler?
     ) {
         val currentInteractions by rememberUpdatedState(interactions)
         val allowRemoteRequests by mapNetworkPolicy.allowsInteractiveMapRequests.collectAsStateWithLifecycle()
@@ -188,6 +190,8 @@ internal class MapLibreTrailMapRenderer @Inject constructor(
             routeEditHandlerProvider = routeEditHandlerProvider,
             trailDraftOverlayState = trailDraftOverlayState,
             trailDraftHandlerProvider = trailDraftHandlerProvider,
+            trailPlacesOverlayState = trailPlacesOverlayState,
+            trailPlacesHandlerProvider = trailPlacesHandlerProvider,
             onPanLockChanged = { locked -> isPanLocked = locked },
             modifier = modifier
         )
@@ -204,6 +208,8 @@ private fun TrailMapCanvas(
     routeEditHandlerProvider: () -> RouteEditMapInteractionHandler?,
     trailDraftOverlayState: StateFlow<MapTrailDraftOverlay?>,
     trailDraftHandlerProvider: () -> TrailDraftMapInteractionHandler?,
+    trailPlacesOverlayState: StateFlow<MapTrailPlacesOverlay?>,
+    trailPlacesHandlerProvider: () -> TrailPlacesMapInteractionHandler?,
     onPanLockChanged: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -228,6 +234,11 @@ private fun TrailMapCanvas(
                 trailDraftOverlayState = trailDraftOverlayState,
                 interactionHandlerProvider = trailDraftHandlerProvider,
                 onPanLockChanged = onPanLockChanged
+            )
+            TrailPlacesInteractiveOverlay(
+                mapState = mapState,
+                trailPlacesOverlayState = trailPlacesOverlayState,
+                interactionHandlerProvider = trailPlacesHandlerProvider
             )
         }
     )

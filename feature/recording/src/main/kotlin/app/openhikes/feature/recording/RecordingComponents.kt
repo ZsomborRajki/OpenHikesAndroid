@@ -1,5 +1,6 @@
 package app.openhikes.feature.recording
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,6 +15,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearWavyProgressIndicator
@@ -30,6 +32,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -43,6 +46,9 @@ import app.openhikes.core.model.RecordingFailure
 import app.openhikes.core.model.RecordingPhase
 import app.openhikes.core.model.RecordingRecoveryState
 import app.openhikes.core.model.RecordingStatsSnapshot
+import app.openhikes.core.model.TrailPlaceRow
+import app.openhikes.core.model.TrailPoint
+import app.openhikes.core.ui.components.TrailPlaceRowContent
 import app.openhikes.core.ui.format.HikeMetricsFormatter
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 import kotlinx.coroutines.flow.StateFlow
@@ -439,4 +445,61 @@ private fun failureMessage(failure: RecordingFailure): String = when (failure) {
     RecordingFailure.StorageUnavailable -> stringResource(R.string.recording_failure_storage_unavailable)
     is RecordingFailure.Storage -> stringResource(R.string.recording_failure_storage_generic, failure.detail)
     is RecordingFailure.Save -> stringResource(R.string.recording_failure_save_generic)
+}
+
+@Composable
+internal fun RecordingPlacesSection(
+    places: List<TrailPoint>,
+    distanceUnit: DistanceUnit,
+    onOpenPlace: (String) -> Unit
+) {
+    if (places.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        Text(
+            text = stringResource(R.string.recording_places_section_title),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.semantics { heading() }
+        )
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            shape = RoundedCornerShape(NoticeCornerRadius),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag(OpenHikesTestTags.HIKE_PLACES)
+        ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
+                places.forEachIndexed { index, place ->
+                    if (index > 0) {
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+                    }
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .defaultMinSize(minHeight = TouchTargetMin)
+                            .clickable(role = Role.Button) { onOpenPlace(place.id) }
+                            .semantics(mergeDescendants = true) {}
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
+                            .testTag(OpenHikesTestTags.TRAIL_PLACE_ROW)
+                    ) {
+                        TrailPlaceRowContent(
+                            row = TrailPlaceRow(place = place, anchor = null),
+                            distanceUnit = distanceUnit,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(
+                            painter = androidx.compose.ui.res.painterResource(OpenHikesIcons.ChevronRight),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
 }

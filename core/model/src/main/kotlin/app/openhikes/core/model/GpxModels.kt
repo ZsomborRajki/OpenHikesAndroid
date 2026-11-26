@@ -37,7 +37,8 @@ data class GpxWaypoint(
     val elevationMeters: Double? = null,
     val name: String = "",
     val symbol: String? = null,
-    val note: String = ""
+    val note: String = "",
+    val osm: TrailPlaceOsm? = null
 )
 
 /**

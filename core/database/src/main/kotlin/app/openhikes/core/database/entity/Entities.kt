@@ -122,7 +122,12 @@ data class TrailPointEntity(
     val name: String,
     val symbol: String?,
     val note: String,
-    @ColumnInfo(name = "sort_order") val sortOrder: Int
+    @ColumnInfo(name = "sort_order") val sortOrder: Int,
+    @ColumnInfo(name = "osm_element_type") val osmElementType: String = "",
+    @ColumnInfo(name = "osm_element_id") val osmElementId: Long = 0L,
+    @ColumnInfo(name = "osm_facts_json") val osmFactsJson: String = "[]",
+    @ColumnInfo(name = "osm_wikidata") val osmWikidata: String? = null,
+    @ColumnInfo(name = "created_at_epoch_millis") val createdAtEpochMillis: Long = 0L
 )
 
 @Entity(
