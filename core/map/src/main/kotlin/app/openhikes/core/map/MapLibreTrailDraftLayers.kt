@@ -1,11 +1,8 @@
 package app.openhikes.core.map
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -14,19 +11,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.AwaitPointerEventScope
-import androidx.compose.ui.input.pointer.PointerId
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -40,11 +30,7 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openhikes.core.model.GeoCoordinate
-import app.openhikes.core.model.RouteGeometry
-import app.openhikes.core.model.TrailLegEnds
 import app.openhikes.core.ui.testing.OpenHikesTestTags
-import kotlin.math.hypot
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.StateFlow
 import org.maplibre.compose.expressions.dsl.const
 import org.maplibre.compose.expressions.value.LineCap
@@ -56,8 +42,6 @@ import org.maplibre.compose.sources.rememberGeoJsonSource
 import org.maplibre.compose.util.MaplibreComposable
 import org.maplibre.spatialk.geojson.Position
 
-private val DraftAccentColor = Color(0xFF1B6E43)
-private val DraftBorderColor = Color.White
 private val DroppedPinColor = Color(0xFFD32F2F)
 private const val ALTERNATIVE_WIDTH_DP = 6.0f
 private const val ALTERNATIVE_OPACITY = 0.42f
@@ -67,16 +51,9 @@ private const val SHORT_DASH_ON = 0.9
 private const val SHORT_DASH_OFF = 2.0
 private const val LONG_DASH_ON = 2.5
 private const val LONG_DASH_OFF = 1.6
-private val PinTouchTargetSize = 48.dp
-private val PinVisualDiameter = 28.dp
-private val PinBorderWidth = 2.5.dp
-private val PinShadowElevation = 3.dp
 private val BubbleMinHeight = 36.dp
 private val BubblePaddingHorizontal = 10.dp
 private val BubblePaddingVertical = 6.dp
-private const val DROP_PRESS_TIMEOUT_MS = 350L
-private const val DRAG_HOLD_TIMEOUT_MS = 220L
-private const val LEG_HIT_TOLERANCE_DP = 28.0
 
 private data class TrailDraftLineBuckets(
     val alternatives: List<List<GeoCoordinate>>,
@@ -96,7 +73,7 @@ internal fun TrailDraftOverlayLayers(trailDraftOverlayState: StateFlow<MapTrailD
         DraftLineLayer(
             id = "trail-draft-alternatives",
             segments = buckets.alternatives,
-            color = DraftAccentColor,
+            color = TrailDraftAccentColor,
             widthDp = ALTERNATIVE_WIDTH_DP,
             opacity = ALTERNATIVE_OPACITY
         )
@@ -106,7 +83,7 @@ internal fun TrailDraftOverlayLayers(trailDraftOverlayState: StateFlow<MapTrailD
         DraftLineLayer(
             id = "trail-draft-casing",
             segments = allMain,
-            color = DraftBorderColor,
+            color = TrailDraftBorderColor,
             widthDp = LEG_BORDER_WIDTH_DP,
             opacity = 0.9f
         )
@@ -115,7 +92,7 @@ internal fun TrailDraftOverlayLayers(trailDraftOverlayState: StateFlow<MapTrailD
         DraftLineLayer(
             id = "trail-draft-solid",
             segments = buckets.solid,
-            color = DraftAccentColor,
+            color = TrailDraftAccentColor,
             widthDp = LEG_STROKE_WIDTH_DP
         )
     }
@@ -123,7 +100,7 @@ internal fun TrailDraftOverlayLayers(trailDraftOverlayState: StateFlow<MapTrailD
         DraftLineLayer(
             id = "trail-draft-routing",
             segments = buckets.routing,
-            color = DraftAccentColor,
+            color = TrailDraftAccentColor,
             widthDp = LEG_STROKE_WIDTH_DP,
             dashPattern = listOf(SHORT_DASH_ON, SHORT_DASH_OFF)
         )
@@ -132,7 +109,7 @@ internal fun TrailDraftOverlayLayers(trailDraftOverlayState: StateFlow<MapTrailD
         DraftLineLayer(
             id = "trail-draft-degraded",
             segments = buckets.degraded,
-            color = DraftAccentColor,
+            color = TrailDraftAccentColor,
             widthDp = LEG_STROKE_WIDTH_DP,
             dashPattern = listOf(LONG_DASH_ON, LONG_DASH_OFF)
         )
@@ -242,11 +219,12 @@ internal fun MapOverlayScope.TrailDraftInteractiveOverlay(
     val currentOnPanLockChanged by rememberUpdatedState(onPanLockChanged)
     val currentOverlay by rememberUpdatedState(current)
     val density = LocalDensity.current
+    val screenToCoord: (Offset) -> GeoCoordinate? = { offset -> draftScreenToCoordinate(mapState, density, offset) }
 
-    TrailDraftLongPressDropLayer(
-        mapState = mapState,
-        density = density,
-        overlayProvider = { currentOverlay },
+    TrailDraftLongPressDropSurface(
+        screenToCoordinate = screenToCoord,
+        metersPerDpAtLatitude = { lat -> mapState.metersPerDpAtLatitude(lat) ?: 1.0 },
+        legsProvider = { currentOverlay.legs },
         handlerProvider = { currentHandlerProvider() }
     )
 
@@ -261,8 +239,8 @@ internal fun MapOverlayScope.TrailDraftInteractiveOverlay(
                 onClick = null
             )
         }
-        for (leg in current.legs) {
-            for (alt in leg.alternatives) {
+        current.legs.forEach { leg ->
+            leg.alternatives.forEach { alt ->
                 DraftTimeBubble(
                     coordinate = alt.midpoint,
                     label = alt.formattedTime,
@@ -274,58 +252,19 @@ internal fun MapOverlayScope.TrailDraftInteractiveOverlay(
             }
         }
     }
-
     current.droppedPin?.let { spot ->
-        DraftDroppedPinMarker(
-            coordinate = spot.coordinate,
-            onClick = { currentHandlerProvider()?.onTapDroppedPin() }
-        )
+        DraftDroppedPinMarker(spot.coordinate) { currentHandlerProvider()?.onTapDroppedPin() }
     }
-
-    for (pin in current.pins) {
-        val displayCoord = if (current.draggedPinIndex == pin.index && current.draggedCoordinate != null) {
-            current.draggedCoordinate
-        } else {
-            pin.coordinate
-        }
-        DraftStopPinMarker(
+    current.pins.forEach { pin ->
+        val coord = current.draggedCoordinate?.takeIf { current.draggedPinIndex == pin.index } ?: pin.coordinate
+        DraftStopPinSurface(
             pin = pin,
-            coordinate = displayCoord,
-            mapState = mapState,
-            density = density,
+            screenToCoordinate = screenToCoord,
             handlerProvider = { currentHandlerProvider() },
-            onPanLockChanged = { currentOnPanLockChanged(it) }
+            onPanLockChanged = { currentOnPanLockChanged(it) },
+            modifier = Modifier.placedAt(Position(coord.longitude, coord.latitude), Alignment.Center)
         )
     }
-}
-
-@Composable
-private fun TrailDraftLongPressDropLayer(
-    mapState: MapState,
-    density: Density,
-    overlayProvider: () -> MapTrailDraftOverlay,
-    handlerProvider: () -> TrailDraftMapInteractionHandler?
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(Unit) {
-                val touchSlop = viewConfiguration.touchSlop
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = true)
-                    val held = awaitDraftLongHold(down.id, down.position, touchSlop, DROP_PRESS_TIMEOUT_MS)
-                    if (!held) return@awaitEachGesture
-                    val coord = draftScreenToCoordinate(mapState, density, down.position) ?: return@awaitEachGesture
-                    val metersPerDp = mapState.metersPerDpAtLatitude(coord.latitude) ?: 1.0
-                    val hitLeg = findNearestLegWithin(
-                        coordinate = coord,
-                        legs = overlayProvider().legs,
-                        toleranceMeters = LEG_HIT_TOLERANCE_DP * metersPerDp
-                    )
-                    handlerProvider()?.onDropPin(coord, hitLeg)
-                }
-            }
-    )
 }
 
 @Composable
@@ -361,7 +300,7 @@ private fun MapOverlayScope.DraftTimeBubble(
             shape = CircleShape,
             color = containerColor,
             contentColor = contentColor,
-            shadowElevation = PinShadowElevation,
+            shadowElevation = TrailDraftPinShadowElevation,
             modifier = placedModifier
         ) {
             BubbleLabel(label)
@@ -371,7 +310,7 @@ private fun MapOverlayScope.DraftTimeBubble(
             shape = CircleShape,
             color = containerColor,
             contentColor = contentColor,
-            shadowElevation = PinShadowElevation,
+            shadowElevation = TrailDraftPinShadowElevation,
             modifier = placedModifier
         ) {
             BubbleLabel(label)
@@ -403,7 +342,7 @@ private fun MapOverlayScope.DraftDroppedPinMarker(coordinate: GeoCoordinate, onC
         color = Color.Transparent,
         modifier = Modifier
             .placedAt(Position(longitude = coordinate.longitude, latitude = coordinate.latitude), Alignment.Center)
-            .size(PinTouchTargetSize)
+            .size(TrailDraftPinTouchTargetSize)
             .semantics { contentDescription = description }
             .testTag(OpenHikesTestTags.TRAIL_DRAFT_DROPPED_PIN)
     ) {
@@ -411,119 +350,11 @@ private fun MapOverlayScope.DraftDroppedPinMarker(coordinate: GeoCoordinate, onC
             Surface(
                 color = DroppedPinColor,
                 shape = CircleShape,
-                border = BorderStroke(PinBorderWidth, DraftBorderColor),
-                shadowElevation = PinShadowElevation,
-                modifier = Modifier.size(PinVisualDiameter)
+                border = BorderStroke(TrailDraftPinBorderWidth, TrailDraftBorderColor),
+                shadowElevation = TrailDraftPinShadowElevation,
+                modifier = Modifier.size(TrailDraftPinVisualDiameter)
             ) {}
         }
-    }
-}
-
-@Composable
-private fun MapOverlayScope.DraftStopPinMarker(
-    pin: MapTrailDraftPin,
-    coordinate: GeoCoordinate,
-    mapState: MapState,
-    density: Density,
-    handlerProvider: () -> TrailDraftMapInteractionHandler?,
-    onPanLockChanged: (Boolean) -> Unit
-) {
-    var topLeftInParent by remember { mutableStateOf(Offset.Zero) }
-    val currentPin by rememberUpdatedState(pin)
-
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier
-            .placedAt(Position(longitude = coordinate.longitude, latitude = coordinate.latitude), Alignment.Center)
-            .size(PinTouchTargetSize)
-            .onGloballyPositioned { coords -> topLeftInParent = coords.positionInParent() }
-            .pointerInput(pin.id) {
-                val touchSlop = viewConfiguration.touchSlop
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = true)
-                    down.consume()
-                    val isLongHold = awaitDraftLongHold(down.id, down.position, touchSlop, DRAG_HOLD_TIMEOUT_MS)
-                    val handler = handlerProvider() ?: return@awaitEachGesture
-                    if (!isLongHold) {
-                        handler.onTapStopPin(currentPin.id)
-                        return@awaitEachGesture
-                    }
-                    if (!handler.onBeginPinDrag(currentPin.index)) return@awaitEachGesture
-                    onPanLockChanged(true)
-                    try {
-                        trackPinDrag(down.id, { topLeftInParent }, mapState, density, handler)
-                    } finally {
-                        onPanLockChanged(false)
-                    }
-                }
-            }
-            .semantics {
-                contentDescription = pin.label
-                role = Role.Button
-            }
-            .testTag(OpenHikesTestTags.trailDraftPin(pin.index + 1))
-    ) {
-        Surface(
-            color = DraftAccentColor,
-            shape = CircleShape,
-            border = BorderStroke(PinBorderWidth, DraftBorderColor),
-            shadowElevation = PinShadowElevation,
-            modifier = Modifier.size(PinVisualDiameter)
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                if (pin.badgeText.isNotEmpty()) {
-                    Text(
-                        text = pin.badgeText,
-                        color = Color.White,
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            }
-        }
-    }
-}
-
-private suspend fun AwaitPointerEventScope.awaitDraftLongHold(
-    pointerId: PointerId,
-    origin: Offset,
-    touchSlop: Float,
-    timeoutMs: Long
-): Boolean = try {
-    withTimeout(timeoutMs) {
-        while (true) {
-            val change = awaitPointerEvent().changes.firstOrNull { it.id == pointerId } ?: return@withTimeout false
-            if (!change.pressed || change.isConsumed) return@withTimeout false
-            if (hypot(change.position.x - origin.x, change.position.y - origin.y) > touchSlop) {
-                return@withTimeout false
-            }
-        }
-    }
-    false
-} catch (_: TimeoutCancellationException) {
-    true
-}
-
-private suspend fun AwaitPointerEventScope.trackPinDrag(
-    pointerId: PointerId,
-    topLeftProvider: () -> Offset,
-    mapState: MapState,
-    density: Density,
-    handler: TrailDraftMapInteractionHandler
-) {
-    while (true) {
-        val change = awaitPointerEvent().changes.firstOrNull { it.id == pointerId }
-        if (change == null) {
-            handler.onCancelPinDrag()
-            return
-        }
-        change.consume()
-        if (!change.pressed) {
-            handler.onEndPinDrag()
-            return
-        }
-        val parentOffset = topLeftProvider() + change.position
-        draftScreenToCoordinate(mapState, density, parentOffset)?.let(handler::onMovePinDrag)
     }
 }
 
@@ -532,24 +363,4 @@ private fun draftScreenToCoordinate(mapState: MapState, density: Density, offset
     return mapState.positionFromScreenLocation(dpOffset)
         ?.takeIf { it.latitude.isFinite() && it.longitude.isFinite() }
         ?.let { GeoCoordinate(latitude = it.latitude, longitude = it.longitude) }
-}
-
-private fun findNearestLegWithin(
-    coordinate: GeoCoordinate,
-    legs: List<MapTrailDraftLeg>,
-    toleranceMeters: Double
-): TrailLegEnds? {
-    var best: TrailLegEnds? = null
-    var bestDistance = toleranceMeters
-    for (leg in legs) {
-        val shape = if (leg.coordinates.size >= 2) leg.coordinates else leg.ends.straightCoordinates
-        for (i in 0 until shape.lastIndex) {
-            val off = RouteGeometry.project(coordinate, shape[i], shape[i + 1]).offRouteMeters
-            if (off <= bestDistance) {
-                bestDistance = off
-                best = leg.ends
-            }
-        }
-    }
-    return best
 }

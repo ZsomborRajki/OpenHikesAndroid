@@ -99,6 +99,7 @@ data class TrailMakerUiState(
     val isRouting: Boolean = false,
     val hasRetryableLegs: Boolean = false,
     val worstLegSnap: TrailLegSnap? = null,
+    val isRestoring: Boolean = false,
     val isSaving: Boolean = false,
     val showCloseDialog: Boolean = false,
     val showNameDialog: Boolean = false,
@@ -107,7 +108,10 @@ data class TrailMakerUiState(
     val refusal: TrailDraftRefusal? = null,
     val stopSearch: TrailStopSearchUiState? = null,
     val placeCard: TrailPlaceCardState? = null
-)
+) {
+    val isEditingEnabled: Boolean
+        get() = !isRestoring && !isSaving
+}
 
 /**
  * User intents emitted from [TrailMakerScreen] and its modal sheets/dialogs.

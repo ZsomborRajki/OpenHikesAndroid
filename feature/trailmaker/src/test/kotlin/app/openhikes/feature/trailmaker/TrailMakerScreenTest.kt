@@ -209,4 +209,30 @@ class TrailMakerScreenTest {
         composeRule.onNodeWithTag(OpenHikesTestTags.TRAIL_PLACE_ADD_STOP).performClick()
         assertThat(actions).contains(TrailMakerAction.AddStopFromPlaceCard)
     }
+
+    @Test
+    fun disablesEditingControlsWhileRestoringOrSaving() {
+        composeRule.setContent {
+            OpenHikesTheme(dynamicColor = false) {
+                TrailMakerScreen(
+                    uiState = sampleFilledUiState().copy(isSaving = true),
+                    onBack = {},
+                    onCloseRequested = {},
+                    onDiscardTrail = {},
+                    onKeepForLater = {},
+                    onConfirmSave = {},
+                    onSharePlace = { _, _ -> },
+                    onAction = {}
+                )
+            }
+        }
+
+        composeRule.onNodeWithTag(OpenHikesTestTags.TRAIL_DRAFT_SAVE).assertIsNotEnabled()
+        composeRule.onNodeWithTag(OpenHikesTestTags.TRAIL_DRAFT_CLOSE).assertIsNotEnabled()
+        composeRule.onNodeWithTag(OpenHikesTestTags.trailDraftMode("cycling")).assertIsNotEnabled()
+        composeRule.onNodeWithTag(OpenHikesTestTags.trailDraftPointDelete(2)).assertIsNotEnabled()
+        composeRule.onNodeWithTag(OpenHikesTestTags.TRAIL_DRAFT_RETRY).assertIsNotEnabled()
+        composeRule.onNodeWithTag(OpenHikesTestTags.TRAIL_MAKER_SCREEN).performScrollToKey("follow_paths")
+        composeRule.onNodeWithTag(OpenHikesTestTags.TRAIL_DRAFT_SNAP).assertIsNotEnabled()
+    }
 }

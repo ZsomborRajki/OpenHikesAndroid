@@ -126,6 +126,38 @@ class TrailGraphIndexAndRouterTest {
         assertThat(TrailGraphSquareGrid.turn(12.0, 13.0)).isEqualTo(0.0)
     }
 
+    @Test
+    fun corridorEnumeratesIntermediateCornerTileForShortDiagonalLeg() {
+        val ends = TrailLegEnds(
+            start = GeoCoordinate(0.003, -0.007),
+            end = GeoCoordinate(-0.004, 0.003)
+        )
+        val nw = TrailGraphRegion(zoom = 12, x = 2047, y = 2047)
+        val sw = TrailGraphRegion(zoom = 12, x = 2047, y = 2048)
+        val se = TrailGraphRegion(zoom = 12, x = 2048, y = 2048)
+
+        val regions = TrailGraphCorridor.regionsAlong(ends)
+        val corridorRegions = TrailGraphCorridor.corridorAlong(ends).map { TrailGraphSquareGrid.regionContaining(it) }
+
+        assertThat(regions).containsExactly(nw, sw, se).inOrder()
+        assertThat(corridorRegions).containsExactly(nw, sw, se).inOrder()
+        assertThat(TrailGraphCorridor.regionsAlong(ends, maxRegions = 2)).containsExactly(nw, sw).inOrder()
+    }
+
+    @Test
+    fun corridorWrapsAcrossAntimeridianWithoutSpanningTheGlobe() {
+        val ends = TrailLegEnds(
+            start = GeoCoordinate(0.0, 179.98),
+            end = GeoCoordinate(0.0, -179.98)
+        )
+        val regions = TrailGraphCorridor.regionsAlong(ends)
+
+        assertThat(regions).containsExactly(
+            TrailGraphRegion(zoom = 12, x = 4095, y = 2048),
+            TrailGraphRegion(zoom = 12, x = 0, y = 2048)
+        ).inOrder()
+    }
+
     private fun linearTrailGraph(): TrailGraph {
         val n1 = TrailGraphNode(1, 47.71835, 12.8317)
         val n2 = TrailGraphNode(2, 47.71890, 12.8319)

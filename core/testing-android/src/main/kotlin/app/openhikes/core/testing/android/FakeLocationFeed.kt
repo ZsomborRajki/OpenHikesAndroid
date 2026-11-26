@@ -38,7 +38,17 @@ class FakeLocationFeed @Inject constructor() : LocationFeed {
 
     var lastKnownCoordinateOverride: GeoCoordinate? = null
 
+    var currentCoordinateProvider: (suspend () -> GeoCoordinate?)? = null
+
+    var currentCoordinateRequestCount: Int = 0
+        private set
+
     override fun lastKnownCoordinate(): GeoCoordinate? = lastKnownCoordinateOverride
+
+    override suspend fun requestCurrentCoordinate(): GeoCoordinate? {
+        currentCoordinateRequestCount += 1
+        return currentCoordinateProvider?.invoke() ?: lastKnownCoordinateOverride
+    }
 
     fun setPermission(status: LocationPermissionStatus) {
         permissionFlow.value = status

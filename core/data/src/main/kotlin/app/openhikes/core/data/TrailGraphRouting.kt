@@ -13,8 +13,6 @@ import app.openhikes.core.model.TrailGraphCorridor
 import app.openhikes.core.model.TrailGraphIndex
 import app.openhikes.core.model.TrailGraphLegRouter
 import app.openhikes.core.model.TrailGraphProvider
-import app.openhikes.core.model.TrailGraphRegion
-import app.openhikes.core.model.TrailGraphSquareGrid
 import app.openhikes.core.model.TrailLegAnswerCache
 import app.openhikes.core.model.TrailLegEnds
 import app.openhikes.core.model.TrailLegGap
@@ -90,11 +88,7 @@ internal class ArchiveTrailGraphProvider @Inject constructor(
     }
 
     private suspend fun assembleFromNetworkSquares(covering: List<GeoCoordinate>): AssembledTrailGraph {
-        val regions = LinkedHashSet<TrailGraphRegion>()
-        for (coord in covering) {
-            regions.add(TrailGraphSquareGrid.regionContaining(coord))
-            if (regions.size >= MAX_CORRIDOR_REGIONS) break
-        }
+        val regions = TrailGraphCorridor.regionsCovering(covering, maxRegions = MAX_CORRIDOR_REGIONS)
         var combined = TrailGraph.Empty
         var firstOutage: TrailLegOutage? = null
         for (region in regions) {

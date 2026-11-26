@@ -37,4 +37,11 @@ interface LocationFeed {
      * without starting continuous GPS updates.
      */
     fun lastKnownCoordinate(): GeoCoordinate? = null
+
+    /**
+     * Permission-aware one-shot lookup returning a cached or freshly requested hiker coordinate
+     * without starting continuous recording updates, or `null` when permission is denied,
+     * no provider is available, or no fix can be obtained.
+     */
+    suspend fun requestCurrentCoordinate(): GeoCoordinate? = lastKnownCoordinate()
 }

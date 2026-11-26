@@ -1,5 +1,6 @@
 package app.openhikes.core.model
 
+import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.ln
 import kotlin.math.min
@@ -200,12 +201,14 @@ object TrailGraphSquareGrid {
 }
 
 /**
- * Samples interior coordinates along a straight leg so long legs never skip over an intermediate
- * z12 routing graph tile.
+ * Enumerates every z12 routing graph tile crossed by a straight leg or corridor in Web Mercator
+ * space so short diagonal legs never skip over an intermediate corner tile.
  */
 object TrailGraphCorridor {
     const val SAMPLING_INTERVAL_METERS = 2_000.0
     const val MAXIMUM_SAMPLES_PER_GAP = 32
+    const val MAXIMUM_REGIONS = 12
+    private const val CORNER_TIE_EPSILON = 1e-12
 
     fun samples(from: GeoCoordinate, to: GeoCoordinate): List<GeoCoordinate> {
         val distance = RouteGeometry.distanceMeters(from, to)
@@ -223,10 +226,121 @@ object TrailGraphCorridor {
         }
     }
 
-    fun corridorAlong(ends: TrailLegEnds): List<GeoCoordinate> = buildList {
-        add(ends.start)
-        addAll(samples(ends.start, ends.end))
-        add(ends.end)
+    /**
+     * Returns every tile at [zoom] intersected by the straight Mercator segment from [ends.start]
+     * to [ends.end], ordered from start to end and capped at [maxRegions].
+     */
+    fun regionsAlong(
+        ends: TrailLegEnds,
+        zoom: Int = TrailGraphSquareGrid.REGION_ZOOM,
+        maxRegions: Int = MAXIMUM_REGIONS
+    ): List<TrailGraphRegion> = regionsBetween(ends.start, ends.end, zoom, maxRegions)
+
+    /**
+     * Returns every distinct tile at [zoom] intersected by the polyline [covering], ordered by
+     * first visit and capped at [maxRegions].
+     */
+    fun regionsCovering(
+        covering: List<GeoCoordinate>,
+        zoom: Int = TrailGraphSquareGrid.REGION_ZOOM,
+        maxRegions: Int = MAXIMUM_REGIONS
+    ): List<TrailGraphRegion> = when {
+        covering.isEmpty() || maxRegions <= 0 -> emptyList()
+        covering.size == 1 -> listOf(TrailGraphSquareGrid.regionContaining(covering.first(), zoom))
+        else -> {
+            val collected = LinkedHashSet<TrailGraphRegion>()
+            var index = 0
+            while (index < covering.lastIndex && collected.size < maxRegions) {
+                val segmentRegions = regionsBetween(covering[index], covering[index + 1], zoom, maxRegions)
+                for (region in segmentRegions) {
+                    if (collected.size < maxRegions) collected.add(region)
+                }
+                index += 1
+            }
+            collected.toList()
+        }
+    }
+
+    /**
+     * Returns [ends.start], one interior representative coordinate for every intermediate tile
+     * crossed in Web Mercator space, and [ends.end].
+     */
+    fun corridorAlong(ends: TrailLegEnds): List<GeoCoordinate> {
+        val startRegion = TrailGraphSquareGrid.regionContaining(ends.start)
+        val endRegion = TrailGraphSquareGrid.regionContaining(ends.end)
+        val crossed = regionsAlong(ends)
+        return buildList {
+            add(ends.start)
+            for (region in crossed) {
+                if (region != startRegion && region != endRegion) {
+                    add(region.toTileAddress().centerCoordinate())
+                }
+            }
+            add(ends.end)
+        }
+    }
+
+    private fun regionsBetween(
+        from: GeoCoordinate,
+        to: GeoCoordinate,
+        zoom: Int,
+        maxRegions: Int
+    ): List<TrailGraphRegion> {
+        if (maxRegions <= 0) return emptyList()
+        val count = TrailGraphSquareGrid.tilesPerSide(zoom)
+        val x0 = Mercator.unitX(from.longitude) * count
+        val y0 = Mercator.unitY(from.latitude) * count
+        val shiftedToLon = to.longitude + TrailGraphSquareGrid.turn(from.longitude, to.longitude)
+        val x1 = Mercator.unitX(shiftedToLon) * count
+        val y1 = Mercator.unitY(to.latitude) * count
+
+        var ix = floor(x0).toInt()
+        var iy = floor(y0).toInt().coerceIn(0, count - 1)
+        val endIx = floor(x1).toInt()
+        val endIy = floor(y1).toInt().coerceIn(0, count - 1)
+
+        val regions = ArrayList<TrailGraphRegion>()
+        regions.add(TrailGraphRegion(zoom = zoom, x = Math.floorMod(ix, count), y = iy))
+
+        val stepX = (endIx - ix).coerceIn(-1, 1)
+        val stepY = (endIy - iy).coerceIn(-1, 1)
+        val dx = x1 - x0
+        val dy = y1 - y0
+        var tMaxX = initialAxisTMax(coord = x0, cell = ix, step = stepX, delta = dx)
+        var tMaxY = initialAxisTMax(coord = y0, cell = iy, step = stepY, delta = dy)
+        val tDeltaX = axisTDelta(step = stepX, delta = dx)
+        val tDeltaY = axisTDelta(step = stepY, delta = dy)
+
+        while ((ix != endIx || iy != endIy) && regions.size < maxRegions) {
+            val diff = tMaxX - tMaxY
+            if (diff < -CORNER_TIE_EPSILON) {
+                ix += stepX
+                tMaxX += tDeltaX
+            } else if (diff > CORNER_TIE_EPSILON) {
+                iy = (iy + stepY).coerceIn(0, count - 1)
+                tMaxY += tDeltaY
+            } else {
+                ix += stepX
+                iy = (iy + stepY).coerceIn(0, count - 1)
+                tMaxX += tDeltaX
+                tMaxY += tDeltaY
+            }
+            val next = TrailGraphRegion(zoom = zoom, x = Math.floorMod(ix, count), y = iy)
+            if (regions.lastOrNull() != next) regions.add(next)
+        }
+        return regions
+    }
+
+    private fun initialAxisTMax(coord: Double, cell: Int, step: Int, delta: Double): Double = when {
+        step > 0 && abs(delta) > 0.0 -> ((cell + 1).toDouble() - coord) / delta
+        step < 0 && abs(delta) > 0.0 -> (cell.toDouble() - coord) / delta
+        else -> Double.POSITIVE_INFINITY
+    }
+
+    private fun axisTDelta(step: Int, delta: Double): Double = when {
+        step > 0 && abs(delta) > 0.0 -> 1.0 / delta
+        step < 0 && abs(delta) > 0.0 -> -1.0 / delta
+        else -> Double.POSITIVE_INFINITY
     }
 }
 

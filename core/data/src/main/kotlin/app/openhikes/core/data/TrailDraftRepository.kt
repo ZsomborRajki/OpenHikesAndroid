@@ -13,6 +13,8 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 
@@ -41,6 +43,7 @@ internal class OfflineFirstTrailDraftRepository @Inject constructor(
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : TrailDraftRepository {
     private val json = Json { ignoreUnknownKeys = true }
+    private val draftMutex = Mutex()
 
     override val recentStops: Flow<List<TrailStopRecent>> = trailStopRecentDao.observeAll().map { entities ->
         entities.map { entity ->
@@ -54,34 +57,41 @@ internal class OfflineFirstTrailDraftRepository @Inject constructor(
         }
     }
 
-    override suspend fun loadDraft(): StoredTrailDraft = withContext(ioDispatcher) {
-        val entity = runCatching { trailDraftDao.getDraft() }.getOrNull() ?: return@withContext StoredTrailDraft.Empty
-        runCatching { json.decodeFromString(StoredTrailDraft.serializer(), entity.draftJson) }
-            .getOrDefault(StoredTrailDraft.Empty)
+    override suspend fun loadDraft(): StoredTrailDraft = draftMutex.withLock {
+        withContext(ioDispatcher) {
+            val entity = runCatching { trailDraftDao.getDraft() }.getOrNull()
+                ?: return@withContext StoredTrailDraft.Empty
+            runCatching { json.decodeFromString(StoredTrailDraft.serializer(), entity.draftJson) }
+                .getOrDefault(StoredTrailDraft.Empty)
+        }
     }
 
     override suspend fun saveDraft(draft: StoredTrailDraft) {
-        withContext(ioDispatcher) {
-            if (draft.isEmpty) {
-                runCatching { trailDraftDao.clear() }
-                return@withContext
-            }
-            val encoded = json.encodeToString(StoredTrailDraft.serializer(), draft)
-            runCatching {
-                trailDraftDao.upsert(
-                    TrailDraftEntity(
-                        id = TrailDraftEntity.SINGLETON_ID,
-                        draftJson = encoded,
-                        updatedAtEpochMillis = clock.nowEpochMillis()
+        draftMutex.withLock {
+            withContext(ioDispatcher) {
+                if (draft.isEmpty) {
+                    runCatching { trailDraftDao.clear() }
+                    return@withContext
+                }
+                val encoded = json.encodeToString(StoredTrailDraft.serializer(), draft)
+                runCatching {
+                    trailDraftDao.upsert(
+                        TrailDraftEntity(
+                            id = TrailDraftEntity.SINGLETON_ID,
+                            draftJson = encoded,
+                            updatedAtEpochMillis = clock.nowEpochMillis()
+                        )
                     )
-                )
+                }
             }
         }
     }
 
     override suspend fun clearDraft() {
-        withContext(ioDispatcher) {
-            runCatching { trailDraftDao.clear() }
+        draftMutex.withLock {
+            withContext(ioDispatcher) {
+                runCatching { trailDraftDao.clear() }
+            }
         }
     }
 
