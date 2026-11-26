@@ -1,10 +1,12 @@
 package app.openhikes.core.location
 
 import app.openhikes.core.common.OpenHikesClock
+import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.LiveUpdateKind
 import app.openhikes.core.model.LiveUpdatePayload
 import app.openhikes.core.model.LiveUpdateRunState
+import app.openhikes.core.model.PhotoTrailAnchor
 import app.openhikes.core.model.PreparedRecording
 import app.openhikes.core.model.RecordingDistanceAccumulator
 import app.openhikes.core.model.RecordingEnergyPolicy
@@ -101,8 +103,28 @@ internal class RecordingSessionRuntime(
     var lastPowerState: DevicePowerState = DevicePowerState()
     var accumulator: RecordingDistanceAccumulator = RecordingDistanceAccumulator()
     val tracePoints: MutableList<RouteCoordinate> = ArrayList()
+    val recentAcceptedPoints: ArrayDeque<RecordingPoint> = ArrayDeque()
     var pendingPreparedSave: PendingPreparedSave? = null
     var lastOfferedTitle: String? = null
+
+    fun recordRecentPoint(point: RecordingPoint) {
+        synchronized(recentAcceptedPoints) {
+            recentAcceptedPoints.addLast(point)
+            val cutoff = point.timestampEpochMillis - PhotoTrailAnchor.RECENT_RECORDING_WINDOW_MILLIS
+            while (recentAcceptedPoints.size > 1 && recentAcceptedPoints.first().timestampEpochMillis < cutoff) {
+                recentAcceptedPoints.removeFirst()
+            }
+        }
+    }
+
+    fun photoCoordinateAt(shutterEpochMillis: Long?): GeoCoordinate? {
+        val snapshot = synchronized(recentAcceptedPoints) { recentAcceptedPoints.toList() }
+        return PhotoTrailAnchor.recordingCoordinate(
+            shutterEpochMillis = shutterEpochMillis,
+            recent = snapshot,
+            latest = lastAcceptedPoint
+        )
+    }
 
     fun elapsedSeconds(): Double {
         val baseMono = sessionMonotonicBaseMillis
@@ -136,9 +158,11 @@ internal class RecordingSessionRuntime(
     fun rebuildLiveState(points: List<RecordingPoint>) {
         accumulator = RecordingDistanceAccumulator()
         tracePoints.clear()
+        synchronized(recentAcceptedPoints) { recentAcceptedPoints.clear() }
         for (point in points) {
             accumulator.append(point)
             tracePoints.add(point.toRouteCoordinate())
+            recordRecentPoint(point)
         }
         lastAcceptedPoint = points.lastOrNull()
         latestHorizontalAccuracyMeters = lastAcceptedPoint?.horizontalAccuracyMeters
@@ -220,6 +244,7 @@ internal class RecordingSessionRuntime(
         latestHorizontalAccuracyMeters = null
         accumulator = RecordingDistanceAccumulator()
         tracePoints.clear()
+        synchronized(recentAcceptedPoints) { recentAcceptedPoints.clear() }
         pendingPreparedSave = null
         lastOfferedTitle = null
         if (!preserveCompletedSave) {

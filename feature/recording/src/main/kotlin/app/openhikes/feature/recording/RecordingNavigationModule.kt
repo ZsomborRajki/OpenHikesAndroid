@@ -2,6 +2,7 @@ package app.openhikes.feature.recording
 
 import app.openhikes.core.ui.navigation.EntryProviderInstaller
 import app.openhikes.core.ui.navigation.HikeDetailRoute
+import app.openhikes.core.ui.navigation.HikePhotoViewerRoute
 import app.openhikes.core.ui.navigation.HikePlaceDetailRoute
 import app.openhikes.core.ui.navigation.RecordingRoute
 import dagger.Module
@@ -23,8 +24,12 @@ object RecordingNavigationModule {
             RecordingRoute(
                 onBack = { navigator.pop() },
                 onSaved = { hikeId -> navigator.replaceTop(HikeDetailRoute(hikeId)) },
-                onDiscarded = { navigator.pop() },
-                onOpenPlace = { hikeId, placeId -> navigator.navigate(HikePlaceDetailRoute(hikeId, placeId)) }
+                onDiscarded = { discardedHikeId ->
+                    discardedHikeId?.let { navigator.removeRoutesForHike(it) }
+                    navigator.pop()
+                },
+                onOpenPlace = { hikeId, placeId -> navigator.navigate(HikePlaceDetailRoute(hikeId, placeId)) },
+                onOpenPhoto = { hikeId, photoId -> navigator.navigate(HikePhotoViewerRoute(hikeId, photoId)) }
             )
         }
     }

@@ -4,9 +4,11 @@ import androidx.compose.runtime.Immutable
 import app.openhikes.core.location.TrailWalkSessionState
 import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.ExportedGpx
+import app.openhikes.core.model.ExportedHikeArchive
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.HikePhoto
 import app.openhikes.core.model.HikeRouteStatistics
 import app.openhikes.core.model.HikeWalk
 import app.openhikes.core.model.OfflineCountry
@@ -67,7 +69,12 @@ data class HikeDetailUiState(
     val showDeleteDialog: Boolean = false,
     val actionError: HikeDetailError? = null,
     val pendingExport: ExportedGpx? = null,
+    val pendingArchiveExport: ExportedHikeArchive? = null,
     val exportSuccess: Boolean = false,
+    val orderedPhotos: List<HikePhoto> = emptyList(),
+    val anchoredPhotoCount: Int = 0,
+    val canMatchPhotos: Boolean = false,
+    val pendingOpenPhotoId: String? = null,
     val placeRows: List<TrailPlaceRow> = emptyList(),
     val showsPlacePins: Boolean = true,
     val canSearchPlaces: Boolean = false,
@@ -111,4 +118,10 @@ sealed interface HikePlaceAction {
     data class OpenPlace(val placeId: String) : HikePlaceAction
     data class SetShowPlacePins(val enabled: Boolean) : HikePlaceAction
     data object OpenPlacesAround : HikePlaceAction
+}
+
+sealed interface HikePhotoAction {
+    data class OpenPhoto(val photoId: String) : HikePhotoAction
+    data object OpenPhotoDiscovery : HikePhotoAction
+    data object ShareArchive : HikePhotoAction
 }

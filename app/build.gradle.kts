@@ -76,6 +76,7 @@ dependencies {
     implementation(projects.feature.hikes)
     implementation(projects.feature.map)
     implementation(projects.feature.offlinemaps)
+    implementation(projects.feature.photos)
     implementation(projects.feature.places)
     implementation(projects.feature.recording)
     implementation(projects.feature.routeedit)

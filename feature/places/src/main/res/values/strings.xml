@@ -20,7 +20,13 @@
     <string name="places_action_try_again">Try Again</string>
     <string name="places_action_add_named">Add %1$s</string>
     <string name="places_remove_dialog_title">Remove %1$s?</string>
-    <string name="places_remove_dialog_message">You can add it again any time.</string>
+    <string name="places_remove_dialog_message">You can add it again any time. Its photos stay in this hike’s gallery.</string>
+    <string name="places_section_photos">Photos</string>
+    <string name="places_action_take_photo">Take Photo</string>
+    <string name="places_action_add_photos">Add Photos</string>
+    <string name="places_photos_empty_hint">No photos of this place yet. Take one here, or add some from your library.</string>
+    <string name="places_adder_photos_hint">Add photos now to keep them with this place.</string>
+    <string name="places_adder_remove_staged_photo">Remove photo</string>
     <string name="places_save_refused_title">Couldn’t Save</string>
     <string name="places_save_refused_message">OpenHikes couldn’t save your change right now. Try again.</string>
     <string name="places_section_details">Details</string>

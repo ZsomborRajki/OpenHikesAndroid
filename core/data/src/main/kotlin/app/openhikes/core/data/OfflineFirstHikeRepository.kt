@@ -1,5 +1,6 @@
 package app.openhikes.core.data
 
+import android.content.Context
 import app.openhikes.core.common.DefaultDispatcher
 import app.openhikes.core.common.HikeTitleEdit
 import app.openhikes.core.common.IoDispatcher
@@ -11,18 +12,23 @@ import app.openhikes.core.common.gpx.GpxParser
 import app.openhikes.core.database.OpenHikesDatabase
 import app.openhikes.core.database.dao.HikeDao
 import app.openhikes.core.database.dao.HikeLocalStateDao
+import app.openhikes.core.database.dao.HikePhotoDao
 import app.openhikes.core.database.dao.HikeWalkDao
 import app.openhikes.core.database.dao.TrailPointDao
 import app.openhikes.core.model.EditedLine
 import app.openhikes.core.model.ExportedGpx
+import app.openhikes.core.model.ExportedHikeArchive
+import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.GpxImportFailure
 import app.openhikes.core.model.GpxImportResult
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeLocalState
 import app.openhikes.core.model.HikeMapRoute
+import app.openhikes.core.model.HikePhoto
 import app.openhikes.core.model.HikeSummary
 import app.openhikes.core.model.HikeWalk
+import app.openhikes.core.model.LibraryPhotoMatch
 import app.openhikes.core.model.PreparedRecording
 import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteEditOutcome
@@ -32,6 +38,8 @@ import app.openhikes.core.model.TrailPlaceSymbol
 import app.openhikes.core.model.TrailPoint
 import app.openhikes.core.model.TrailWalkEndReason
 import app.openhikes.core.model.TrailWalkRecord
+import dagger.hilt.android.qualifiers.ApplicationContext
+import java.io.File
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
@@ -51,11 +59,16 @@ import kotlinx.coroutines.withContext
 @Singleton
 @Suppress("LongParameterList", "TooManyFunctions")
 internal class OfflineFirstHikeRepository @Inject constructor(
+    @ApplicationContext context: Context,
     database: OpenHikesDatabase,
     private val hikeDao: HikeDao,
     private val trailPointDao: TrailPointDao,
+    private val hikePhotoDao: HikePhotoDao,
     hikeWalkDao: HikeWalkDao,
     private val hikeLocalStateDao: HikeLocalStateDao,
+    private val photoStore: HikePhotoStore,
+    photoLibraryMirror: PhotoLibraryMirror,
+    private val photoFileIo: PhotoFileIo,
     private val gpxFileSource: GpxFileSource,
     private val gpxFileSink: GpxFileSink,
     private val bundledGpxFixtureSource: BundledGpxFixtureSource,
@@ -76,6 +89,7 @@ internal class OfflineFirstHikeRepository @Inject constructor(
         database = database,
         hikeDao = hikeDao,
         trailPointDao = trailPointDao,
+        hikePhotoDao = hikePhotoDao,
         localStateRepairer = localStateRepairer,
         clock = clock,
         ioDispatcher = ioDispatcher,
@@ -85,9 +99,11 @@ internal class OfflineFirstHikeRepository @Inject constructor(
         database = database,
         hikeDao = hikeDao,
         trailPointDao = trailPointDao,
+        hikePhotoDao = hikePhotoDao,
         hikeWalkDao = hikeWalkDao,
         hikeLocalStateDao = hikeLocalStateDao,
         localStateRepairer = localStateRepairer,
+        photoStore = photoStore,
         shouldFailFirstSave = {
             launchConfigHolder.current.value.failsFirstSave && !hasConsumedFirstSaveFailure.getAndSet(true)
         },
@@ -118,13 +134,31 @@ internal class OfflineFirstHikeRepository @Inject constructor(
         defaultDispatcher = defaultDispatcher
     )
     private val hikePlaceStore = HikePlaceStore(
+        database = database,
         hikeDao = hikeDao,
         trailPointDao = trailPointDao,
+        hikePhotoDao = hikePhotoDao,
         clock = clock,
         shouldFailFirstSave = {
             launchConfigHolder.current.value.failsFirstSave && !hasConsumedFirstSaveFailure.getAndSet(true)
         },
         ioDispatcher = ioDispatcher
+    )
+    private val hikePhotoImportStore = HikePhotoImportStore(
+        context = context,
+        hikeDao = hikeDao,
+        trailPointDao = trailPointDao,
+        hikeWalkDao = hikeWalkDao,
+        hikePhotoDao = hikePhotoDao,
+        photoStore = photoStore,
+        photoLibraryMirror = photoLibraryMirror,
+        photoFileIo = photoFileIo,
+        clock = clock,
+        shouldFailFirstSave = {
+            launchConfigHolder.current.value.failsFirstSave && !hasConsumedFirstSaveFailure.getAndSet(true)
+        },
+        ioDispatcher = ioDispatcher,
+        defaultDispatcher = defaultDispatcher
     )
 
     override val hikes: Flow<List<HikeSummary>> = combine(
@@ -142,9 +176,10 @@ internal class OfflineFirstHikeRepository @Inject constructor(
 
     override fun observeHike(hikeId: HikeId): Flow<Hike?> = combine(
         hikeDao.observeHikeWithRoute(hikeId.value),
-        trailPointDao.observeByHikeId(hikeId.value)
-    ) { hikeWithRoute, trailPoints ->
-        hikeWithRoute?.hike?.toDomain(hikeWithRoute.routeChunks, trailPoints)
+        trailPointDao.observeByHikeId(hikeId.value),
+        hikePhotoDao.observeByHikeId(hikeId.value)
+    ) { hikeWithRoute, trailPoints, photos ->
+        hikeWithRoute?.hike?.toDomain(hikeWithRoute.routeChunks, trailPoints, photos)
     }.flowOn(defaultDispatcher)
 
     override fun observeLocalState(hikeId: HikeId): Flow<HikeLocalState?> =
@@ -267,9 +302,11 @@ internal class OfflineFirstHikeRepository @Inject constructor(
         if (launchConfigHolder.current.value.refusesHikeDeletion) {
             return@withContext Result.failure(IOException("Hike deletion refused by launch configuration"))
         }
+        val photos = hikePhotoDao.getByHikeId(hikeId.value).map { it.toDomain() }
         val deleted = hikeDao.deleteHikeById(hikeId.value)
         if (deleted > 0) {
             localStateRepairer.deleteBestEffort(hikeId.value)
+            photoStore.deleteFiles(photos)
             Result.success(Unit)
         } else {
             Result.failure(NoSuchElementException("Hike not found: ${hikeId.value}"))
@@ -341,6 +378,91 @@ internal class OfflineFirstHikeRepository @Inject constructor(
     override suspend fun removePlace(hikeId: HikeId, placeId: String): Result<Unit> =
         hikePlaceStore.removePlace(hikeId, placeId)
 
+    override suspend fun addCameraPhoto(
+        hikeId: HikeId,
+        rawBytes: ByteArray,
+        capturedAtEpochMillis: Long?,
+        coordinate: GeoCoordinate?,
+        placeId: String?,
+        saveToSystemLibrary: Boolean
+    ): Result<HikePhoto> = hikePhotoImportStore.addCameraPhoto(
+        hikeId = hikeId,
+        rawBytes = rawBytes,
+        capturedAtEpochMillis = capturedAtEpochMillis,
+        coordinate = coordinate,
+        placeId = placeId,
+        saveToSystemLibrary = saveToSystemLibrary
+    )
+
+    override suspend fun addPickedPhoto(
+        hikeId: HikeId,
+        bytes: ByteArray,
+        assetLocalIdentifier: String?,
+        fallbackCoordinate: GeoCoordinate?,
+        placeId: String?
+    ): Result<HikePhoto> = hikePhotoImportStore.addPickedPhoto(
+        hikeId = hikeId,
+        bytes = bytes,
+        assetLocalIdentifier = assetLocalIdentifier,
+        fallbackCoordinate = fallbackCoordinate,
+        placeId = placeId
+    )
+
+    override suspend fun addPickedPhotoUri(
+        hikeId: HikeId,
+        uriString: String,
+        fallbackCoordinate: GeoCoordinate?,
+        placeId: String?
+    ): Result<HikePhoto> = hikePhotoImportStore.addPickedPhotoUri(
+        hikeId = hikeId,
+        uriString = uriString,
+        fallbackCoordinate = fallbackCoordinate,
+        placeId = placeId
+    )
+
+    override suspend fun addDiscoveredPhoto(
+        hikeId: HikeId,
+        bytes: ByteArray,
+        match: LibraryPhotoMatch,
+        expectedPlanFingerprint: Long
+    ): Result<HikePhoto?> = hikePhotoImportStore.addDiscoveredPhoto(
+        hikeId = hikeId,
+        bytes = bytes,
+        match = match,
+        expectedPlanFingerprint = expectedPlanFingerprint
+    )
+
+    override suspend fun removePhoto(hikeId: HikeId, photoId: String): Result<Unit> =
+        hikePhotoImportStore.removePhoto(hikeId, photoId)
+
+    override suspend fun readPhotoBytes(photo: HikePhoto): ByteArray? = photoStore.readOriginalBytes(photo)
+
+    override suspend fun readPhotoThumbnailBytes(photo: HikePhoto): ByteArray? =
+        photoStore.readOrBuildThumbnailBytes(photo)
+
+    override suspend fun hasPhotoFile(photo: HikePhoto): Boolean = photoStore.hasOriginalFile(photo)
+
+    override suspend fun prepareSharePhotoFile(
+        hikeTitle: String,
+        positionOneBased: Int,
+        photo: HikePhoto
+    ): Result<File> = hikePhotoImportStore.prepareSharePhotoFile(hikeTitle, positionOneBased, photo)
+
+    override suspend fun exportHikeArchive(hikeId: HikeId): Result<ExportedHikeArchive> {
+        val hike = observeHike(hikeId).first()
+            ?: return Result.failure(NoSuchElementException("Hike not found: ${hikeId.value}"))
+        return hikePhotoImportStore.exportHikeArchive(hike)
+    }
+
+    override suspend fun exportHikeArchiveToUri(hikeId: HikeId, uriString: String): Result<Unit> {
+        val archive = exportHikeArchive(hikeId).getOrElse { return Result.failure(it) }
+        return photoFileIo.writeBytesToUri(uriString, archive.zipBytes)
+    }
+
+    override suspend fun measurePhotoStorageBytes(): Long = hikePhotoImportStore.measurePhotoStorageBytes()
+
+    override suspend fun reclaimOrphanedPhotos(): Result<Int> = hikePhotoImportStore.reclaimOrphanedPhotos()
+
     override suspend fun seedFixtureIfConfigured(): HikeId? {
         val config = launchConfigHolder.current.value
         val fixtureName = config.importedGpxFixtureName
@@ -352,8 +474,9 @@ internal class OfflineFirstHikeRepository @Inject constructor(
         val importedId = loaded?.let { (fileName, bytes) ->
             (importGpxBytes(bytes, fileName) as? GpxImportResult.Success)?.importedHikes?.firstOrNull()?.id
         }
-        if (importedId != null && config.seedWalkPresetName == WalkPersistenceStore.SEED_WALK_HALF_LOOP) {
-            observeHike(importedId).first()?.let { hike ->
+        if (importedId != null) {
+            val hike = observeHike(importedId).first()
+            if (hike != null && config.seedWalkPresetName == WalkPersistenceStore.SEED_WALK_HALF_LOOP) {
                 val walk = WalkPersistenceStore.buildHalfLoopSeedWalk(
                     hikeId = importedId,
                     routeDistanceMeters = hike.distanceMeters,
@@ -361,6 +484,13 @@ internal class OfflineFirstHikeRepository @Inject constructor(
                     nowEpochMillis = clock.now().toEpochMilli()
                 )
                 walkPersistenceStore.seedWalk(walk)
+            }
+            if (hike != null && config.seedPhotoCount > 0) {
+                hikePhotoImportStore.seedPhotosForHike(
+                    hike = hike,
+                    count = config.seedPhotoCount,
+                    omitFiles = config.omitSeededPhotoFiles
+                )
             }
         }
         return importedId

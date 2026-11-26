@@ -24,6 +24,10 @@ object LaunchConfigReader {
     const val EXTRA_SEED_WALKS = "ui_test_seed_walks"
     const val EXTRA_TRAIL_GRAPH = "ui_test_trail_graph"
     const val EXTRA_TRAIL_POINTS = "ui_test_trail_points"
+    const val EXTRA_SEED_PHOTO_COUNT = "ui_test_seed_photo_count"
+    const val EXTRA_OMIT_SEEDED_PHOTO_FILES = "ui_test_omit_seeded_photo_files"
+    const val EXTRA_STUB_PHOTO_LIBRARY_COUNT = "ui_test_stub_photo_library_count"
+    const val EXTRA_STUB_PHOTO_LIBRARY_ACCESS = "ui_test_stub_photo_library_access"
 
     fun fromIntent(intent: Intent?): LaunchConfig {
         val extras = intent?.extras ?: return LaunchConfig.Production
@@ -55,7 +59,11 @@ object LaunchConfigReader {
             disableAutomaticRecovery = arguments.boolFlag(EXTRA_DISABLE_AUTO_RECOVERY),
             seedWalkPresetName = sanitizeFixtureName(arguments[EXTRA_SEED_WALKS]),
             trailGraphFixtureName = sanitizeFixtureName(arguments[EXTRA_TRAIL_GRAPH]),
-            trailPointsScenarioName = sanitizeFixtureName(arguments[EXTRA_TRAIL_POINTS])
+            trailPointsScenarioName = sanitizeFixtureName(arguments[EXTRA_TRAIL_POINTS]),
+            seedPhotoCount = parseNonNegativeInt(arguments[EXTRA_SEED_PHOTO_COUNT]) ?: 0,
+            omitSeededPhotoFiles = arguments.boolFlag(EXTRA_OMIT_SEEDED_PHOTO_FILES),
+            stubPhotoLibraryCount = parseNonNegativeInt(arguments[EXTRA_STUB_PHOTO_LIBRARY_COUNT]),
+            stubPhotoLibraryAccess = sanitizeFixtureName(arguments[EXTRA_STUB_PHOTO_LIBRARY_ACCESS])
         )
     }
 
@@ -74,7 +82,8 @@ object LaunchConfigReader {
         failsFirstSave = base.failsFirstSave || override.failsFirstSave,
         refusesHikeDeletion = base.refusesHikeDeletion || override.refusesHikeDeletion,
         enableSimulatedLocation = base.enableSimulatedLocation || override.enableSimulatedLocation,
-        disableAutomaticRecovery = base.disableAutomaticRecovery || override.disableAutomaticRecovery
+        disableAutomaticRecovery = base.disableAutomaticRecovery || override.disableAutomaticRecovery,
+        omitSeededPhotoFiles = base.omitSeededPhotoFiles || override.omitSeededPhotoFiles
     )
 
     private fun mergeFixtureOverrides(base: LaunchConfig, override: LaunchConfig): LaunchConfig = base.copy(
@@ -84,8 +93,13 @@ object LaunchConfigReader {
         autoPauseSecondsOverride = override.autoPauseSecondsOverride ?: base.autoPauseSecondsOverride,
         seedWalkPresetName = override.seedWalkPresetName ?: base.seedWalkPresetName,
         trailGraphFixtureName = override.trailGraphFixtureName ?: base.trailGraphFixtureName,
-        trailPointsScenarioName = override.trailPointsScenarioName ?: base.trailPointsScenarioName
+        trailPointsScenarioName = override.trailPointsScenarioName ?: base.trailPointsScenarioName,
+        seedPhotoCount = override.seedPhotoCount.takeIf { it > 0 } ?: base.seedPhotoCount,
+        stubPhotoLibraryCount = override.stubPhotoLibraryCount ?: base.stubPhotoLibraryCount,
+        stubPhotoLibraryAccess = override.stubPhotoLibraryAccess ?: base.stubPhotoLibraryAccess
     )
+
+    private fun parseNonNegativeInt(raw: String?): Int? = raw?.trim()?.toIntOrNull()?.takeIf { it >= 0 }
 
     private fun parsePositiveSeconds(raw: String?): Double? = raw?.trim()
         ?.toDoubleOrNull()

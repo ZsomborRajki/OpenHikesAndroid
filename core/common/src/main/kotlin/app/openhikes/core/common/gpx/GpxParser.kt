@@ -94,6 +94,11 @@ object GpxParser {
                 } else {
                     emptyList()
                 }
+                val parsedPhotos = if (hasGeometryOfItsOwn) {
+                    document.waypoints.mapNotNull(GpxTrackAssembler::parsePhoto)
+                } else {
+                    emptyList()
+                }
                 val tracks = if (grouped.size == 1) {
                     val (containerIndex, segments) = grouped.first()
                     listOf(
@@ -101,7 +106,8 @@ object GpxParser {
                             document = document,
                             words = wordsMap[containerIndex] ?: ContainerWords(),
                             segments = segments,
-                            places = parsedPlaces.take(limits.maxPlaces)
+                            places = parsedPlaces.take(limits.maxPlaces),
+                            photos = parsedPhotos.take(limits.maxPlaces)
                         )
                     )
                 } else {
@@ -110,6 +116,7 @@ object GpxParser {
                         wordsMap = wordsMap,
                         containers = grouped,
                         places = parsedPlaces,
+                        photos = parsedPhotos,
                         maxPlaces = limits.maxPlaces
                     )
                 }

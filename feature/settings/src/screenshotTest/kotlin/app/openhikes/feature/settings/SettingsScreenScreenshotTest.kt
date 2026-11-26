@@ -45,6 +45,7 @@ private fun SettingsPreviewSurface(darkTheme: Boolean) {
                         savePhotosToLibrary = false
                     ),
                     appVersion = "0.1.0 (1)",
+                    photoStorageBytes = 0L,
                     isLoaded = true
                 ),
                 onClose = {},

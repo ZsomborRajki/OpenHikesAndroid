@@ -25,7 +25,9 @@ import app.openhikes.core.common.LaunchConfigHolder
 import app.openhikes.core.designsystem.theme.OpenHikesTheme
 import app.openhikes.core.map.MapCameraTracker
 import app.openhikes.core.map.MapClaimCoordinator
+import app.openhikes.core.map.PhotoCaptureController
 import app.openhikes.core.map.RouteHighlightState
+import app.openhikes.core.map.TrailPhotosOverlayState
 import app.openhikes.core.map.TrailPlacesOverlayState
 import app.openhikes.core.map.WalkOverlayState
 import app.openhikes.core.model.AppBuildInfo
@@ -137,6 +139,8 @@ class OpenHikesLiveResizeTest {
         trailDraftOverlayState = app.openhikes.core.map.TrailDraftOverlayState(),
         mapCameraTracker = MapCameraTracker(),
         trailPlacesOverlayState = TrailPlacesOverlayState(),
+        trailPhotosOverlayState = TrailPhotosOverlayState(),
+        photoCaptureController = PhotoCaptureController(),
         mapProviderKeys = MapProviderKeys.Empty,
         launchConfigHolder = LaunchConfigHolder(launchConfig),
         defaultDispatcher = DefaultOpenHikesDispatchers().default
@@ -160,6 +164,7 @@ class OpenHikesLiveResizeTest {
         val settingsViewModel = SettingsViewModel(
             userSettingsRepository = settingsRepo,
             offlineCountryRepository = FakeOfflineCountryRepository(),
+            hikeRepository = FakeHikeRepository(),
             appBuildInfo = AppBuildInfo(versionName = "0.1.0", versionCode = 1)
         )
         return { navigator ->

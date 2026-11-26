@@ -183,6 +183,7 @@ private fun SettingsPreferenceList(
             SettingsOfflineAndPhotosSection(
                 settings = uiState.settings,
                 offlineInstalledBytes = uiState.offlineInstalledBytes,
+                photoStorageBytes = uiState.photoStorageBytes,
                 onOpenOfflineMaps = onOpenOfflineMaps,
                 onAutoSaveTilesChange = onAutoSaveTilesChange,
                 onSavePhotosToLibraryChange = onSavePhotosToLibraryChange
@@ -353,6 +354,7 @@ private fun SettingsRecordingSection(
 private fun SettingsOfflineAndPhotosSection(
     settings: UserSettings,
     offlineInstalledBytes: Long,
+    photoStorageBytes: Long?,
     onOpenOfflineMaps: () -> Unit,
     onAutoSaveTilesChange: (Boolean) -> Unit,
     onSavePhotosToLibraryChange: (Boolean) -> Unit
@@ -362,12 +364,20 @@ private fun SettingsOfflineAndPhotosSection(
     } else {
         stringResource(R.string.settings_offline_maps_empty)
     }
+    val photoStorageText = photoStorageBytes?.let(StorageSizeFormatter::formatBytes)
+        ?: stringResource(R.string.settings_photos_storage_measuring)
     SettingsSection(title = stringResource(R.string.settings_section_offline_photos)) {
         SettingsNavigationRow(
             title = stringResource(R.string.settings_offline_maps_title),
             value = storageText,
             onClick = onOpenOfflineMaps,
             testTag = OpenHikesTestTags.SETTINGS_OFFLINE_MAPS
+        )
+        SectionDivider()
+        SettingsInfoRow(
+            label = stringResource(R.string.settings_photos_storage_title),
+            value = photoStorageText,
+            testTag = OpenHikesTestTags.SETTINGS_PHOTOS_STORAGE_ROW
         )
         SectionDivider()
         SettingsSwitchRow(

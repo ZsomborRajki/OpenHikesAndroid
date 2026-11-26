@@ -7,18 +7,27 @@ import app.openhikes.core.common.TextBound
 import app.openhikes.core.common.gpx.GpxExporter
 import app.openhikes.core.common.gpx.GpxParseResult
 import app.openhikes.core.common.gpx.GpxParser
+import app.openhikes.core.common.photos.HikePhotoArchiveBuilder
+import app.openhikes.core.common.photos.ImageDataFormat
 import app.openhikes.core.data.HikeRepository
 import app.openhikes.core.model.EditedLine
 import app.openhikes.core.model.ExportedGpx
+import app.openhikes.core.model.ExportedHikeArchive
+import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.GpxImportFailure
 import app.openhikes.core.model.GpxImportResult
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeLocalState
 import app.openhikes.core.model.HikeMapRoute
+import app.openhikes.core.model.HikePhoto
+import app.openhikes.core.model.HikePhotoSearchPlan
 import app.openhikes.core.model.HikeRouteStatistics
 import app.openhikes.core.model.HikeSummary
 import app.openhikes.core.model.HikeWalk
+import app.openhikes.core.model.LibraryPhotoMatch
+import app.openhikes.core.model.PickedPhotoMetadata
+import app.openhikes.core.model.PickedPhotoPlacement
 import app.openhikes.core.model.PreparedRecording
 import app.openhikes.core.model.RouteBorder
 import app.openhikes.core.model.RouteCoordinate
@@ -34,6 +43,7 @@ import app.openhikes.core.model.TrailPlaceSymbol
 import app.openhikes.core.model.TrailPoint
 import app.openhikes.core.model.TrailWalkEndReason
 import app.openhikes.core.model.TrailWalkRecord
+import java.io.File
 import java.io.IOException
 import java.util.UUID
 import kotlin.math.max
@@ -55,6 +65,8 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
     private val uriPayloads = HashMap<String, Pair<String?, ByteArray>>()
     private val originalRoutesByHike = HashMap<HikeId, List<RouteCoordinate>>()
     private val routeEditsByHike = HashMap<HikeId, RouteEdit>()
+    private val photoBytesById = HashMap<String, ByteArray>()
+    private val pickedPhotoUriPayloads = HashMap<String, Pair<String?, ByteArray>>()
 
     var nextImportFailure: GpxImportFailure? = null
     var nextRenameFailure: Throwable? = null
@@ -67,9 +79,23 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
     var nextWalkPersistFailure: Throwable? = null
     var nextWalkFinishFailure: Throwable? = null
     var nextPlaceSaveFailure: Throwable? = null
+    var nextPhotoSaveFailure: Throwable? = null
+    var nextPhotoRemoveFailure: Throwable? = null
+    var simulatedPhotoStorageBytes: Long? = null
     var seededFixtureBytes: Pair<String, ByteArray>? = null
     var lastExportedUri: Pair<String, String>? = null
         private set
+    var lastExportedArchiveUri: Pair<String, ByteArray>? = null
+        private set
+    val mirroredCameraPhotoIds: MutableList<String> = mutableListOf()
+
+    fun putPhotoBytesForTest(photoId: String, bytes: ByteArray) {
+        photoBytesById[photoId] = bytes
+    }
+
+    fun registerPickedPhotoUriForTest(uriString: String, bytes: ByteArray, assetId: String? = null) {
+        pickedPhotoUriPayloads[uriString] = assetId to bytes
+    }
 
     override val hikes: Flow<List<HikeSummary>> = hikesState.map { list ->
         val local = localStateMap.value
@@ -144,48 +170,7 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
 
     private fun saveTracks(tracks: List<app.openhikes.core.model.GpxTrack>, fileName: String?): GpxImportResult {
         val baseIndex = hikesState.value.size
-        val imported = tracks.mapIndexed { index, track ->
-            val id = HikeId(UUID.randomUUID().toString())
-            val title = HikeTitle.imported(track.name, fileName).ifBlank { "Imported Hike" }
-            val stats = HikeRouteStatistics.from(track.distanceMeters, track.route)
-            val hike = Hike(
-                id = id,
-                title = title,
-                distanceMeters = track.distanceMeters,
-                durationSeconds = stats.durationSeconds,
-                dateEpochMillis = track.startTimeEpochMillis ?: 0L,
-                tintHex = RouteTint.forIndex(baseIndex + index),
-                routeWidthDp = HikeSummary.DEFAULT_ROUTE_WIDTH_DP,
-                linePattern = RouteLinePattern.Default,
-                routeBorderHex = RouteBorder.NONE_HEX,
-                trackDescription = track.trackDescription,
-                author = track.author,
-                keywords = track.keywords,
-                route = track.route,
-                places = track.places.mapIndexed { idx, wpt ->
-                    TrailPoint(
-                        id = "${id.value}-wpt-$idx",
-                        hikeId = id,
-                        coordinate = wpt.coordinate,
-                        elevationMeters = wpt.elevationMeters,
-                        name = wpt.name,
-                        symbol = wpt.symbol,
-                        note = wpt.note,
-                        osm = wpt.osm
-                    )
-                }
-            )
-            localStateMap.update { current ->
-                current + (
-                    id to HikeLocalState(
-                        hikeId = id,
-                        climbMeters = stats.elevationGainMeters,
-                        descentMeters = stats.elevationLossMeters
-                    )
-                    )
-            }
-            hike
-        }
+        val imported = tracks.mapIndexed { index, track -> buildFakeImportedHike(track, fileName, baseIndex + index) }
         hikesState.update { current -> imported + current }
         return GpxImportResult.Success(
             imported.map { hike ->
@@ -193,6 +178,63 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
                 hike.toSummary(state?.climbMeters, state?.descentMeters)
             }
         )
+    }
+
+    private fun buildFakeImportedHike(
+        track: app.openhikes.core.model.GpxTrack,
+        fileName: String?,
+        tintIndex: Int
+    ): Hike {
+        val id = HikeId(UUID.randomUUID().toString())
+        val title = HikeTitle.imported(track.name, fileName).ifBlank { "Imported Hike" }
+        val stats = HikeRouteStatistics.from(track.distanceMeters, track.route)
+        val hike = Hike(
+            id = id,
+            title = title,
+            distanceMeters = track.distanceMeters,
+            durationSeconds = stats.durationSeconds,
+            dateEpochMillis = track.startTimeEpochMillis ?: 0L,
+            tintHex = RouteTint.forIndex(tintIndex),
+            routeWidthDp = HikeSummary.DEFAULT_ROUTE_WIDTH_DP,
+            linePattern = RouteLinePattern.Default,
+            routeBorderHex = RouteBorder.NONE_HEX,
+            trackDescription = track.trackDescription,
+            author = track.author,
+            keywords = track.keywords,
+            route = track.route,
+            places = track.places.mapIndexed { idx, wpt ->
+                TrailPoint(
+                    id = "${id.value}-wpt-$idx",
+                    hikeId = id,
+                    coordinate = wpt.coordinate,
+                    elevationMeters = wpt.elevationMeters,
+                    name = wpt.name,
+                    symbol = wpt.symbol,
+                    note = wpt.note,
+                    osm = wpt.osm
+                )
+            },
+            photos = track.photos.mapIndexed { idx, photoWpt ->
+                HikePhoto(
+                    id = "${id.value}-photo-$idx",
+                    hikeId = id,
+                    capturedAtEpochMillis = photoWpt.capturedAtEpochMillis,
+                    coordinate = photoWpt.coordinate,
+                    importedAuthorName = photoWpt.authorName,
+                    isPlaceOnly = true
+                )
+            }
+        )
+        localStateMap.update { current ->
+            current + (
+                id to HikeLocalState(
+                    hikeId = id,
+                    climbMeters = stats.elevationGainMeters,
+                    descentMeters = stats.elevationLossMeters
+                )
+                )
+        }
+        return hike
     }
 
     override suspend fun importGpxUri(uriString: String): GpxImportResult {
@@ -616,7 +658,8 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
             routeBorderHex = existing?.routeBorderHex ?: RouteBorder.NONE_HEX,
             isRecording = false,
             route = prepared.route,
-            places = existing?.places.orEmpty()
+            places = existing?.places.orEmpty(),
+            photos = existing?.photos.orEmpty()
         )
         hikesState.update { list -> list.filterNot { it.id == hikeId } + finalized }
         localStateMap.update { map ->
@@ -781,7 +824,12 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
         hikesState.update { list ->
             list.map { hike ->
                 if (hike.id == hikeId) {
-                    hike.copy(places = hike.places.filterNot { it.id == placeId })
+                    hike.copy(
+                        places = hike.places.filterNot { it.id == placeId },
+                        photos = hike.photos.map { photo ->
+                            if (photo.placeId == placeId) photo.copy(placeId = null) else photo
+                        }
+                    )
                 } else {
                     hike
                 }
@@ -789,6 +837,249 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
         }
         return Result.success(Unit)
     }
+
+    override suspend fun addCameraPhoto(
+        hikeId: HikeId,
+        rawBytes: ByteArray,
+        capturedAtEpochMillis: Long?,
+        coordinate: GeoCoordinate?,
+        placeId: String?,
+        saveToSystemLibrary: Boolean
+    ): Result<HikePhoto> {
+        val failure = nextPhotoSaveFailure?.also { nextPhotoSaveFailure = null }
+        val target = if (failure == null) hikesState.value.firstOrNull { it.id == hikeId } else null
+        return when {
+            failure != null -> Result.failure(failure)
+            target == null -> Result.failure(NoSuchElementException("Hike not found"))
+            else -> {
+                val resolvedPlaceId = placeId?.takeIf { id -> target.places.any { it.id == id } }
+                val photo = HikePhoto(
+                    id = UUID.randomUUID().toString(),
+                    hikeId = hikeId,
+                    capturedAtEpochMillis = capturedAtEpochMillis ?: System.currentTimeMillis(),
+                    pathExtension = HikePhoto.DEFAULT_PATH_EXTENSION,
+                    coordinate = coordinate,
+                    placeId = resolvedPlaceId
+                )
+                photoBytesById[photo.id] = rawBytes
+                hikesState.update { list ->
+                    list.map { hike -> if (hike.id == hikeId) hike.copy(photos = hike.photos + photo) else hike }
+                }
+                if (saveToSystemLibrary) {
+                    mirroredCameraPhotoIds.add(photo.id)
+                }
+                Result.success(photo)
+            }
+        }
+    }
+
+    override suspend fun addPickedPhoto(
+        hikeId: HikeId,
+        bytes: ByteArray,
+        assetLocalIdentifier: String?,
+        fallbackCoordinate: GeoCoordinate?,
+        placeId: String?
+    ): Result<HikePhoto> {
+        val failure = nextPhotoSaveFailure?.also { nextPhotoSaveFailure = null }
+        val extension = if (failure == null) ImageDataFormat.detectExtension(bytes) else null
+        val target = if (failure == null && extension != null) {
+            hikesState.value.firstOrNull { it.id == hikeId }
+        } else {
+            null
+        }
+        return when {
+            failure != null -> Result.failure(failure)
+            extension == null -> Result.failure(IOException("Unsupported image format"))
+            target == null -> Result.failure(NoSuchElementException("Hike not found"))
+            else -> commitFakePickedPhoto(
+                target = target,
+                bytes = bytes,
+                extension = extension,
+                assetLocalIdentifier = assetLocalIdentifier,
+                fallbackCoordinate = fallbackCoordinate,
+                placeId = placeId
+            )
+        }
+    }
+
+    private fun commitFakePickedPhoto(
+        target: Hike,
+        bytes: ByteArray,
+        extension: String,
+        assetLocalIdentifier: String?,
+        fallbackCoordinate: GeoCoordinate?,
+        placeId: String?
+    ): Result<HikePhoto> {
+        val existing = assetLocalIdentifier?.let { assetId ->
+            target.photos.firstOrNull { it.assetLocalIdentifier == assetId }
+        }
+        val resolvedPlaceId = placeId?.takeIf { id -> target.places.any { it.id == id } }
+        return if (existing != null) {
+            val resultPhoto = if (resolvedPlaceId != null && existing.placeId != resolvedPlaceId) {
+                val updated = existing.copy(placeId = resolvedPlaceId)
+                hikesState.update { list ->
+                    list.map { hike ->
+                        if (hike.id == target.id) {
+                            hike.copy(photos = hike.photos.map { if (it.id == existing.id) updated else it })
+                        } else {
+                            hike
+                        }
+                    }
+                }
+                updated
+            } else {
+                existing
+            }
+            Result.success(resultPhoto)
+        } else {
+            val walks = walksState.value.filter { it.hikeId == target.id }
+            val plan = if (placeId == null) {
+                HikePhotoSearchPlan.build(route = target.route, walks = walks, profileRoute = true)
+            } else {
+                null
+            }
+            val resolution = PickedPhotoPlacement.resolve(
+                metadata = PickedPhotoMetadata(),
+                plan = plan,
+                fallbackCoordinate = fallbackCoordinate,
+                nowEpochMillis = System.currentTimeMillis()
+            )
+            val photo = HikePhoto(
+                id = UUID.randomUUID().toString(),
+                hikeId = target.id,
+                capturedAtEpochMillis = resolution.capturedAtEpochMillis,
+                pathExtension = extension,
+                coordinate = resolution.coordinate,
+                assetLocalIdentifier = assetLocalIdentifier,
+                matchEvidence = resolution.matchEvidence,
+                placeId = resolvedPlaceId
+            )
+            photoBytesById[photo.id] = bytes
+            hikesState.update { list ->
+                list.map { hike -> if (hike.id == target.id) hike.copy(photos = hike.photos + photo) else hike }
+            }
+            Result.success(photo)
+        }
+    }
+
+    override suspend fun addPickedPhotoUri(
+        hikeId: HikeId,
+        uriString: String,
+        fallbackCoordinate: GeoCoordinate?,
+        placeId: String?
+    ): Result<HikePhoto> {
+        val (assetId, bytes) = pickedPhotoUriPayloads[uriString]
+            ?: return Result.failure(IOException("Unable to read picked photo URI"))
+        return addPickedPhoto(hikeId, bytes, assetId, fallbackCoordinate, placeId)
+    }
+
+    override suspend fun addDiscoveredPhoto(
+        hikeId: HikeId,
+        bytes: ByteArray,
+        match: LibraryPhotoMatch,
+        expectedPlanFingerprint: Long
+    ): Result<HikePhoto?> {
+        val failure = nextPhotoSaveFailure?.also { nextPhotoSaveFailure = null }
+        val target = if (failure == null) hikesState.value.firstOrNull { it.id == hikeId } else null
+        return when {
+            failure != null -> Result.failure(failure)
+            target == null -> Result.failure(NoSuchElementException("Hike not found"))
+            else -> commitFakeDiscoveredPhoto(target, bytes, match, expectedPlanFingerprint)
+        }
+    }
+
+    private fun commitFakeDiscoveredPhoto(
+        target: Hike,
+        bytes: ByteArray,
+        match: LibraryPhotoMatch,
+        expectedPlanFingerprint: Long
+    ): Result<HikePhoto?> {
+        val walks = walksState.value.filter { it.hikeId == target.id }
+        val currentFingerprint = HikePhotoSearchPlan.fingerprint(target.route, walks)
+        val existing = target.photos.firstOrNull { it.assetLocalIdentifier == match.asset.localIdentifier }
+        return when {
+            currentFingerprint != expectedPlanFingerprint -> Result.success(null)
+            existing != null -> Result.success(existing)
+            else -> {
+                val extension = ImageDataFormat.detectExtension(bytes) ?: HikePhoto.DEFAULT_PATH_EXTENSION
+                val photo = HikePhoto(
+                    id = UUID.randomUUID().toString(),
+                    hikeId = target.id,
+                    capturedAtEpochMillis = match.asset.createdAtEpochMillis,
+                    pathExtension = extension,
+                    coordinate = match.coordinate,
+                    assetLocalIdentifier = match.asset.localIdentifier,
+                    matchEvidence = match.evidence
+                )
+                photoBytesById[photo.id] = bytes
+                hikesState.update { list ->
+                    list.map { hike -> if (hike.id == target.id) hike.copy(photos = hike.photos + photo) else hike }
+                }
+                Result.success(photo)
+            }
+        }
+    }
+
+    override suspend fun removePhoto(hikeId: HikeId, photoId: String): Result<Unit> {
+        nextPhotoRemoveFailure?.let {
+            nextPhotoRemoveFailure = null
+            return Result.failure(it)
+        }
+        photoBytesById.remove(photoId)
+        hikesState.update { list ->
+            list.map { hike ->
+                if (hike.id == hikeId) {
+                    hike.copy(photos = hike.photos.filterNot { it.id == photoId })
+                } else {
+                    hike
+                }
+            }
+        }
+        return Result.success(Unit)
+    }
+
+    override suspend fun readPhotoBytes(photo: HikePhoto): ByteArray? =
+        if (photo.recordsPlaceOnly) null else photoBytesById[photo.id]
+
+    override suspend fun readPhotoThumbnailBytes(photo: HikePhoto): ByteArray? = readPhotoBytes(photo)
+
+    override suspend fun hasPhotoFile(photo: HikePhoto): Boolean =
+        !photo.recordsPlaceOnly && photoBytesById.containsKey(photo.id)
+
+    override suspend fun prepareSharePhotoFile(
+        hikeTitle: String,
+        positionOneBased: Int,
+        photo: HikePhoto
+    ): Result<File> {
+        val bytes = readPhotoBytes(photo)
+            ?: return Result.failure(IOException("Photo file is not on this device"))
+        val temp = File.createTempFile("share-$positionOneBased-", ".${photo.pathExtension}")
+        temp.writeBytes(bytes)
+        return Result.success(temp)
+    }
+
+    override suspend fun exportHikeArchive(hikeId: HikeId): Result<ExportedHikeArchive> {
+        val failure = nextExportFailure?.also { nextExportFailure = null }
+        val hike = if (failure == null) hikesState.value.firstOrNull { it.id == hikeId } else null
+        return when {
+            failure != null -> Result.failure(failure)
+            hike != null -> Result.success(
+                HikePhotoArchiveBuilder.build(hike = hike, readPhotoBytes = { photoBytesById[it.id] })
+            )
+            else -> Result.failure(NoSuchElementException("Hike not found"))
+        }
+    }
+
+    override suspend fun exportHikeArchiveToUri(hikeId: HikeId, uriString: String): Result<Unit> {
+        val archive = exportHikeArchive(hikeId).getOrElse { return Result.failure(it) }
+        lastExportedArchiveUri = uriString to archive.zipBytes
+        return Result.success(Unit)
+    }
+
+    override suspend fun measurePhotoStorageBytes(): Long =
+        simulatedPhotoStorageBytes ?: photoBytesById.values.sumOf { it.size.toLong() }
+
+    override suspend fun reclaimOrphanedPhotos(): Result<Int> = Result.success(0)
 
     override suspend fun seedFixtureIfConfigured(): HikeId? {
         val (fileName, bytes) = seededFixtureBytes ?: return null

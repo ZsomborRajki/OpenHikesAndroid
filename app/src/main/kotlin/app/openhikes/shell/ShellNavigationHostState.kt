@@ -27,9 +27,9 @@ import app.openhikes.core.model.HikeId
 import app.openhikes.core.ui.navigation.AddHikePlaceRoute
 import app.openhikes.core.ui.navigation.EntryProviderInstaller
 import app.openhikes.core.ui.navigation.HikeDetailRoute
+import app.openhikes.core.ui.navigation.HikePhotoViewerRoute
 import app.openhikes.core.ui.navigation.MapHomeRoute
 import app.openhikes.core.ui.navigation.MapModesRoute
-import app.openhikes.core.ui.navigation.OfflineMapsRoute
 import app.openhikes.core.ui.navigation.OpenHikesNavigator
 import app.openhikes.core.ui.navigation.OpenHikesRoute
 import app.openhikes.core.ui.navigation.RecordingAddPlaceRoute
@@ -42,6 +42,7 @@ internal data class ShellNavigationHostState(
     val sheetDetent: SheetDetent,
     val isMapModesOpen: Boolean,
     val isCenterPlacementActive: Boolean,
+    val isPhotoViewerCoveringMap: Boolean,
     val showTrailMakerButton: Boolean,
     val showAddPlaceButton: Boolean,
     val onDetentChange: (SheetDetent) -> Unit,
@@ -69,10 +70,12 @@ private data class ShellNavActions(
 )
 
 @Stable
-private class ShellNavControllers(
+internal class ShellNavControllers(
     val sheetDetentState: MutableState<SheetDetent>,
     val detentBeforeSettingsState: MutableState<SheetDetent?>,
     val detentBeforeMapModesState: MutableState<SheetDetent?>,
+    val detentBeforePhotoViewerState: MutableState<SheetDetent?>,
+    val isPhotoViewerExpandedState: MutableState<Boolean>,
     val isSearchActiveState: MutableState<Boolean>,
     val backStack: NavBackStack<NavKey>,
     val navigator: OpenHikesNavigator
@@ -95,6 +98,18 @@ private class ShellNavControllers(
             detentBeforeMapModesState.value = value
         }
 
+    var detentBeforePhotoViewer: SheetDetent?
+        get() = detentBeforePhotoViewerState.value
+        set(value) {
+            detentBeforePhotoViewerState.value = value
+        }
+
+    var isPhotoViewerExpanded: Boolean
+        get() = isPhotoViewerExpandedState.value
+        set(value) {
+            isPhotoViewerExpandedState.value = value
+        }
+
     var isSearchActive: Boolean
         get() = isSearchActiveState.value
         set(value) {
@@ -109,15 +124,30 @@ private fun rememberShellNavControllers(startsWithExpandedSheet: Boolean): Shell
     }
     val detentBeforeSettingsState = rememberSaveable { mutableStateOf<SheetDetent?>(null) }
     val detentBeforeMapModesState = rememberSaveable { mutableStateOf<SheetDetent?>(null) }
+    val detentBeforePhotoViewerState = rememberSaveable { mutableStateOf<SheetDetent?>(null) }
+    val isPhotoViewerExpandedState = rememberSaveable { mutableStateOf(true) }
     val isSearchActiveState = rememberSaveable { mutableStateOf(false) }
     val backStack = rememberNavBackStack(MapHomeRoute)
     val navigator = remember(backStack) {
-        OpenHikesNavigator(backStack, onCollapseSheet = { sheetDetentState.value = SheetDetent.PEEK })
+        OpenHikesNavigator(
+            backStack = backStack,
+            onCollapseSheet = { sheetDetentState.value = SheetDetent.PEEK },
+            onRevealMap = {
+                isPhotoViewerExpandedState.value = false
+                sheetDetentState.value = SheetDetent.HALF
+            },
+            onExpandFullHeight = {
+                isPhotoViewerExpandedState.value = true
+                sheetDetentState.value = SheetDetent.EXPANDED
+            }
+        )
     }
     return remember(
         sheetDetentState,
         detentBeforeSettingsState,
         detentBeforeMapModesState,
+        detentBeforePhotoViewerState,
+        isPhotoViewerExpandedState,
         isSearchActiveState,
         backStack,
         navigator
@@ -126,6 +156,8 @@ private fun rememberShellNavControllers(startsWithExpandedSheet: Boolean): Shell
             sheetDetentState = sheetDetentState,
             detentBeforeSettingsState = detentBeforeSettingsState,
             detentBeforeMapModesState = detentBeforeMapModesState,
+            detentBeforePhotoViewerState = detentBeforePhotoViewerState,
+            isPhotoViewerExpandedState = isPhotoViewerExpandedState,
             isSearchActiveState = isSearchActiveState,
             backStack = backStack,
             navigator = navigator
@@ -196,6 +228,7 @@ internal fun rememberShellNavigationHost(
         sheetDetent = controllers.sheetDetent,
         isMapModesOpen = topRoute == MapModesRoute,
         isCenterPlacementActive = topRoute is AddHikePlaceRoute,
+        isPhotoViewerCoveringMap = topRoute is HikePhotoViewerRoute && controllers.isPhotoViewerExpanded,
         showTrailMakerButton = controllers.backStack.size <= 1,
         showAddPlaceButton = showAddPlaceButton,
         onDetentChange = { next ->
@@ -375,44 +408,13 @@ private fun CoordinateShellNavigation(
     onExitSearch: () -> Unit
 ) {
     KeepPlacementSheetHalfDetent(controllers)
-    LaunchedEffect(openRecordingRequestCount) {
-        if (openRecordingRequestCount > 0) {
-            if (controllers.isSearchActive) onExitSearch()
-            if (controllers.sheetDetent == SheetDetent.PEEK) controllers.sheetDetent = SheetDetent.HALF
-            if (controllers.backStack.lastOrNull() != RecordingRoute) {
-                controllers.navigator.navigate(RecordingRoute)
-            }
-        }
-    }
-    LaunchedEffect(openWalkHikeRequest) {
-        val targetHikeId = openWalkHikeRequest?.second ?: return@LaunchedEffect
-        if (controllers.isSearchActive) onExitSearch()
-        if (controllers.sheetDetent == SheetDetent.PEEK) controllers.sheetDetent = SheetDetent.HALF
-        val targetRoute = HikeDetailRoute(targetHikeId)
-        if (controllers.backStack.lastOrNull() != targetRoute) {
-            controllers.navigator.navigate(targetRoute)
-        }
-    }
-    LaunchedEffect(controllers.backStack.toList()) {
-        val currentStack = controllers.backStack.toList()
-        onSyncBackStack(currentStack)
-        val top = currentStack.lastOrNull()
-        if (MapModesRoute !in currentStack) {
-            val previousDetent = controllers.detentBeforeMapModes
-            if (previousDetent != null) {
-                if (top !is OfflineMapsRoute) {
-                    controllers.sheetDetent = previousDetent
-                }
-                controllers.detentBeforeMapModes = null
-            }
-        }
-        if (top == MapHomeRoute) {
-            controllers.detentBeforeSettings?.let { previous ->
-                controllers.sheetDetent = previous
-                controllers.detentBeforeSettings = null
-            }
-        }
-    }
+    HandleExternalNavigationRequests(
+        controllers = controllers,
+        openRecordingRequestCount = openRecordingRequestCount,
+        openWalkHikeRequest = openWalkHikeRequest,
+        onExitSearch = onExitSearch
+    )
+    SyncShellBackStackEffect(controllers = controllers, onSyncBackStack = onSyncBackStack)
     ShellBackHandlers(
         canPop = controllers.navigator.canPop,
         showAttributionDialog = showAttributionDialog,

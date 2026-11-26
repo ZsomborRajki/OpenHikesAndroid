@@ -14,6 +14,8 @@ import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.map.MapPlacePin
 import app.openhikes.core.map.MapSearchAreaPillState
 import app.openhikes.core.map.MapTrailPlacesOverlay
+import app.openhikes.core.map.PhotoCaptureController
+import app.openhikes.core.map.PhotoCaptureSubject
 import app.openhikes.core.map.TrailPlacesClaim
 import app.openhikes.core.map.TrailPlacesMapInteractionHandler
 import app.openhikes.core.map.TrailPlacesOverlayState
@@ -22,6 +24,8 @@ import app.openhikes.core.model.GeoBoundingBox
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.HikePhoto
+import app.openhikes.core.model.OrderedHikePhotos
 import app.openhikes.core.model.PlaceSearchOutage
 import app.openhikes.core.model.TrailPlaceAroundListing
 import app.openhikes.core.model.TrailPlaceCorridorSearch
@@ -66,7 +70,12 @@ enum class PlacesAroundPhase {
 }
 
 @Immutable
-data class SelectedAroundCard(val row: TrailPlaceRow, val isOnHike: Boolean, val wikidataPlace: WikidataPlace? = null)
+data class SelectedAroundCard(
+    val row: TrailPlaceRow,
+    val isOnHike: Boolean,
+    val wikidataPlace: WikidataPlace? = null,
+    val photos: List<HikePhoto> = emptyList()
+)
 
 @Immutable
 data class PlacesAroundUiState(
@@ -92,6 +101,7 @@ class PlacesAroundViewModel @AssistedInject constructor(
     private val mapClaimCoordinator: MapClaimCoordinator,
     private val mapCameraTracker: MapCameraTracker,
     private val trailPlacesOverlayState: TrailPlacesOverlayState,
+    private val photoCaptureController: PhotoCaptureController,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
 ) : ViewModel() {
     @AssistedFactory
@@ -123,15 +133,16 @@ class PlacesAroundViewModel @AssistedInject constructor(
 
     @OptIn(ExperimentalCoroutinesApi::class)
     private val heldPlacesFlow = hikeRepository.observeHike(hikeId)
-        .map { hike -> hike?.let { it.places to it.route } }
+        .map { hike -> hike?.let { Triple(it.places, it.route, it.photos) } }
         .distinctUntilChanged()
-        .mapLatest { pair ->
-            if (pair == null) {
+        .mapLatest { triple ->
+            if (triple == null) {
                 HeldPlacesSnapshot()
             } else {
                 HeldPlacesSnapshot(
-                    places = pair.first,
-                    rows = TrailPlaceOrder.ordered(pair.first, pair.second)
+                    places = triple.first,
+                    rows = TrailPlaceOrder.ordered(triple.first, triple.second),
+                    photos = triple.third
                 )
             }
         }
@@ -162,7 +173,13 @@ class PlacesAroundViewModel @AssistedInject constructor(
             held = heldSnapshot.places
         )
         val listing = TrailPlaceAroundListing.from(held = heldRows, candidates = candidates)
-        val selectedCard = resolveSelectedCard(sel.selectedId, heldRows, search.found, sel.wikidata)
+        val selectedCard = resolveSelectedCard(
+            selectedId = sel.selectedId,
+            heldRows = heldRows,
+            foundRows = search.found,
+            wikidata = sel.wikidata,
+            hikePhotos = heldSnapshot.photos
+        )
         publishMapClaim(
             heldRows = heldRows,
             candidates = candidates,
@@ -272,6 +289,34 @@ class PlacesAroundViewModel @AssistedInject constructor(
     fun onCloseCard() {
         selectedIdState.value = null
     }
+
+    fun onTakeCardPhoto(placeId: String, coordinate: GeoCoordinate) {
+        photoCaptureController.requestCamera(
+            PhotoCaptureSubject(
+                routeKey = routeKey,
+                depth = INITIAL_CLAIM_DEPTH,
+                hikeId = hikeId,
+                placeId = placeId,
+                showFloatingMapButtons = false,
+                anchorProvider = { coordinate }
+            )
+        )
+    }
+
+    fun onAddCardPhotos(placeId: String, coordinate: GeoCoordinate) {
+        photoCaptureController.requestLibrary(
+            PhotoCaptureSubject(
+                routeKey = routeKey,
+                depth = INITIAL_CLAIM_DEPTH,
+                hikeId = hikeId,
+                placeId = placeId,
+                showFloatingMapButtons = false,
+                anchorProvider = { coordinate }
+            )
+        )
+    }
+
+    suspend fun loadPhotoThumbnailBytes(photo: HikePhoto): ByteArray? = hikeRepository.readPhotoThumbnailBytes(photo)
 
     fun onDismissSaveRefusal() {
         showSaveRefusalState.value = false
@@ -417,7 +462,8 @@ class PlacesAroundViewModel @AssistedInject constructor(
         selectedId: String?,
         heldRows: List<TrailPlaceRow>,
         foundRows: List<TrailPlaceRow>,
-        wikidata: WikidataPlace?
+        wikidata: WikidataPlace?,
+        hikePhotos: List<HikePhoto>
     ): SelectedAroundCard? {
         val pair = selectedId?.let { id ->
             heldRows.firstOrNull { it.id == id }?.let { it to true }
@@ -430,10 +476,16 @@ class PlacesAroundViewModel @AssistedInject constructor(
         }
         return pair?.let { (row, isOnHike) ->
             val item = row.place.osm?.wikidata
+            val cardPhotos = if (isOnHike) {
+                OrderedHikePhotos.from(hikePhotos.filter { it.placeId == row.id }).photos
+            } else {
+                emptyList()
+            }
             SelectedAroundCard(
                 row = row,
                 isOnHike = isOnHike,
-                wikidataPlace = item?.let { wikidata?.takeIf { loaded -> loaded.item == it } }
+                wikidataPlace = item?.let { wikidata?.takeIf { loaded -> loaded.item == it } },
+                photos = cardPhotos
             )
         }
     }
@@ -489,7 +541,8 @@ class PlacesAroundViewModel @AssistedInject constructor(
 
     private data class HeldPlacesSnapshot(
         val places: List<TrailPoint> = emptyList(),
-        val rows: List<TrailPlaceRow> = emptyList()
+        val rows: List<TrailPlaceRow> = emptyList(),
+        val photos: List<HikePhoto> = emptyList()
     )
 
     private data class SearchAccumulator(

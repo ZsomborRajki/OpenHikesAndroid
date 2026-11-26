@@ -6,12 +6,15 @@ import androidx.lifecycle.viewModelScope
 import app.openhikes.core.common.BoundedText
 import app.openhikes.core.common.TextBound
 import app.openhikes.core.data.HikeRepository
+import app.openhikes.core.data.UserSettingsRepository
 import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapCameraTracker
 import app.openhikes.core.map.MapClaim
 import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.map.MapPlacePin
 import app.openhikes.core.map.MapTrailPlacesOverlay
+import app.openhikes.core.map.PhotoCaptureController
+import app.openhikes.core.map.PhotoCaptureSubject
 import app.openhikes.core.map.TrailPlacesClaim
 import app.openhikes.core.map.TrailPlacesMapInteractionHandler
 import app.openhikes.core.map.TrailPlacesOverlayState
@@ -24,11 +27,13 @@ import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.io.IOException
 import java.util.UUID
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -38,10 +43,15 @@ data class AddHikePlaceUiState(
     val symbol: TrailPlaceSymbol? = TrailPlaceSymbol.VIEWPOINT,
     val note: String = "",
     val coordinate: GeoCoordinate,
+    val stagedPhotos: List<StagedPlacePhoto> = emptyList(),
+    val isStagingPhoto: Boolean = false,
     val isSaving: Boolean = false,
     val showSaveRefusal: Boolean = false,
     val addedPlaceId: String? = null
 ) {
+    val canConfirmAdd: Boolean
+        get() = !isSaving && !isStagingPhoto
+
     fun displayName(unnamedFallback: String, symbolLabelProvider: (TrailPlaceSymbol) -> String): String {
         val typed = name.trim()
         return typed.ifEmpty { symbol?.let(symbolLabelProvider) ?: unnamedFallback }
@@ -50,18 +60,20 @@ data class AddHikePlaceUiState(
 
 /**
  * ViewModel for [AddHikePlaceRoute] holding the new place draft, fixed center placement pin,
- * and live coordinate tracking as the hiker pans the map under the pin.
+ * in-memory staged photos, and live coordinate tracking as the hiker pans the map under the pin.
  */
-@Suppress("LongParameterList")
+@Suppress("LongParameterList", "TooManyFunctions")
 @HiltViewModel(assistedFactory = AddHikePlaceViewModel.Factory::class)
 class AddHikePlaceViewModel @AssistedInject constructor(
     @Assisted("hikeId") rawHikeId: String,
     @Assisted("lat") initialLatitude: Double,
     @Assisted("lon") initialLongitude: Double,
     private val hikeRepository: HikeRepository,
+    private val userSettingsRepository: UserSettingsRepository,
     private val mapClaimCoordinator: MapClaimCoordinator,
     private val mapCameraTracker: MapCameraTracker,
-    private val trailPlacesOverlayState: TrailPlacesOverlayState
+    private val trailPlacesOverlayState: TrailPlacesOverlayState,
+    private val photoCaptureController: PhotoCaptureController
 ) : ViewModel() {
     @AssistedFactory
     interface Factory {
@@ -101,6 +113,15 @@ class AddHikePlaceViewModel @AssistedInject constructor(
         mapClaimCoordinator.registerClaim(
             MapClaim(routeKey = routeKey, depth = INITIAL_CLAIM_DEPTH, selectedHikeId = hikeId)
         )
+        photoCaptureController.registerSubject(
+            PhotoCaptureSubject(
+                routeKey = routeKey,
+                depth = INITIAL_CLAIM_DEPTH,
+                hikeId = hikeId,
+                placeId = null,
+                showFloatingMapButtons = false
+            )
+        )
         mapClaimCoordinator.requestCameraCommand(
             routeKey = routeKey,
             command = MapCameraCommand.MoveTo(
@@ -116,7 +137,40 @@ class AddHikePlaceViewModel @AssistedInject constructor(
 
     override fun onCleared() {
         trailPlacesOverlayState.clearClaim(routeKey)
+        photoCaptureController.releaseSubject(routeKey)
         mapClaimCoordinator.releaseClaim(routeKey)
+    }
+
+    fun onSetStagingPhoto(busy: Boolean) {
+        uiStateFlow.update { it.copy(isStagingPhoto = busy) }
+    }
+
+    fun onStageCameraPhoto(bytes: ByteArray, capturedAtEpochMillis: Long?) {
+        val staged = StagedPlacePhoto(
+            id = UUID.randomUUID().toString(),
+            bytes = bytes,
+            capturedAtEpochMillis = capturedAtEpochMillis,
+            fromCamera = true
+        )
+        uiStateFlow.update { it.copy(stagedPhotos = it.stagedPhotos + staged, isStagingPhoto = false) }
+    }
+
+    fun onStageLibraryPhotos(bytesList: List<ByteArray>) {
+        val additions = bytesList.map { bytes ->
+            StagedPlacePhoto(
+                id = UUID.randomUUID().toString(),
+                bytes = bytes,
+                capturedAtEpochMillis = null,
+                fromCamera = false
+            )
+        }
+        uiStateFlow.update { it.copy(stagedPhotos = it.stagedPhotos + additions, isStagingPhoto = false) }
+    }
+
+    fun onRemoveStagedPhoto(stagedId: String) {
+        uiStateFlow.update { current ->
+            current.copy(stagedPhotos = current.stagedPhotos.filterNot { it.id == stagedId })
+        }
     }
 
     fun onNameChange(name: String) {
@@ -145,7 +199,7 @@ class AddHikePlaceViewModel @AssistedInject constructor(
 
     fun onConfirmAdd(currentKindLabel: String) {
         val current = uiStateFlow.value
-        if (current.isSaving) return
+        if (!current.canConfirmAdd) return
         val boundedName = BoundedText.boundedOrEmpty(current.name, TextBound.TITLE)
         val storedName = if (boundedName == currentKindLabel) "" else boundedName
         val newPlace = TrailPoint(
@@ -156,13 +210,44 @@ class AddHikePlaceViewModel @AssistedInject constructor(
             symbol = current.symbol?.rawValue,
             note = BoundedText.boundedOrEmpty(current.note, TextBound.NOTES)
         )
+        val stagedSnapshot = current.stagedPhotos
         uiStateFlow.update { it.copy(isSaving = true, showSaveRefusal = false) }
         viewModelScope.launch {
             val result = hikeRepository.addPlace(hikeId, newPlace)
             if (result.isSuccess) {
-                uiStateFlow.update { it.copy(isSaving = false, addedPlaceId = newPlace.id) }
+                commitStagedPhotos(newPlace, stagedSnapshot)
+                uiStateFlow.update { it.copy(isSaving = false, stagedPhotos = emptyList(), addedPlaceId = newPlace.id) }
             } else {
                 uiStateFlow.update { it.copy(isSaving = false, showSaveRefusal = true) }
+            }
+        }
+    }
+
+    private suspend fun commitStagedPhotos(place: TrailPoint, staged: List<StagedPlacePhoto>) {
+        if (staged.isEmpty()) return
+        val saveToLibrary = try {
+            userSettingsRepository.userSettings.first().savePhotosToLibrary
+        } catch (_: IOException) {
+            false
+        }
+        for (item in staged) {
+            if (item.fromCamera) {
+                hikeRepository.addCameraPhoto(
+                    hikeId = hikeId,
+                    rawBytes = item.bytes,
+                    capturedAtEpochMillis = item.capturedAtEpochMillis,
+                    coordinate = place.coordinate,
+                    placeId = place.id,
+                    saveToSystemLibrary = saveToLibrary
+                )
+            } else {
+                hikeRepository.addPickedPhoto(
+                    hikeId = hikeId,
+                    bytes = item.bytes,
+                    assetLocalIdentifier = null,
+                    fallbackCoordinate = place.coordinate,
+                    placeId = place.id
+                )
             }
         }
     }

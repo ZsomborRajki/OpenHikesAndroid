@@ -75,6 +75,17 @@
         <item quantity="other">%1$s · %2$d points</item>
     </plurals>
     <string name="hike_detail_section_on_map">On the Map</string>
+    <string name="hike_detail_section_photos">Photos</string>
+    <string name="hike_detail_find_photos">Find Photos of This Hike</string>
+    <string name="hike_detail_share_with_photos">Share Hike with Photos</string>
+    <string name="hike_detail_photos_caption_untimed">This trail doesn’t have timestamps yet. Walk it or take photos along the way to pin them here.</string>
+    <string name="hike_detail_photos_caption_can_match_empty">Find photos from your library that match when you walked this trail.</string>
+    <string name="hike_detail_photos_caption_all_pinned">Pinned along the trail.</string>
+    <string name="hike_detail_photos_caption_none_pinned">Photos are saved here without a trail spot.</string>
+    <plurals name="hike_detail_photos_caption_some_pinned">
+        <item quantity="one">%1$d of %2$d pinned along the trail.</item>
+        <item quantity="other">%1$d of %2$d pinned along the trail.</item>
+    </plurals>
     <string name="hike_detail_section_places">Places</string>
     <string name="hike_detail_places_pins_label">Pins</string>
     <string name="hike_detail_places_pins_toggle_description">Show place pins on map</string>

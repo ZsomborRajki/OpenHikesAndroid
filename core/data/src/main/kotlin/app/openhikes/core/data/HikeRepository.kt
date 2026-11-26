@@ -2,13 +2,17 @@ package app.openhikes.core.data
 
 import app.openhikes.core.model.EditedLine
 import app.openhikes.core.model.ExportedGpx
+import app.openhikes.core.model.ExportedHikeArchive
+import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.GpxImportResult
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeLocalState
 import app.openhikes.core.model.HikeMapRoute
+import app.openhikes.core.model.HikePhoto
 import app.openhikes.core.model.HikeSummary
 import app.openhikes.core.model.HikeWalk
+import app.openhikes.core.model.LibraryPhotoMatch
 import app.openhikes.core.model.PreparedRecording
 import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteEditOutcome
@@ -18,6 +22,7 @@ import app.openhikes.core.model.TrailPlaceSymbol
 import app.openhikes.core.model.TrailPoint
 import app.openhikes.core.model.TrailWalkEndReason
 import app.openhikes.core.model.TrailWalkRecord
+import java.io.File
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -106,6 +111,55 @@ interface HikeRepository {
     ): Result<Boolean>
 
     suspend fun removePlace(hikeId: HikeId, placeId: String): Result<Unit>
+
+    suspend fun addCameraPhoto(
+        hikeId: HikeId,
+        rawBytes: ByteArray,
+        capturedAtEpochMillis: Long? = null,
+        coordinate: GeoCoordinate? = null,
+        placeId: String? = null,
+        saveToSystemLibrary: Boolean = false
+    ): Result<HikePhoto>
+
+    suspend fun addPickedPhoto(
+        hikeId: HikeId,
+        bytes: ByteArray,
+        assetLocalIdentifier: String? = null,
+        fallbackCoordinate: GeoCoordinate? = null,
+        placeId: String? = null
+    ): Result<HikePhoto>
+
+    suspend fun addPickedPhotoUri(
+        hikeId: HikeId,
+        uriString: String,
+        fallbackCoordinate: GeoCoordinate? = null,
+        placeId: String? = null
+    ): Result<HikePhoto>
+
+    suspend fun addDiscoveredPhoto(
+        hikeId: HikeId,
+        bytes: ByteArray,
+        match: LibraryPhotoMatch,
+        expectedPlanFingerprint: Long
+    ): Result<HikePhoto?>
+
+    suspend fun removePhoto(hikeId: HikeId, photoId: String): Result<Unit>
+
+    suspend fun readPhotoBytes(photo: HikePhoto): ByteArray?
+
+    suspend fun readPhotoThumbnailBytes(photo: HikePhoto): ByteArray?
+
+    suspend fun hasPhotoFile(photo: HikePhoto): Boolean
+
+    suspend fun prepareSharePhotoFile(hikeTitle: String, positionOneBased: Int, photo: HikePhoto): Result<File>
+
+    suspend fun exportHikeArchive(hikeId: HikeId): Result<ExportedHikeArchive>
+
+    suspend fun exportHikeArchiveToUri(hikeId: HikeId, uriString: String): Result<Unit>
+
+    suspend fun measurePhotoStorageBytes(): Long
+
+    suspend fun reclaimOrphanedPhotos(): Result<Int>
 
     suspend fun seedFixtureIfConfigured(): HikeId?
 }

@@ -9,7 +9,9 @@ import app.openhikes.core.location.TrailWalkPermissionIssue
 import app.openhikes.core.location.TrailWalkProgressState
 import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapClaimCoordinator
+import app.openhikes.core.map.PhotoCaptureController
 import app.openhikes.core.map.RouteHighlightState
+import app.openhikes.core.map.TrailPhotosOverlayState
 import app.openhikes.core.map.TrailPlacesOverlayState
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
@@ -248,6 +250,8 @@ class HikeDetailViewModelTest {
         coordinator: MapClaimCoordinator = MapClaimCoordinator(),
         highlightState: RouteHighlightState = RouteHighlightState(),
         trailPlacesOverlayState: TrailPlacesOverlayState = TrailPlacesOverlayState(),
+        trailPhotosOverlayState: TrailPhotosOverlayState = TrailPhotosOverlayState(),
+        photoCaptureController: PhotoCaptureController = PhotoCaptureController(),
         trailPointSource: TrailPointSource = FakeTrailPointSource(),
         launchConfigHolder: LaunchConfigHolder = LaunchConfigHolder(LaunchConfig(enableSimulatedLocation = true))
     ): HikeDetailViewModel = HikeDetailViewModel(
@@ -260,6 +264,8 @@ class HikeDetailViewModelTest {
         mapClaimCoordinator = coordinator,
         routeHighlightState = highlightState,
         trailPlacesOverlayState = trailPlacesOverlayState,
+        trailPhotosOverlayState = trailPhotosOverlayState,
+        photoCaptureController = photoCaptureController,
         trailPointSource = trailPointSource,
         mapProviderKeys = mapProviderKeys,
         launchConfigHolder = launchConfigHolder,

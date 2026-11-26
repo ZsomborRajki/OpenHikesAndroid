@@ -14,12 +14,16 @@ import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.map.MapPlacePin
 import app.openhikes.core.map.MapSearchAreaPillState
 import app.openhikes.core.map.MapTrailPlacesOverlay
+import app.openhikes.core.map.PhotoCaptureController
+import app.openhikes.core.map.PhotoCaptureSubject
 import app.openhikes.core.map.TrailPlacesClaim
 import app.openhikes.core.map.TrailPlacesMapInteractionHandler
 import app.openhikes.core.map.TrailPlacesOverlayState
 import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.HikePhoto
+import app.openhikes.core.model.OrderedHikePhotos
 import app.openhikes.core.model.PlaceSearchArea
 import app.openhikes.core.model.PlaceSearchOutage
 import app.openhikes.core.model.PlacesNearbyEntry
@@ -78,7 +82,8 @@ class PlacesNearbyViewModel @AssistedInject constructor(
     private val wikidataPlaceLookup: WikidataPlaceLookup,
     private val mapClaimCoordinator: MapClaimCoordinator,
     private val mapCameraTracker: MapCameraTracker,
-    private val trailPlacesOverlayState: TrailPlacesOverlayState
+    private val trailPlacesOverlayState: TrailPlacesOverlayState,
+    private val photoCaptureController: PhotoCaptureController
 ) : ViewModel() {
     @AssistedFactory
     interface Factory {
@@ -140,7 +145,13 @@ class PlacesNearbyViewModel @AssistedInject constructor(
         ).map { it.id }.toSet()
         val candidates = filteredCandidates.filter { it.id in unheldIds }
         val entries = PlacesNearbyEntry.sorted(held = heldRows, candidates = candidates, origin = originCoordinate)
-        val selectedCard = resolveSelectedCard(sel.selectedId, heldRows, search.found, sel.wikidata)
+        val selectedCard = resolveSelectedCard(
+            selectedId = sel.selectedId,
+            heldRows = heldRows,
+            foundRows = search.found,
+            wikidata = sel.wikidata,
+            hikePhotos = hike?.photos.orEmpty()
+        )
         publishMapClaim(
             heldRows = heldRows,
             candidates = candidates,
@@ -222,6 +233,34 @@ class PlacesNearbyViewModel @AssistedInject constructor(
     fun onCloseCard() {
         selectedIdState.value = null
     }
+
+    fun onTakeCardPhoto(placeId: String, coordinate: GeoCoordinate) {
+        photoCaptureController.requestCamera(
+            PhotoCaptureSubject(
+                routeKey = routeKey,
+                depth = INITIAL_CLAIM_DEPTH,
+                hikeId = hikeId,
+                placeId = placeId,
+                showFloatingMapButtons = false,
+                anchorProvider = { coordinate }
+            )
+        )
+    }
+
+    fun onAddCardPhotos(placeId: String, coordinate: GeoCoordinate) {
+        photoCaptureController.requestLibrary(
+            PhotoCaptureSubject(
+                routeKey = routeKey,
+                depth = INITIAL_CLAIM_DEPTH,
+                hikeId = hikeId,
+                placeId = placeId,
+                showFloatingMapButtons = false,
+                anchorProvider = { coordinate }
+            )
+        )
+    }
+
+    suspend fun loadPhotoThumbnailBytes(photo: HikePhoto): ByteArray? = hikeRepository.readPhotoThumbnailBytes(photo)
 
     fun onDismissSaveRefusal() {
         showSaveRefusalState.value = false
@@ -310,7 +349,8 @@ class PlacesNearbyViewModel @AssistedInject constructor(
         selectedId: String?,
         heldRows: List<TrailPlaceRow>,
         foundRows: List<TrailPlaceRow>,
-        wikidata: WikidataPlace?
+        wikidata: WikidataPlace?,
+        hikePhotos: List<HikePhoto>
     ): SelectedAroundCard? {
         val pair = selectedId?.let { id ->
             heldRows.firstOrNull { it.id == id }?.let { it to true }
@@ -323,10 +363,16 @@ class PlacesNearbyViewModel @AssistedInject constructor(
         }
         return pair?.let { (row, isOnHike) ->
             val item = row.place.osm?.wikidata
+            val cardPhotos = if (isOnHike) {
+                OrderedHikePhotos.from(hikePhotos.filter { it.placeId == row.id }).photos
+            } else {
+                emptyList()
+            }
             SelectedAroundCard(
                 row = row,
                 isOnHike = isOnHike,
-                wikidataPlace = item?.let { wikidata?.takeIf { loaded -> loaded.item == it } }
+                wikidataPlace = item?.let { wikidata?.takeIf { loaded -> loaded.item == it } },
+                photos = cardPhotos
             )
         }
     }

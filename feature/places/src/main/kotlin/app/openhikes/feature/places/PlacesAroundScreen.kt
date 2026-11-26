@@ -41,6 +41,7 @@ import app.openhikes.core.designsystem.icon.OpenHikesIcons
 import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.HikePhoto
 import app.openhikes.core.model.TrailPlaceAroundEntry
 import app.openhikes.core.model.TrailPlaceReach
 import app.openhikes.core.model.TrailPlaceSymbol
@@ -53,6 +54,7 @@ fun PlacesAroundRoute(
     onBack: () -> Unit,
     onAddOwnPlace: (GeoCoordinate) -> Unit,
     modifier: Modifier = Modifier,
+    onOpenPhoto: (String) -> Unit = {},
     viewModel: PlacesAroundViewModel = hiltViewModel<PlacesAroundViewModel, PlacesAroundViewModel.Factory>(
         key = hikeId.value
     ) { factory ->
@@ -84,6 +86,16 @@ fun PlacesAroundRoute(
         },
         onOpenUrl = { url -> runCatching { uriHandler.openUri(url) } },
         onDismissSaveRefusal = viewModel::onDismissSaveRefusal,
+        onTakeCardPhoto = {
+            val place = uiState.selectedCard?.row?.place ?: return@PlacesAroundScreen
+            viewModel.onTakeCardPhoto(place.id, place.coordinate)
+        },
+        onAddCardPhotos = {
+            val place = uiState.selectedCard?.row?.place ?: return@PlacesAroundScreen
+            viewModel.onAddCardPhotos(place.id, place.coordinate)
+        },
+        onOpenPhoto = onOpenPhoto,
+        loadPhotoThumbnailBytes = viewModel::loadPhotoThumbnailBytes,
         modifier = modifier
     )
 }
@@ -102,7 +114,11 @@ fun PlacesAroundScreen(
     onShareCard: (String) -> Unit,
     onOpenUrl: (String) -> Unit,
     onDismissSaveRefusal: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onTakeCardPhoto: () -> Unit = {},
+    onAddCardPhotos: () -> Unit = {},
+    onOpenPhoto: (String) -> Unit = {},
+    loadPhotoThumbnailBytes: suspend (HikePhoto) -> ByteArray? = { null }
 ) {
     Box(
         modifier = modifier
@@ -119,7 +135,12 @@ fun PlacesAroundScreen(
                 onAdd = { onAddPlace(selected.row.id) },
                 onShare = onShareCard,
                 onClose = onCloseCard,
-                onOpenUrl = onOpenUrl
+                onOpenUrl = onOpenUrl,
+                photos = selected.photos,
+                loadPhotoThumbnailBytes = loadPhotoThumbnailBytes,
+                onTakePhoto = onTakeCardPhoto,
+                onAddPhotos = onAddCardPhotos,
+                onOpenPhoto = onOpenPhoto
             )
         } else {
             PlacesAroundListContent(

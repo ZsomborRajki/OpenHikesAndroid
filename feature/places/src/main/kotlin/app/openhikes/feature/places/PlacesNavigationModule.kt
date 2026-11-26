@@ -4,6 +4,7 @@ import androidx.navigation3.runtime.EntryProviderScope
 import androidx.navigation3.runtime.NavKey
 import app.openhikes.core.ui.navigation.AddHikePlaceRoute
 import app.openhikes.core.ui.navigation.EntryProviderInstaller
+import app.openhikes.core.ui.navigation.HikePhotoViewerRoute
 import app.openhikes.core.ui.navigation.HikePlaceDetailRoute
 import app.openhikes.core.ui.navigation.OpenHikesNavigator
 import app.openhikes.core.ui.navigation.PlacesAroundRoute
@@ -39,6 +40,9 @@ private fun EntryProviderScope<NavKey>.registerPlaceDetailEntries(navigator: Ope
             onOpenPlace = { nextPlaceId ->
                 navigator.replaceTop(HikePlaceDetailRoute(route.hikeId, nextPlaceId))
             },
+            onOpenPhoto = { photoId ->
+                navigator.navigate(HikePhotoViewerRoute(route.hikeId, photoId))
+            },
             onCollapseSheet = { navigator.collapseSheet() }
         )
     }
@@ -60,7 +64,8 @@ private fun EntryProviderScope<NavKey>.registerPlaceDiscoveryEntries(navigator: 
             onBack = { navigator.pop() },
             onAddOwnPlace = { coordinate ->
                 navigator.navigate(AddHikePlaceRoute(route.hikeId, coordinate.latitude, coordinate.longitude))
-            }
+            },
+            onOpenPhoto = { photoId -> navigator.navigate(HikePhotoViewerRoute(route.hikeId, photoId)) }
         )
     }
     entry<PlacesNearbyRoute> { route ->
@@ -71,7 +76,8 @@ private fun EntryProviderScope<NavKey>.registerPlaceDiscoveryEntries(navigator: 
             onBack = { navigator.pop() },
             onAddOwnPlace = { coordinate ->
                 navigator.navigate(AddHikePlaceRoute(route.hikeId, coordinate.latitude, coordinate.longitude))
-            }
+            },
+            onOpenPhoto = { photoId -> navigator.navigate(HikePhotoViewerRoute(route.hikeId, photoId)) }
         )
     }
     entry<RecordingAddPlaceRoute> { route ->

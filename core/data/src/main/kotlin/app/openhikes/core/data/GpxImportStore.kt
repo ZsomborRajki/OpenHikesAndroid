@@ -6,9 +6,11 @@ import app.openhikes.core.common.OpenHikesClock
 import app.openhikes.core.database.OpenHikesDatabase
 import app.openhikes.core.database.RouteBlobCodec
 import app.openhikes.core.database.dao.HikeDao
+import app.openhikes.core.database.dao.HikePhotoDao
 import app.openhikes.core.database.dao.TrailPointDao
 import app.openhikes.core.database.entity.HikeEntity
 import app.openhikes.core.database.entity.HikeLocalStateEntity
+import app.openhikes.core.database.entity.HikePhotoEntity
 import app.openhikes.core.database.entity.HikeRouteChunkEntity
 import app.openhikes.core.database.entity.TrailPointEntity
 import app.openhikes.core.model.GpxImportResult
@@ -31,6 +33,7 @@ internal class GpxImportStore(
     private val database: OpenHikesDatabase,
     private val hikeDao: HikeDao,
     private val trailPointDao: TrailPointDao,
+    private val hikePhotoDao: HikePhotoDao,
     private val localStateRepairer: HikeLocalStateRepairer,
     private val clock: OpenHikesClock,
     private val ioDispatcher: CoroutineDispatcher,
@@ -46,6 +49,9 @@ internal class GpxImportStore(
                 hikeDao.insertHikeWithRoute(record.hike, record.routeChunks)
                 if (record.places.isNotEmpty()) {
                     trailPointDao.insertAll(record.places)
+                }
+                if (record.photos.isNotEmpty()) {
+                    hikePhotoDao.insertAll(record.photos)
                 }
             }
         }
@@ -131,7 +137,22 @@ internal class GpxImportStore(
         val routeChunks = RouteBlobCodec.encodeChunked(track.route).mapIndexed { index, blob ->
             HikeRouteChunkEntity(hikeId = hikeId, chunkIndex = index, chunkBlob = blob)
         }
-        val placeEntities = track.places.mapIndexed { idx, wpt ->
+        val placeEntities = buildPlaceEntities(hikeId, dateMillis, track)
+        val photoEntities = buildPhotoEntities(hikeId, track)
+        val localEntity = HikeLocalStateEntity(
+            hikeId = hikeId,
+            listOrder = null,
+            climbMeters = stats.elevationGainMeters,
+            descentMeters = stats.elevationLossMeters,
+            elevationRouteRevision = null,
+            ownsRecordingDraft = false,
+            autoSavedTileKeysJson = "[]"
+        )
+        return PreparedImportRecord(hikeEntity, routeChunks, placeEntities, photoEntities, localEntity)
+    }
+
+    private fun buildPlaceEntities(hikeId: String, dateMillis: Long, track: GpxTrack): List<TrailPointEntity> =
+        track.places.mapIndexed { idx, wpt ->
             TrailPointEntity(
                 id = UUID.randomUUID().toString(),
                 hikeId = hikeId,
@@ -149,22 +170,24 @@ internal class GpxImportStore(
                 createdAtEpochMillis = dateMillis + idx.toLong()
             )
         }
-        val localEntity = HikeLocalStateEntity(
+
+    private fun buildPhotoEntities(hikeId: String, track: GpxTrack): List<HikePhotoEntity> = track.photos.map { wpt ->
+        HikePhotoEntity(
+            id = UUID.randomUUID().toString(),
             hikeId = hikeId,
-            listOrder = null,
-            climbMeters = stats.elevationGainMeters,
-            descentMeters = stats.elevationLossMeters,
-            elevationRouteRevision = null,
-            ownsRecordingDraft = false,
-            autoSavedTileKeysJson = "[]"
+            capturedAtEpochMillis = wpt.capturedAtEpochMillis,
+            latitude = wpt.coordinate.latitude,
+            longitude = wpt.coordinate.longitude,
+            importedAuthorName = wpt.authorName,
+            isPlaceOnly = true
         )
-        return PreparedImportRecord(hikeEntity, routeChunks, placeEntities, localEntity)
     }
 
     private data class PreparedImportRecord(
         val hike: HikeEntity,
         val routeChunks: List<HikeRouteChunkEntity>,
         val places: List<TrailPointEntity>,
+        val photos: List<HikePhotoEntity>,
         val localState: HikeLocalStateEntity
     )
 

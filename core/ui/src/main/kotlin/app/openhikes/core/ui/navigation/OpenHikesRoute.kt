@@ -89,6 +89,18 @@ data class RecordingAddPlaceRoute(
 ) : HikeScopedRoute
 
 /**
+ * Full-screen swipeable photograph viewer pushed over a hike or active recording.
+ */
+@Serializable
+data class HikePhotoViewerRoute(override val hikeId: HikeId, val startPhotoId: String) : HikeScopedRoute
+
+/**
+ * Device photo library discovery review destination for matching photos taken during a hike.
+ */
+@Serializable
+data class PhotoDiscoveryRoute(override val hikeId: HikeId) : HikeScopedRoute
+
+/**
  * Application settings destination pushed onto the shared adaptive back stack.
  */
 @Serializable

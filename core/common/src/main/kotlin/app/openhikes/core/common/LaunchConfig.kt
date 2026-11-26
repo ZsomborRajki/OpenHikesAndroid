@@ -24,7 +24,11 @@ data class LaunchConfig(
     val disableAutomaticRecovery: Boolean = false,
     val seedWalkPresetName: String? = null,
     val trailGraphFixtureName: String? = null,
-    val trailPointsScenarioName: String? = null
+    val trailPointsScenarioName: String? = null,
+    val seedPhotoCount: Int = 0,
+    val omitSeededPhotoFiles: Boolean = false,
+    val stubPhotoLibraryCount: Int? = null,
+    val stubPhotoLibraryAccess: String? = null
 ) {
     companion object {
         val Production = LaunchConfig()

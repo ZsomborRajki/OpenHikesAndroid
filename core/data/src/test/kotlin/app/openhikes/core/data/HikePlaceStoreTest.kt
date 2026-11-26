@@ -210,13 +210,20 @@ class HikePlaceStoreTest {
         assertThat(secondSummit.osm?.elementId).isEqualTo(9_100_004L)
     }
 
-    private fun createRepository(dispatcher: kotlinx.coroutines.CoroutineDispatcher): OfflineFirstHikeRepository =
-        OfflineFirstHikeRepository(
+    private fun createRepository(dispatcher: kotlinx.coroutines.CoroutineDispatcher): OfflineFirstHikeRepository {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val (_, photoStore) = createTestPhotoStore(dispatcher, context)
+        return OfflineFirstHikeRepository(
+            context = context,
             database = portableDb,
             hikeDao = portableDb.hikeDao(),
             trailPointDao = portableDb.trailPointDao(),
+            hikePhotoDao = portableDb.hikePhotoDao(),
             hikeWalkDao = portableDb.hikeWalkDao(),
             hikeLocalStateDao = localDb.hikeLocalStateDao(),
+            photoStore = photoStore,
+            photoLibraryMirror = TestPhotoLibraryMirror(),
+            photoFileIo = TestPhotoFileIo(),
             gpxFileSource = object : GpxFileSource {
                 override suspend fun read(uriString: String): GpxFilePayload? = null
             },
@@ -231,4 +238,5 @@ class HikePlaceStoreTest {
             ioDispatcher = dispatcher,
             defaultDispatcher = dispatcher
         )
+    }
 }

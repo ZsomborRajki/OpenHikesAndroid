@@ -10,16 +10,29 @@ import app.openhikes.core.location.RecordingEntryCoordinator
 import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapClaim
 import app.openhikes.core.map.MapClaimCoordinator
+import app.openhikes.core.map.MapPhotoPinItem
 import app.openhikes.core.map.MapPlacePin
+import app.openhikes.core.map.MapTrailPhotosOverlay
 import app.openhikes.core.map.MapTrailPlacesOverlay
+import app.openhikes.core.map.PhotoCaptureController
+import app.openhikes.core.map.PhotoCaptureSubject
+import app.openhikes.core.map.TrailPhotosClaim
+import app.openhikes.core.map.TrailPhotosMapInteractionHandler
+import app.openhikes.core.map.TrailPhotosOverlayState
 import app.openhikes.core.map.TrailPlacesClaim
 import app.openhikes.core.map.TrailPlacesMapInteractionHandler
 import app.openhikes.core.map.TrailPlacesOverlayState
 import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.HikePhoto
+import app.openhikes.core.model.OrderedHikePhotos
+import app.openhikes.core.model.PhotoMapPin
 import app.openhikes.core.model.RecordingPhase
 import app.openhikes.core.model.RecordingStatsSnapshot
 import app.openhikes.core.model.RecordingStopStep
+import app.openhikes.core.model.RouteTint
+import app.openhikes.core.model.TrailPoint
 import app.openhikes.core.model.UserSettings
+import app.openhikes.core.ui.components.PhotoPresentationFormatter
 import app.openhikes.core.ui.navigation.RecordingRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.IOException
@@ -44,19 +57,22 @@ import kotlinx.coroutines.launch
  * map-claim camera tracking, and delegation into [RecordingController].
  */
 @OptIn(ExperimentalCoroutinesApi::class)
-@Suppress("LongParameterList")
+@Suppress("LongParameterList", "TooManyFunctions")
 @HiltViewModel
 class RecordingViewModel @Inject constructor(
     private val recordingController: RecordingController,
     recordingEntryCoordinator: RecordingEntryCoordinator,
-    hikeRepository: HikeRepository,
+    private val hikeRepository: HikeRepository,
     userSettingsRepository: UserSettingsRepository,
     private val mapClaimCoordinator: MapClaimCoordinator,
     private val trailPlacesOverlayState: TrailPlacesOverlayState,
+    private val trailPhotosOverlayState: TrailPhotosOverlayState,
+    private val photoCaptureController: PhotoCaptureController,
     private val launchConfigHolder: LaunchConfigHolder
 ) : ViewModel() {
     private val dialogState = MutableStateFlow(RecordingDialogState())
     private val pendingOpenPlaceIdState = MutableStateFlow<String?>(null)
+    private val pendingOpenPhotoIdState = MutableStateFlow<String?>(null)
     private var pendingSaveSessionId: String? = null
 
     private val placesInteractionHandler = object : TrailPlacesMapInteractionHandler {
@@ -65,14 +81,42 @@ class RecordingViewModel @Inject constructor(
         }
     }
 
-    private val activePlacesFlow = recordingController.state
+    private val photosInteractionHandler = object : TrailPhotosMapInteractionHandler {
+        override fun onTapPhotoPin(pinId: String) {
+            trailPhotosOverlayState.selectPhoto(RecordingRoute, pinId)
+        }
+
+        override fun onTapPhotoCallout(photoId: String) {
+            trailPhotosOverlayState.selectPhoto(RecordingRoute, null)
+            pendingOpenPhotoIdState.value = photoId
+        }
+
+        override fun onDismissPhotoCallout() {
+            trailPhotosOverlayState.selectPhoto(RecordingRoute, null)
+        }
+
+        override suspend fun loadThumbnailBytes(photo: HikePhoto): ByteArray? =
+            hikeRepository.readPhotoThumbnailBytes(photo)
+    }
+
+    private val activeDraftFlow = recordingController.state
         .map { session -> session.sessionId?.takeIf { session.isActive } }
         .distinctUntilChanged()
         .flatMapLatest { sessionId ->
             if (sessionId == null) {
-                flowOf(emptyList())
+                flowOf(DraftKeepsakes())
             } else {
-                hikeRepository.observeHike(HikeId(sessionId)).map { it?.places.orEmpty() }
+                hikeRepository.observeHike(HikeId(sessionId)).map { hike ->
+                    if (hike == null) {
+                        DraftKeepsakes()
+                    } else {
+                        DraftKeepsakes(
+                            places = hike.places,
+                            photos = OrderedHikePhotos.from(hike.photos).photos,
+                            tintHex = hike.tintHex
+                        )
+                    }
+                }
             }
         }
 
@@ -85,8 +129,10 @@ class RecordingViewModel @Inject constructor(
         },
         launchConfigHolder.current,
         dialogState,
-        combine(activePlacesFlow, pendingOpenPlaceIdState) { places, openId -> places to openId }
-    ) { session, settings, launchConfig, dialog, placesPair ->
+        combine(activeDraftFlow, pendingOpenPlaceIdState, pendingOpenPhotoIdState) { draft, openPlace, openPhoto ->
+            Triple(draft, openPlace, openPhoto)
+        }
+    ) { session, settings, launchConfig, dialog, keepsakes ->
         RecordingUiState(
             session = session,
             distanceUnit = settings.distanceUnit,
@@ -98,9 +144,12 @@ class RecordingViewModel @Inject constructor(
             showDiscardDialog = dialog.showDiscardDialog,
             savedHikeId = dialog.savedHikeId,
             discardCompleted = dialog.discardCompleted,
+            discardedHikeId = dialog.discardedHikeId,
             requestLocationPermission = dialog.requestLocationPermission,
-            places = placesPair.first,
-            pendingOpenPlaceId = placesPair.second
+            places = keepsakes.first.places,
+            pendingOpenPlaceId = keepsakes.second,
+            photos = keepsakes.first.photos,
+            pendingOpenPhotoId = keepsakes.third
         )
     }.stateIn(
         scope = viewModelScope,
@@ -119,7 +168,8 @@ class RecordingViewModel @Inject constructor(
         mapClaimCoordinator.registerClaim(MapClaim(routeKey = RecordingRoute, depth = DEFAULT_CLAIM_DEPTH))
         observeLiveCameraTracking()
         observeCompletedSaves()
-        observeRecordingPlaces()
+        observeRecordingKeepsakes()
+        observePhotoCaptureSubject()
         if (recordingEntryCoordinator.consumeAutoStart() && !initialState.isActive) {
             dispatchStart()
         }
@@ -127,6 +177,8 @@ class RecordingViewModel @Inject constructor(
 
     override fun onCleared() {
         trailPlacesOverlayState.clearClaim(RecordingRoute)
+        trailPhotosOverlayState.clearClaim(RecordingRoute)
+        photoCaptureController.releaseSubject(RecordingRoute)
         mapClaimCoordinator.releaseClaim(RecordingRoute)
     }
 
@@ -134,10 +186,16 @@ class RecordingViewModel @Inject constructor(
         pendingOpenPlaceIdState.value = null
     }
 
+    fun consumePendingOpenPhoto() {
+        pendingOpenPhotoIdState.value = null
+    }
+
+    suspend fun loadPhotoThumbnailBytes(photo: HikePhoto): ByteArray? = hikeRepository.readPhotoThumbnailBytes(photo)
+
     fun currentElapsedSeconds(): Double = recordingController.elapsedSeconds()
 
     fun consumeNavigation() {
-        dialogState.update { it.copy(savedHikeId = null, discardCompleted = false) }
+        dialogState.update { it.copy(savedHikeId = null, discardCompleted = false, discardedHikeId = null) }
     }
 
     @Suppress("CyclomaticComplexMethod")
@@ -210,10 +268,10 @@ class RecordingViewModel @Inject constructor(
         }
     }
 
-    private fun observeRecordingPlaces() {
+    private fun observeRecordingKeepsakes() {
         viewModelScope.launch {
-            activePlacesFlow.collect { places ->
-                val pins = places.map { place ->
+            activeDraftFlow.collect { draft ->
+                val placePins = draft.places.map { place ->
                     MapPlacePin(
                         id = place.id,
                         coordinate = place.coordinate,
@@ -224,11 +282,58 @@ class RecordingViewModel @Inject constructor(
                 trailPlacesOverlayState.setClaim(
                     TrailPlacesClaim(
                         routeKey = RecordingRoute,
-                        overlay = MapTrailPlacesOverlay(pins = pins),
+                        overlay = MapTrailPlacesOverlay(pins = placePins),
                         handler = placesInteractionHandler
                     )
                 )
+                if (draft.photos.isEmpty()) {
+                    trailPhotosOverlayState.clearClaim(RecordingRoute)
+                } else {
+                    val tint = draft.tintHex.ifBlank { RouteTint.DEFAULT_HEX }
+                    val photoPins = PhotoMapPin.pinsFor(draft.photos).map { pin ->
+                        MapPhotoPinItem(
+                            pin = pin,
+                            tintHex = tint,
+                            spokenLabel = PhotoPresentationFormatter.pinSpokenLabel(pin),
+                            subtitle = PhotoPresentationFormatter.pinSubtitle(pin),
+                            previewAccessibilityLabel = PhotoPresentationFormatter.pinPreviewLabel(pin)
+                        )
+                    }
+                    trailPhotosOverlayState.setClaim(
+                        TrailPhotosClaim(
+                            routeKey = RecordingRoute,
+                            overlay = MapTrailPhotosOverlay(pins = photoPins),
+                            handler = photosInteractionHandler
+                        )
+                    )
+                }
             }
+        }
+    }
+
+    private fun observePhotoCaptureSubject() {
+        viewModelScope.launch {
+            recordingController.state
+                .map { session -> session.sessionId?.takeIf { session.isActive }?.let(::HikeId) }
+                .distinctUntilChanged()
+                .collect { activeHikeId ->
+                    if (activeHikeId == null) {
+                        photoCaptureController.releaseSubject(RecordingRoute)
+                    } else {
+                        photoCaptureController.registerSubject(
+                            PhotoCaptureSubject(
+                                routeKey = RecordingRoute,
+                                depth = DEFAULT_CLAIM_DEPTH,
+                                hikeId = activeHikeId,
+                                placeId = null,
+                                showFloatingMapButtons = true,
+                                anchorProvider = { shutterMillis ->
+                                    recordingController.photoCoordinateAt(shutterMillis)
+                                }
+                            )
+                        )
+                    }
+                }
         }
     }
 
@@ -288,11 +393,12 @@ class RecordingViewModel @Inject constructor(
     }
 
     private fun confirmDiscard() {
+        val discardingId = recordingController.state.value.sessionId?.let(::HikeId)
         pendingSaveSessionId = null
         dialogState.update { it.copy(stopDialogStep = null, showDiscardDialog = false) }
         viewModelScope.launch {
             recordingController.discard()
-            dialogState.update { it.copy(discardCompleted = true) }
+            dialogState.update { it.copy(discardCompleted = true, discardedHikeId = discardingId) }
         }
     }
 
@@ -303,6 +409,12 @@ class RecordingViewModel @Inject constructor(
         }
     }
 
+    private data class DraftKeepsakes(
+        val places: List<TrailPoint> = emptyList(),
+        val photos: List<HikePhoto> = emptyList(),
+        val tintHex: String = RouteTint.DEFAULT_HEX
+    )
+
     private data class RecordingDialogState(
         val stopDialogStep: RecordingStopStep? = null,
         val offeredTitle: String = "",
@@ -310,6 +422,7 @@ class RecordingViewModel @Inject constructor(
         val showDiscardDialog: Boolean = false,
         val savedHikeId: HikeId? = null,
         val discardCompleted: Boolean = false,
+        val discardedHikeId: HikeId? = null,
         val requestLocationPermission: Boolean = false
     )
 

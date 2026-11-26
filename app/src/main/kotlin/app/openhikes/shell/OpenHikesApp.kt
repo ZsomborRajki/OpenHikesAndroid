@@ -38,12 +38,14 @@ import app.openhikes.core.map.MapRouteHighlight
 import app.openhikes.core.map.MapRouteOverlay
 import app.openhikes.core.map.MapSearchAreaPillState
 import app.openhikes.core.map.MapTrailDraftOverlay
+import app.openhikes.core.map.MapTrailPhotosOverlay
 import app.openhikes.core.map.MapTrailPlacesOverlay
 import app.openhikes.core.map.MapWalkCoverageOverlay
 import app.openhikes.core.map.RouteEditMapInteractionHandler
 import app.openhikes.core.map.TrailDraftMapInteractionHandler
 import app.openhikes.core.map.TrailMapHost
 import app.openhikes.core.map.TrailMapRenderer
+import app.openhikes.core.map.TrailPhotosMapInteractionHandler
 import app.openhikes.core.map.TrailPlacesMapInteractionHandler
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeId
@@ -60,6 +62,7 @@ private val EmptyWalkCoverageFlow: StateFlow<MapWalkCoverageOverlay?> = MutableS
 private val EmptyRouteEditOverlayFlow: StateFlow<MapRouteEditOverlay?> = MutableStateFlow(null)
 private val EmptyTrailDraftOverlayFlow: StateFlow<MapTrailDraftOverlay?> = MutableStateFlow(null)
 private val EmptyTrailPlacesOverlayFlow: StateFlow<MapTrailPlacesOverlay?> = MutableStateFlow(null)
+private val EmptyTrailPhotosOverlayFlow: StateFlow<MapTrailPhotosOverlay?> = MutableStateFlow(null)
 
 @Immutable
 private data class ViewportChromeMetrics(val sidePanelEdge: Dp, val viewportPadding: PaddingValues)
@@ -73,7 +76,9 @@ internal data class ShellMapOverlays(
     val trailDraftOverlayState: StateFlow<MapTrailDraftOverlay?> = EmptyTrailDraftOverlayFlow,
     val trailDraftHandlerProvider: () -> TrailDraftMapInteractionHandler? = { null },
     val trailPlacesOverlayState: StateFlow<MapTrailPlacesOverlay?> = EmptyTrailPlacesOverlayFlow,
-    val trailPlacesHandlerProvider: () -> TrailPlacesMapInteractionHandler? = { null }
+    val trailPlacesHandlerProvider: () -> TrailPlacesMapInteractionHandler? = { null },
+    val trailPhotosOverlayState: StateFlow<MapTrailPhotosOverlay?> = EmptyTrailPhotosOverlayFlow,
+    val trailPhotosHandlerProvider: () -> TrailPhotosMapInteractionHandler? = { null }
 )
 
 @Immutable
@@ -144,7 +149,17 @@ fun OpenHikesApp(
     val activeRecordingHikeId by shellViewModel.activeRecordingHikeId.collectAsStateWithLifecycle()
     val searchAreaPill by shellViewModel.searchAreaPillState.collectAsStateWithLifecycle()
     val showEndWalkForRecording by shellViewModel.showEndWalkForRecordingDialog.collectAsStateWithLifecycle()
+    val showPhotoButtons by shellViewModel.showPhotoButtons.collectAsStateWithLifecycle()
+    val isPhotoBusy by shellViewModel.isPhotoBusy.collectAsStateWithLifecycle()
+    val pendingPhotoRequest by shellViewModel.pendingPhotoRequest.collectAsStateWithLifecycle()
+    val photoAlert by shellViewModel.photoAlert.collectAsStateWithLifecycle()
     val uriHandler = LocalUriHandler.current
+
+    PhotoCaptureHost(
+        pendingRequest = pendingPhotoRequest,
+        alert = photoAlert,
+        callbacks = shellViewModel.createPhotoCaptureCallbacks()
+    )
 
     OpenHikesShellContent(
         trailMapRenderer = trailMapRenderer,
@@ -159,6 +174,7 @@ fun OpenHikesApp(
         isRecordingActive = isRecordingActive,
         mapOverlays = shellViewModel.mapOverlays,
         placesRuntime = shellViewModel.createPlacesRuntime(searchAreaPill, activeRecordingHikeId),
+        photosChrome = shellViewModel.createPhotosChrome(showPhotoButtons, isPhotoBusy),
         walkSession = walkSession,
         walkTimeLeftMarkFlow = shellViewModel.walkTimeLeftMark,
         walkDialogs = shellViewModel.createWalkDialogs(showEndWalkForRecording),
@@ -211,6 +227,7 @@ internal fun OpenHikesShellContent(
     isRecordingActive: Boolean = false,
     mapOverlays: ShellMapOverlays = ShellMapOverlays(),
     placesRuntime: ShellPlacesRuntime = ShellPlacesRuntime(),
+    photosChrome: MapPhotosChromeState = MapPhotosChromeState(),
     walkSession: TrailWalkSessionState = TrailWalkSessionState(),
     walkTimeLeftMarkFlow: StateFlow<WalkTimeLeftMark?> = EmptyWalkTimeLeftFlow,
     walkDialogs: ShellWalkDialogCallbacks = ShellWalkDialogCallbacks(),
@@ -261,6 +278,7 @@ internal fun OpenHikesShellContent(
             onDismissStartNotice = onDismissWalkStartNotice
         ),
         searchAreaPill = placesRuntime.searchAreaPill,
+        photosChrome = photosChrome,
         onZoomIn = onZoomIn,
         onZoomOut = onZoomOut,
         onResetNorth = onResetNorth,
@@ -310,6 +328,7 @@ private fun OpenHikesShellStage(
     isRecordingActive: Boolean,
     walkChrome: MapWalkChromeState,
     searchAreaPill: MapSearchAreaPillState?,
+    photosChrome: MapPhotosChromeState,
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
     onResetNorth: () -> Unit,
@@ -330,13 +349,7 @@ private fun OpenHikesShellStage(
             .testTag(OpenHikesTestTags.APP_ROOT)
     ) {
         var measuredPanelEdge by remember(maxWidth, shellLayout) { mutableStateOf<Dp?>(null) }
-        val metrics = rememberViewportChromeMetrics(
-            availableWidth = maxWidth,
-            availableHeight = maxHeight,
-            shellLayout = shellLayout,
-            navHostState = navHostState,
-            measuredPanelEdge = measuredPanelEdge
-        )
+        val metrics = rememberViewportChromeMetrics(maxWidth, maxHeight, shellLayout, navHostState, measuredPanelEdge)
 
         ShellTrailMap(
             trailMapRenderer = trailMapRenderer,
@@ -361,6 +374,7 @@ private fun OpenHikesShellStage(
             showTrailMakerButton = navHostState.showTrailMakerButton,
             walkChrome = walkChrome,
             placesChrome = shellPlacesChrome(navHostState, searchAreaPill),
+            photosChrome = photosChrome,
             onOpenRecording = navHostState.onOpenRecording,
             onOpenTrailMaker = navHostState.onOpenTrailMaker,
             onOpenMapModes = navHostState.onOpenMapModes,
@@ -374,6 +388,7 @@ private fun OpenHikesShellStage(
         AdaptiveChromeHost(
             shellLayout = shellLayout,
             sheetDetent = navHostState.sheetDetent,
+            fillsWindowInSidePanel = navHostState.isPhotoViewerCoveringMap,
             onDetentChange = navHostState.onDetentChange,
             onSheetTopOffsetChange = { sheetTopOffsetProvider = it },
             onPanelEdgeChanged = { measuredPanelEdge = it },
@@ -419,7 +434,9 @@ private fun ShellTrailMap(
         trailDraftOverlayState = mapOverlays.trailDraftOverlayState,
         trailDraftHandlerProvider = mapOverlays.trailDraftHandlerProvider,
         trailPlacesOverlayState = mapOverlays.trailPlacesOverlayState,
-        trailPlacesHandlerProvider = mapOverlays.trailPlacesHandlerProvider
+        trailPlacesHandlerProvider = mapOverlays.trailPlacesHandlerProvider,
+        trailPhotosOverlayState = mapOverlays.trailPhotosOverlayState,
+        trailPhotosHandlerProvider = mapOverlays.trailPhotosHandlerProvider
     )
 }
 
@@ -460,13 +477,19 @@ private fun rememberViewportChromeMetrics(
 private fun AdaptiveChromeHost(
     shellLayout: ShellLayout,
     sheetDetent: SheetDetent,
+    fillsWindowInSidePanel: Boolean,
     onDetentChange: (SheetDetent) -> Unit,
     onSheetTopOffsetChange: (() -> Float) -> Unit,
     onPanelEdgeChanged: (Dp) -> Unit,
     navigationContent: @Composable () -> Unit
 ) {
     if (shellLayout == ShellLayout.SIDE_PANEL) {
-        MapSidePanel(onPanelEdgeChanged = onPanelEdgeChanged) { navigationContent() }
+        MapSidePanel(
+            fillsWindow = fillsWindowInSidePanel,
+            onPanelEdgeChanged = onPanelEdgeChanged
+        ) {
+            navigationContent()
+        }
     } else {
         MapBottomSheet(
             detent = sheetDetent,

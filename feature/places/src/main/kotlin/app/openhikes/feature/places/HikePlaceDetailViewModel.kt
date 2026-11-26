@@ -10,18 +10,31 @@ import app.openhikes.core.data.WikidataPlaceLookup
 import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapClaim
 import app.openhikes.core.map.MapClaimCoordinator
+import app.openhikes.core.map.MapPhotoPinItem
 import app.openhikes.core.map.MapPlacePin
+import app.openhikes.core.map.MapTrailPhotosOverlay
 import app.openhikes.core.map.MapTrailPlacesOverlay
+import app.openhikes.core.map.PhotoCaptureController
+import app.openhikes.core.map.PhotoCaptureSubject
+import app.openhikes.core.map.TrailPhotosClaim
+import app.openhikes.core.map.TrailPhotosMapInteractionHandler
+import app.openhikes.core.map.TrailPhotosOverlayState
 import app.openhikes.core.map.TrailPlacesClaim
 import app.openhikes.core.map.TrailPlacesMapInteractionHandler
 import app.openhikes.core.map.TrailPlacesOverlayState
 import app.openhikes.core.model.DistanceUnit
+import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.HikePhoto
+import app.openhikes.core.model.OrderedHikePhotos
+import app.openhikes.core.model.PhotoMapPin
+import app.openhikes.core.model.RouteTint
 import app.openhikes.core.model.TrailPlaceOrder
 import app.openhikes.core.model.TrailPlaceRow
 import app.openhikes.core.model.TrailPlaceSymbol
 import app.openhikes.core.model.UserSettings
 import app.openhikes.core.model.WikidataPlace
+import app.openhikes.core.ui.components.PhotoPresentationFormatter
 import app.openhikes.core.ui.navigation.HikePlaceDetailRoute
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
@@ -44,6 +57,7 @@ import kotlinx.coroutines.launch
 @Immutable
 data class HikePlaceDetailUiState(
     val row: TrailPlaceRow? = null,
+    val placePhotos: List<HikePhoto> = emptyList(),
     val distanceUnit: DistanceUnit = DistanceUnit.METRIC,
     val wikidataPlace: WikidataPlace? = null,
     val isLoaded: Boolean = false,
@@ -53,7 +67,8 @@ data class HikePlaceDetailUiState(
     val editNote: String = "",
     val showRemoveDialog: Boolean = false,
     val showSaveRefusal: Boolean = false,
-    val pendingOpenPlaceId: String? = null
+    val pendingOpenPlaceId: String? = null,
+    val pendingOpenPhotoId: String? = null
 )
 
 @Suppress("LongParameterList", "TooManyFunctions")
@@ -66,6 +81,8 @@ class HikePlaceDetailViewModel @AssistedInject constructor(
     private val wikidataPlaceLookup: WikidataPlaceLookup,
     private val mapClaimCoordinator: MapClaimCoordinator,
     private val trailPlacesOverlayState: TrailPlacesOverlayState,
+    private val trailPhotosOverlayState: TrailPhotosOverlayState,
+    private val photoCaptureController: PhotoCaptureController,
     @DefaultDispatcher defaultDispatcher: CoroutineDispatcher
 ) : ViewModel() {
     @AssistedFactory
@@ -82,7 +99,11 @@ class HikePlaceDetailViewModel @AssistedInject constructor(
     private val editorState = MutableStateFlow(EditorOverlayState())
     private val wikidataState = MutableStateFlow<WikidataPlace?>(null)
     private val pendingOpenPlaceIdState = MutableStateFlow<String?>(null)
+    private val pendingOpenPhotoIdState = MutableStateFlow<String?>(null)
     private var lastLoadedWikidataItem: String? = null
+
+    @Volatile
+    private var latestPlaceCoordinate: GeoCoordinate? = null
 
     private val rowsFlow = hikeRepository.observeHike(hikeId)
         .map { hike -> hike?.let { it.places to it.route } }
@@ -96,23 +117,38 @@ class HikePlaceDetailViewModel @AssistedInject constructor(
         }
         .flowOn(defaultDispatcher)
 
+    private val placePhotosFlow = hikeRepository.observeHike(hikeId)
+        .map { hike ->
+            hike?.let { OrderedHikePhotos.from(it.photosOfPlace(placeId)).photos }.orEmpty()
+        }
+        .distinctUntilChanged()
+        .flowOn(defaultDispatcher)
+
     private val settingsFlow = userSettingsRepository.userSettings.catch { ex ->
         if (ex is IOException) emit(UserSettings()) else throw ex
     }
+
+    private val pendingNavFlow = combine(
+        pendingOpenPlaceIdState,
+        pendingOpenPhotoIdState,
+        placePhotosFlow
+    ) { openPlace, openPhoto, photos -> Triple(openPlace, openPhoto, photos) }
 
     val uiState: StateFlow<HikePlaceDetailUiState> = combine(
         rowsFlow,
         settingsFlow,
         wikidataState,
         editorState,
-        pendingOpenPlaceIdState
-    ) { rows, settings, wikidata, editor, openPlaceId ->
+        pendingNavFlow
+    ) { rows, settings, wikidata, editor, nav ->
         val row = rows?.firstOrNull { it.id == placeId }
+        latestPlaceCoordinate = row?.place?.coordinate
         val resolvedWikidata = row?.place?.osm?.wikidata?.let { item ->
             wikidata?.takeIf { it.item == item }
         }
         HikePlaceDetailUiState(
             row = row,
+            placePhotos = nav.third,
             distanceUnit = settings.distanceUnit,
             wikidataPlace = resolvedWikidata,
             isLoaded = true,
@@ -122,7 +158,8 @@ class HikePlaceDetailViewModel @AssistedInject constructor(
             editNote = editor.note,
             showRemoveDialog = editor.showRemoveDialog,
             showSaveRefusal = editor.showSaveRefusal,
-            pendingOpenPlaceId = openPlaceId
+            pendingOpenPlaceId = nav.first,
+            pendingOpenPhotoId = nav.second
         )
     }.stateIn(
         scope = viewModelScope,
@@ -134,13 +171,40 @@ class HikePlaceDetailViewModel @AssistedInject constructor(
         mapClaimCoordinator.registerClaim(
             MapClaim(routeKey = routeKey, depth = INITIAL_CLAIM_DEPTH, selectedHikeId = hikeId)
         )
+        photoCaptureController.registerSubject(
+            PhotoCaptureSubject(
+                routeKey = routeKey,
+                depth = INITIAL_CLAIM_DEPTH,
+                hikeId = hikeId,
+                placeId = placeId,
+                showFloatingMapButtons = true,
+                anchorProvider = { latestPlaceCoordinate }
+            )
+        )
         observePlacePins()
+        observePlacePhotoPins()
         observeWikidataItem()
     }
 
     override fun onCleared() {
         trailPlacesOverlayState.clearClaim(routeKey)
+        trailPhotosOverlayState.clearClaim(routeKey)
+        photoCaptureController.releaseSubject(routeKey)
         mapClaimCoordinator.releaseClaim(routeKey)
+    }
+
+    fun onTakePhoto() {
+        photoCaptureController.requestCamera()
+    }
+
+    fun onAddPhotos() {
+        photoCaptureController.requestLibrary()
+    }
+
+    suspend fun loadPhotoThumbnailBytes(photo: HikePhoto): ByteArray? = hikeRepository.readPhotoThumbnailBytes(photo)
+
+    fun consumeOpenPhoto() {
+        pendingOpenPhotoIdState.value = null
     }
 
     fun onShowOnMap() {
@@ -263,6 +327,53 @@ class HikePlaceDetailViewModel @AssistedInject constructor(
                     )
                 )
             }
+        }
+    }
+
+    private fun observePlacePhotoPins() {
+        viewModelScope.launch {
+            hikeRepository.observeHike(hikeId)
+                .map { hike -> hike?.let { it.photosOfPlace(placeId) to it.tintHex } }
+                .distinctUntilChanged()
+                .collect { pair ->
+                    if (pair == null || pair.first.isEmpty()) {
+                        trailPhotosOverlayState.clearClaim(routeKey)
+                    } else {
+                        val tint = pair.second.ifBlank { RouteTint.DEFAULT_HEX }
+                        val pins = PhotoMapPin.pinsFor(pair.first).map { pin ->
+                            MapPhotoPinItem(
+                                pin = pin,
+                                tintHex = tint,
+                                spokenLabel = PhotoPresentationFormatter.pinSpokenLabel(pin),
+                                subtitle = PhotoPresentationFormatter.pinSubtitle(pin),
+                                previewAccessibilityLabel = PhotoPresentationFormatter.pinPreviewLabel(pin)
+                            )
+                        }
+                        trailPhotosOverlayState.setClaim(
+                            TrailPhotosClaim(
+                                routeKey = routeKey,
+                                overlay = MapTrailPhotosOverlay(pins = pins),
+                                handler = object : TrailPhotosMapInteractionHandler {
+                                    override fun onTapPhotoPin(pinId: String) {
+                                        trailPhotosOverlayState.selectPhoto(routeKey, pinId)
+                                    }
+
+                                    override fun onTapPhotoCallout(photoId: String) {
+                                        trailPhotosOverlayState.selectPhoto(routeKey, null)
+                                        pendingOpenPhotoIdState.value = photoId
+                                    }
+
+                                    override fun onDismissPhotoCallout() {
+                                        trailPhotosOverlayState.selectPhoto(routeKey, null)
+                                    }
+
+                                    override suspend fun loadThumbnailBytes(photo: HikePhoto): ByteArray? =
+                                        hikeRepository.readPhotoThumbnailBytes(photo)
+                                }
+                            )
+                        )
+                    }
+                }
         }
     }
 

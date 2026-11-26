@@ -5,6 +5,7 @@ import app.openhikes.core.common.RecordingTitle
 import app.openhikes.core.location.CompletedRecordingSave
 import app.openhikes.core.location.RecordingController
 import app.openhikes.core.location.RecordingSessionState
+import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeSummary
@@ -52,6 +53,7 @@ class FakeRecordingController(
 
     var grantedFinePermission: Boolean = true
     var simulatedElapsedSeconds: Double = 0.0
+    var simulatedPhotoCoordinate: GeoCoordinate? = null
     var holdsKeepsakesForStop: Boolean = false
     var nextStopStepOverride: RecordingStopStep? = null
     var nextStopFailure: Throwable? = null
@@ -81,6 +83,9 @@ class FakeRecordingController(
     private var sessionCounter = 1
 
     override fun elapsedSeconds(): Double = simulatedElapsedSeconds
+
+    override fun photoCoordinateAt(shutterEpochMillis: Long?): GeoCoordinate? =
+        simulatedPhotoCoordinate ?: traceFlow.value.points.lastOrNull()?.coordinate
 
     override fun consumeCompletedSave(hikeId: HikeId) {
         if (completedSaveFlow.value?.hikeId == hikeId) {

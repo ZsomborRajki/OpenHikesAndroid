@@ -14,6 +14,8 @@ dependencies {
     implementation(projects.core.database)
     implementation(projects.core.datastore)
     implementation(projects.core.network)
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.exifinterface)
     implementation(libs.androidx.hilt.work)
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)

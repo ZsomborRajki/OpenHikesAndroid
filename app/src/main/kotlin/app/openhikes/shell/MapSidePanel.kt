@@ -44,9 +44,20 @@ fun calculateSidePanelWidth(availableWidth: Dp): Dp = min(PanelMaxWidth, availab
 @Composable
 fun MapSidePanel(
     modifier: Modifier = Modifier,
+    fillsWindow: Boolean = false,
     onPanelEdgeChanged: (Dp) -> Unit = {},
     content: @Composable () -> Unit
 ) {
+    if (fillsWindow) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .testTag(OpenHikesTestTags.MAP_SIDE_PANEL)
+        ) {
+            content()
+        }
+        return
+    }
     val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
 

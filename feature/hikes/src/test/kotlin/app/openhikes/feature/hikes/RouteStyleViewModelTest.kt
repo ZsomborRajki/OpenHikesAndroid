@@ -4,12 +4,8 @@ import androidx.lifecycle.ViewModelStore
 import app.cash.turbine.test
 import app.openhikes.core.data.HikeRepository
 import app.openhikes.core.map.MapClaimCoordinator
-import app.openhikes.core.model.ExportedGpx
-import app.openhikes.core.model.GpxImportResult
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
-import app.openhikes.core.model.HikeLocalState
-import app.openhikes.core.model.HikeMapRoute
 import app.openhikes.core.model.HikeSummary
 import app.openhikes.core.model.RouteBorder
 import app.openhikes.core.model.RouteCoordinate
@@ -21,9 +17,6 @@ import com.google.common.truth.Truth.assertThat
 import java.io.IOException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
@@ -175,82 +168,16 @@ class RouteStyleViewModelTest {
         route = listOf(RouteCoordinate(47.7, 12.8), RouteCoordinate(47.71, 12.81))
     )
 
-    private class ControllableStyleRepository(initialHike: Hike) : HikeRepository {
-        private val hikeFlow = MutableStateFlow<Hike?>(initialHike)
+    private class ControllableStyleRepository(
+        initialHike: Hike,
+        private val delegate: FakeHikeRepository = FakeHikeRepository(listOf(initialHike))
+    ) : HikeRepository by delegate {
         private val writeGates = ArrayDeque<CompletableDeferred<Result<Unit>>>()
         val recordedStyles = mutableListOf<RouteStyleUpdate>()
 
         fun enqueueGate(gate: CompletableDeferred<Result<Unit>>) {
             writeGates.addLast(gate)
         }
-
-        override val hikes: Flow<List<HikeSummary>> = MutableStateFlow(emptyList())
-        override val mapRoutes: Flow<List<HikeMapRoute>> = MutableStateFlow(emptyList())
-
-        override fun observeHike(hikeId: HikeId): Flow<Hike?> = hikeFlow.map { it?.takeIf { h -> h.id == hikeId } }
-        override fun observeLocalState(hikeId: HikeId): Flow<HikeLocalState?> = MutableStateFlow(null)
-        override fun observeWalks(hikeId: HikeId): Flow<List<app.openhikes.core.model.HikeWalk>> =
-            MutableStateFlow(emptyList())
-        override fun observeWalk(walkId: String): Flow<app.openhikes.core.model.HikeWalk?> = MutableStateFlow(null)
-        override suspend fun importGpxBytes(bytes: ByteArray, fileName: String?): GpxImportResult = error("Unused")
-        override suspend fun importGpxUri(uriString: String): GpxImportResult = error("Unused")
-        override suspend fun exportHike(hikeId: HikeId): Result<ExportedGpx> = error("Unused")
-        override suspend fun exportHikeToUri(hikeId: HikeId, uriString: String): Result<Unit> = error("Unused")
-        override suspend fun renameHike(hikeId: HikeId, draftTitle: String): Result<Unit> = error("Unused")
-        override suspend fun setAutoFollowEnabled(hikeId: HikeId, enabled: Boolean): Result<Unit> = Result.success(Unit)
-        override suspend fun saveWalkInProgress(
-            hikeId: HikeId,
-            record: app.openhikes.core.model.TrailWalkRecord?
-        ): Result<Unit> = Result.success(Unit)
-        override suspend fun getOpenWalksInProgress(): Result<List<app.openhikes.core.model.TrailWalkRecord>> =
-            Result.success(emptyList())
-        override suspend fun finishWalk(
-            record: app.openhikes.core.model.TrailWalkRecord,
-            endedAtEpochMillis: Long,
-            reason: app.openhikes.core.model.TrailWalkEndReason
-        ): Result<app.openhikes.core.model.HikeWalk?> = Result.success(null)
-        override suspend fun deleteHike(hikeId: HikeId): Result<Unit> = error("Unused")
-        override suspend fun saveDrawnTrail(
-            title: String,
-            distanceMeters: Double,
-            route: List<RouteCoordinate>,
-            madeOnEpochMillis: Long
-        ): Result<Hike> = error("Unused")
-        override suspend fun createOrClaimRecordingDraft(
-            hikeId: HikeId,
-            startedAtEpochMillis: Long,
-            title: String
-        ): Result<Hike> = error("Unused")
-
-        override suspend fun finalizeRecordingDraft(
-            hikeId: HikeId,
-            title: String,
-            customName: String?,
-            startedAtEpochMillis: Long,
-            endedAtEpochMillis: Long,
-            prepared: app.openhikes.core.model.PreparedRecording
-        ): Result<Hike> = error("Unused")
-
-        override suspend fun deleteRecordingDraft(hikeId: HikeId): Result<Unit> = error("Unused")
-        override suspend fun deleteOwnedOrphanedRecordingDrafts(exceptHikeId: HikeId?): Result<Int> = error("Unused")
-        override suspend fun loadRouteEditSources(hikeId: HikeId) = error("Unused")
-        override suspend fun applyRouteEdit(
-            hikeId: HikeId,
-            expectedCurrentRoute: List<RouteCoordinate>,
-            edited: app.openhikes.core.model.EditedLine
-        ) = error("Unused")
-        override suspend fun revertRouteEdit(hikeId: HikeId, expectedCurrentRoute: List<RouteCoordinate>) =
-            error("Unused")
-        override suspend fun addPlace(hikeId: HikeId, place: app.openhikes.core.model.TrailPoint) = Result.success(true)
-        override suspend fun editPlace(
-            hikeId: HikeId,
-            placeId: String,
-            name: String,
-            symbol: app.openhikes.core.model.TrailPlaceSymbol?,
-            note: String
-        ) = Result.success(true)
-        override suspend fun removePlace(hikeId: HikeId, placeId: String) = Result.success(Unit)
-        override suspend fun seedFixtureIfConfigured(): HikeId? = null
 
         override suspend fun updateRouteStyle(hikeId: HikeId, style: RouteStyleUpdate): Result<Unit> {
             recordedStyles.add(style)

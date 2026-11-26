@@ -5,6 +5,7 @@ import app.openhikes.core.data.WikidataPlaceLookup
 import app.openhikes.core.map.MapCameraState
 import app.openhikes.core.map.MapCameraTracker
 import app.openhikes.core.map.MapClaimCoordinator
+import app.openhikes.core.map.PhotoCaptureController
 import app.openhikes.core.map.TrailPlacesOverlayState
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.Hike
@@ -45,7 +46,8 @@ class PlacesNearbyViewModelTest {
             wikidataPlaceLookup = WikidataPlaceLookup(FakeWikidataPlaceSource()),
             mapClaimCoordinator = MapClaimCoordinator(),
             mapCameraTracker = cameraTracker,
-            trailPlacesOverlayState = TrailPlacesOverlayState()
+            trailPlacesOverlayState = TrailPlacesOverlayState(),
+            photoCaptureController = PhotoCaptureController()
         )
 
         viewModel.uiState.test {
@@ -91,7 +93,8 @@ class PlacesNearbyViewModelTest {
             wikidataPlaceLookup = WikidataPlaceLookup(FakeWikidataPlaceSource()),
             mapClaimCoordinator = MapClaimCoordinator(),
             mapCameraTracker = cameraTracker,
-            trailPlacesOverlayState = overlayState
+            trailPlacesOverlayState = overlayState,
+            photoCaptureController = PhotoCaptureController()
         )
 
         viewModel.uiState.test {

@@ -1,5 +1,6 @@
 package app.openhikes.core.location
 
+import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.RecordingEnergyProfile
@@ -62,6 +63,8 @@ interface RecordingController {
     val completedSave: StateFlow<CompletedRecordingSave?>
 
     fun elapsedSeconds(): Double
+
+    fun photoCoordinateAt(shutterEpochMillis: Long?): GeoCoordinate?
 
     fun consumeCompletedSave(hikeId: HikeId)
 

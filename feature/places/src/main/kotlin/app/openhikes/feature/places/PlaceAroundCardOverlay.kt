@@ -29,6 +29,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import app.openhikes.core.designsystem.icon.OpenHikesIcons
 import app.openhikes.core.model.DistanceUnit
+import app.openhikes.core.model.HikePhoto
 import app.openhikes.core.model.TrailPlaceAroundEntry
 import app.openhikes.core.model.TrailPlaceRow
 import app.openhikes.core.model.WikidataPlace
@@ -42,6 +43,7 @@ import app.openhikes.core.ui.testing.OpenHikesTestTags
  * Selected place preview card displayed inside *Places Around Trail* and *Places Nearby* so the
  * hiker can inspect Wikipedia/OSM details and add a place without leaving the search screen.
  */
+@Suppress("LongParameterList")
 @Composable
 internal fun PlaceAroundCardOverlay(
     row: TrailPlaceRow,
@@ -52,7 +54,12 @@ internal fun PlaceAroundCardOverlay(
     onShare: (String) -> Unit,
     onClose: () -> Unit,
     onOpenUrl: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    photos: List<HikePhoto> = emptyList(),
+    loadPhotoThumbnailBytes: suspend (HikePhoto) -> ByteArray? = { null },
+    onTakePhoto: () -> Unit = {},
+    onAddPhotos: () -> Unit = {},
+    onOpenPhoto: (String) -> Unit = {}
 ) {
     val place = row.place
     val title = place.rememberDisplayName()
@@ -81,6 +88,17 @@ internal fun PlaceAroundCardOverlay(
             item(key = "actions") {
                 PlaceAroundCardActionsRow(isOnHike = isOnHike, onAdd = onAdd, onShare = { onShare(title) })
             }
+            if (isOnHike) {
+                item(key = "photos") {
+                    PlaceAroundCardPhotosItem(
+                        photos = photos,
+                        loadPhotoThumbnailBytes = loadPhotoThumbnailBytes,
+                        onTakePhoto = onTakePhoto,
+                        onAddPhotos = onAddPhotos,
+                        onOpenPhoto = onOpenPhoto
+                    )
+                }
+            }
             if (isOnHike && place.note.isNotBlank()) {
                 item(key = "note") {
                     Text(
@@ -102,6 +120,27 @@ internal fun PlaceAroundCardOverlay(
             }
         }
     }
+}
+
+@Composable
+private fun PlaceAroundCardPhotosItem(
+    photos: List<HikePhoto>,
+    loadPhotoThumbnailBytes: suspend (HikePhoto) -> ByteArray?,
+    onTakePhoto: () -> Unit,
+    onAddPhotos: () -> Unit,
+    onOpenPhoto: (String) -> Unit
+) {
+    PlacePhotosSection(
+        photos = photos,
+        loadThumbnailBytes = loadPhotoThumbnailBytes,
+        onTakePhoto = onTakePhoto,
+        onAddPhotos = onAddPhotos,
+        onOpenPhoto = onOpenPhoto,
+        cameraTag = OpenHikesTestTags.PLACES_AROUND_CARD_CAMERA,
+        libraryTag = OpenHikesTestTags.PLACES_AROUND_CARD_LIBRARY,
+        stripTag = OpenHikesTestTags.HIKE_PLACE_PHOTOS,
+        showEmptyHint = false
+    )
 }
 
 @Composable

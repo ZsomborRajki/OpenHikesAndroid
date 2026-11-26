@@ -125,7 +125,8 @@ class RouteProfile private constructor(
     fun nearestPoint(
         coordinate: GeoCoordinate,
         nearDistanceMeters: Double? = null,
-        headingDegrees: Double? = null
+        headingDegrees: Double? = null,
+        preferDistance: ((Double) -> Boolean)? = null
     ): RouteProjection? = when {
         coordinates.isEmpty() -> null
         coordinates.size == 1 -> {
@@ -136,13 +137,14 @@ class RouteProfile private constructor(
                 projectedCoordinate = only
             )
         }
-        else -> projectOntoWalkedSegments(coordinate, nearDistanceMeters, headingDegrees)
+        else -> projectOntoWalkedSegments(coordinate, nearDistanceMeters, headingDegrees, preferDistance)
     }
 
     private fun projectOntoWalkedSegments(
         coordinate: GeoCoordinate,
         nearDistanceMeters: Double?,
-        headingDegrees: Double?
+        headingDegrees: Double?,
+        preferDistance: ((Double) -> Boolean)?
     ): RouteProjection? {
         val fullLastIndex = coordinates.lastIndex - 1
         val initialRange = nearDistanceMeters?.let { candidateSegmentRange(it) } ?: (0..fullLastIndex)
@@ -163,7 +165,8 @@ class RouteProfile private constructor(
             candidates = candidates,
             best = closest,
             anchorMeters = nearDistanceMeters ?: 0.0,
-            headingDegrees = if (nearDistanceMeters == null) headingDegrees else null
+            headingDegrees = if (nearDistanceMeters == null) headingDegrees else null,
+            preferDistance = preferDistance
         )
         val projected = RouteGeometry.interpolate(
             coordinates[winner.segmentIndex],
@@ -216,7 +219,8 @@ class RouteProfile private constructor(
         candidates: List<NearestCandidate>,
         best: NearestCandidate,
         anchorMeters: Double,
-        headingDegrees: Double?
+        headingDegrees: Double?,
+        preferDistance: ((Double) -> Boolean)?
     ): NearestCandidate {
         val rawThreshold = best.offRouteMeters + TIE_BREAK_TOLERANCE_METERS
         val threshold = if (best.offRouteMeters <= FOLLOW_MATCH_THRESHOLD_METERS) {
@@ -225,10 +229,15 @@ class RouteProfile private constructor(
             rawThreshold
         }
         val tied = candidates.filter { it.offRouteMeters <= threshold }
-        val pool = if (headingDegrees != null) {
-            tied.filter { candidate -> runsWithHeading(candidate, headingDegrees) }.ifEmpty { tied }
+        val preferred = if (preferDistance != null) {
+            tied.filter { candidate -> preferDistance(candidate.distanceAlongRoute) }.ifEmpty { tied }
         } else {
             tied
+        }
+        val pool = if (headingDegrees != null) {
+            preferred.filter { candidate -> runsWithHeading(candidate, headingDegrees) }.ifEmpty { preferred }
+        } else {
+            preferred
         }
         return pool.minWithOrNull(
             compareBy<NearestCandidate> { abs(it.distanceAlongRoute - anchorMeters) }

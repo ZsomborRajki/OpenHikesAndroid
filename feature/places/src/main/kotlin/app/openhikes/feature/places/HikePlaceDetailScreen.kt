@@ -38,6 +38,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openhikes.core.designsystem.icon.OpenHikesIcons
 import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.HikePhoto
 import app.openhikes.core.model.TrailPlaceRow
 import app.openhikes.core.model.TrailPlaceSymbol
 import app.openhikes.core.ui.components.labelRes
@@ -53,6 +54,7 @@ fun HikePlaceDetailRoute(
     onOpenPlace: (String) -> Unit,
     onCollapseSheet: () -> Unit,
     modifier: Modifier = Modifier,
+    onOpenPhoto: (String) -> Unit = {},
     viewModel: HikePlaceDetailViewModel = hiltViewModel<HikePlaceDetailViewModel, HikePlaceDetailViewModel.Factory>(
         key = "${hikeId.value}:$placeId"
     ) { factory ->
@@ -73,6 +75,12 @@ fun HikePlaceDetailRoute(
         val nextPlaceId = uiState.pendingOpenPlaceId ?: return@LaunchedEffect
         viewModel.consumeOpenPlace()
         onOpenPlace(nextPlaceId)
+    }
+
+    LaunchedEffect(uiState.pendingOpenPhotoId) {
+        val photoId = uiState.pendingOpenPhotoId ?: return@LaunchedEffect
+        viewModel.consumeOpenPhoto()
+        onOpenPhoto(photoId)
     }
 
     HikePlaceDetailScreen(
@@ -97,6 +105,10 @@ fun HikePlaceDetailRoute(
         onCancelRemove = viewModel::onCancelRemove,
         onDismissSaveRefusal = viewModel::onDismissSaveRefusal,
         onOpenUrl = { url -> runCatching { uriHandler.openUri(url) } },
+        onTakePhoto = viewModel::onTakePhoto,
+        onAddPhotos = viewModel::onAddPhotos,
+        onOpenPhoto = onOpenPhoto,
+        loadPhotoThumbnailBytes = viewModel::loadPhotoThumbnailBytes,
         modifier = modifier
     )
 }
@@ -119,7 +131,11 @@ fun HikePlaceDetailScreen(
     onCancelRemove: () -> Unit,
     onDismissSaveRefusal: () -> Unit,
     onOpenUrl: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onTakePhoto: () -> Unit = {},
+    onAddPhotos: () -> Unit = {},
+    onOpenPhoto: (String) -> Unit = {},
+    loadPhotoThumbnailBytes: suspend (HikePhoto) -> ByteArray? = { null }
 ) {
     val row = uiState.row
     val title = row?.place?.rememberDisplayName().orEmpty()
@@ -151,6 +167,10 @@ fun HikePlaceDetailScreen(
                     uiState = uiState,
                     onShowOnMap = onShowOnMap,
                     onShare = { onShare(title) },
+                    onTakePhoto = onTakePhoto,
+                    onAddPhotos = onAddPhotos,
+                    onOpenPhoto = onOpenPhoto,
+                    loadPhotoThumbnailBytes = loadPhotoThumbnailBytes,
                     onRequestRemove = onRequestRemove,
                     onOpenUrl = onOpenUrl,
                     modifier = Modifier.weight(1f)
@@ -208,6 +228,7 @@ private fun PlaceDetailMissingState(modifier: Modifier = Modifier) {
     }
 }
 
+@Suppress("LongParameterList")
 @Composable
 private fun HikePlaceDetailBody(
     row: TrailPlaceRow,
@@ -215,6 +236,10 @@ private fun HikePlaceDetailBody(
     uiState: HikePlaceDetailUiState,
     onShowOnMap: () -> Unit,
     onShare: () -> Unit,
+    onTakePhoto: () -> Unit,
+    onAddPhotos: () -> Unit,
+    onOpenPhoto: (String) -> Unit,
+    loadPhotoThumbnailBytes: suspend (HikePhoto) -> ByteArray?,
     onRequestRemove: () -> Unit,
     onOpenUrl: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -246,6 +271,17 @@ private fun HikePlaceDetailBody(
                     .testTag(OpenHikesTestTags.HIKE_PLACE_NOTE)
             )
         }
+        PlacePhotosSection(
+            photos = uiState.placePhotos,
+            loadThumbnailBytes = loadPhotoThumbnailBytes,
+            onTakePhoto = onTakePhoto,
+            onAddPhotos = onAddPhotos,
+            onOpenPhoto = onOpenPhoto,
+            cameraTag = OpenHikesTestTags.HIKE_PLACE_CAMERA,
+            libraryTag = OpenHikesTestTags.HIKE_PLACE_LIBRARY,
+            stripTag = OpenHikesTestTags.HIKE_PLACE_PHOTOS,
+            showEmptyHint = true
+        )
         TrailPlaceFactsAndLocationSection(
             facts = place.osm?.facts.orEmpty(),
             coordinate = place.coordinate,
