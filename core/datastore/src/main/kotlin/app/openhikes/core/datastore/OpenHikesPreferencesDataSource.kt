@@ -3,6 +3,7 @@ package app.openhikes.core.datastore
 import androidx.datastore.core.DataStore
 import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.MapStyleId
+import app.openhikes.core.model.TrailPlaceSymbol
 import app.openhikes.core.model.UserSettings
 import java.io.IOException
 import javax.inject.Inject
@@ -94,6 +95,30 @@ class OpenHikesPreferencesDataSource @Inject constructor(private val userPrefere
             prefs.copy { junctionWarningsEnabled = enabled }
         }
     }
+
+    suspend fun setShowsPlacePins(enabled: Boolean) {
+        userPreferences.updateData { prefs ->
+            prefs.copy { showsPlacePins = enabled }
+        }
+    }
+
+    suspend fun setPlaceSymbolVisible(symbol: TrailPlaceSymbol, visible: Boolean) {
+        userPreferences.updateData { prefs ->
+            val current = prefs.hiddenPlaceSymbolsList
+                .mapNotNull(TrailPlaceSymbol::fromStoredId)
+                .toMutableSet()
+            if (visible) {
+                current.remove(symbol)
+            } else {
+                current.add(symbol)
+            }
+            val sorted = current.map { it.rawValue }.sorted()
+            prefs.copy {
+                hiddenPlaceSymbols.clear()
+                hiddenPlaceSymbols.addAll(sorted)
+            }
+        }
+    }
 }
 
 private fun UserPreferences.toUserSettings(): UserSettings {
@@ -135,6 +160,14 @@ private fun UserPreferences.toUserSettings(): UserSettings {
         } else {
             UserSettings.DEFAULT_OFFLINE_COUNTRIES_EXTRA_DETAIL
         },
-        junctionWarningsEnabled = junctionWarningsEnabled
+        junctionWarningsEnabled = junctionWarningsEnabled,
+        showsPlacePins = if (hasShowsPlacePins()) {
+            showsPlacePins
+        } else {
+            UserSettings.DEFAULT_SHOWS_PLACE_PINS
+        },
+        hiddenPlaceSymbols = hiddenPlaceSymbolsList
+            .mapNotNull(TrailPlaceSymbol::fromStoredId)
+            .toSet()
     )
 }

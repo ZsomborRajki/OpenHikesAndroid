@@ -47,7 +47,8 @@ private data class PendingPoint(
     var timestampEpochMillis: Long? = null,
     var name: String? = null,
     var symbol: String? = null,
-    var note: String? = null
+    var note: String? = null,
+    var linkHref: String? = null
 )
 
 internal class GpxSaxHandler(private val maximumPointCount: Int) : DefaultHandler() {
@@ -126,6 +127,22 @@ internal class GpxSaxHandler(private val maximumPointCount: Int) : DefaultHandle
                 document.routeSegments.add(ParsedSegment(containerIndex = currentRouteIndex))
             }
             ELEM_TRACK_POINT, ELEM_ROUTE_POINT, ELEM_WAYPOINT -> maybeStartPoint(element, attributes)
+            ELEM_LINK -> captureWaypointLink(attributes)
+        }
+    }
+
+    private fun captureWaypointLink(attributes: Attributes?) {
+        val point = pendingPoint
+        val canAttach = point != null &&
+            point.kind == PointKind.WAYPOINT &&
+            point.linkHref == null &&
+            path.size == point.depth + 1 &&
+            path[path.lastIndex - 1] == point.element
+        if (canAttach) {
+            val href = attributes?.getValue("", ATTR_HREF) ?: attributes?.getValue(ATTR_HREF)
+            if (!href.isNullOrBlank()) {
+                point.linkHref = href.trim()
+            }
         }
     }
 
@@ -209,7 +226,8 @@ internal class GpxSaxHandler(private val maximumPointCount: Int) : DefaultHandle
             timestampEpochMillis = point.timestampEpochMillis,
             name = point.name,
             symbol = point.symbol,
-            note = point.note
+            note = point.note,
+            linkHref = point.linkHref
         )
         when (point.kind) {
             PointKind.TRACK -> {
@@ -262,6 +280,7 @@ internal class GpxSaxHandler(private val maximumPointCount: Int) : DefaultHandle
         private const val DEPTH_FOUR = 4
         private const val ATTR_LAT = "lat"
         private const val ATTR_LON = "lon"
+        private const val ATTR_HREF = "href"
         private const val ELEM_GPX = "gpx"
         private const val ELEM_EXTENSIONS = "extensions"
         private const val ELEM_TRACK = "trk"
@@ -270,6 +289,7 @@ internal class GpxSaxHandler(private val maximumPointCount: Int) : DefaultHandle
         private const val ELEM_ROUTE = "rte"
         private const val ELEM_ROUTE_POINT = "rtept"
         private const val ELEM_WAYPOINT = "wpt"
+        private const val ELEM_LINK = "link"
         private const val ELEM_METADATA = "metadata"
         private const val ELEM_AUTHOR = "author"
         private const val ELEM_NAME = "name"

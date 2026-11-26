@@ -29,3 +29,15 @@ annotation class VectorArchivesFile
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
 annotation class RoutingSquaresDir
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class PlaceSquaresDir
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class OverpassPlacesDir
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class OverpassEndpointUrl

@@ -23,8 +23,10 @@ import app.openhikes.core.common.DefaultOpenHikesDispatchers
 import app.openhikes.core.common.LaunchConfig
 import app.openhikes.core.common.LaunchConfigHolder
 import app.openhikes.core.designsystem.theme.OpenHikesTheme
+import app.openhikes.core.map.MapCameraTracker
 import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.map.RouteHighlightState
+import app.openhikes.core.map.TrailPlacesOverlayState
 import app.openhikes.core.map.WalkOverlayState
 import app.openhikes.core.model.AppBuildInfo
 import app.openhikes.core.model.MapProviderKeys
@@ -133,6 +135,8 @@ class OpenHikesLiveResizeTest {
         walkOverlayState = WalkOverlayState(),
         routeEditOverlayState = app.openhikes.core.map.RouteEditOverlayState(),
         trailDraftOverlayState = app.openhikes.core.map.TrailDraftOverlayState(),
+        mapCameraTracker = MapCameraTracker(),
+        trailPlacesOverlayState = TrailPlacesOverlayState(),
         mapProviderKeys = MapProviderKeys.Empty,
         launchConfigHolder = LaunchConfigHolder(launchConfig),
         defaultDispatcher = DefaultOpenHikesDispatchers().default

@@ -2,6 +2,7 @@ package app.openhikes.core.testing.android
 
 import app.openhikes.core.data.UserSettingsRepository
 import app.openhikes.core.model.DistanceUnit
+import app.openhikes.core.model.TrailPlaceSymbol
 import app.openhikes.core.model.UserSettings
 import java.io.IOException
 import kotlinx.coroutines.flow.Flow
@@ -87,5 +88,22 @@ class FakeUserSettingsRepository(
     override suspend fun setJunctionWarningsEnabled(enabled: Boolean) {
         consumeWriteFailureIfPresent()
         settingsState.update { it.copy(junctionWarningsEnabled = enabled) }
+    }
+
+    override suspend fun setShowsPlacePins(enabled: Boolean) {
+        consumeWriteFailureIfPresent()
+        settingsState.update { it.copy(showsPlacePins = enabled) }
+    }
+
+    override suspend fun setPlaceSymbolVisible(symbol: TrailPlaceSymbol, visible: Boolean) {
+        consumeWriteFailureIfPresent()
+        settingsState.update { current ->
+            val nextHidden = if (visible) {
+                current.hiddenPlaceSymbols - symbol
+            } else {
+                current.hiddenPlaceSymbols + symbol
+            }
+            current.copy(hiddenPlaceSymbols = nextHidden)
+        }
     }
 }

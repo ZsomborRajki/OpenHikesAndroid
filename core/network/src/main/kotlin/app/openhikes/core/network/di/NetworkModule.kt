@@ -2,15 +2,26 @@ package app.openhikes.core.network.di
 
 import android.content.Context
 import app.openhikes.core.model.AppBuildInfo
+import app.openhikes.core.model.TrailPointSource
 import app.openhikes.core.model.VectorTileArchiveManifest
+import app.openhikes.core.model.WikidataPlaceSource
 import app.openhikes.core.network.AndroidTileNetworkPolicy
 import app.openhikes.core.network.DownloadOkHttpClient
+import app.openhikes.core.network.HttpOverpassPlaceDataSource
+import app.openhikes.core.network.HttpPlaceSquareDataSource
 import app.openhikes.core.network.HttpRoutingGraphSquareDataSource
 import app.openhikes.core.network.HttpVectorTileManifestDataSource
 import app.openhikes.core.network.LaunchAwareOfflineCountryServer
+import app.openhikes.core.network.LaunchAwareTrailPointSource
+import app.openhikes.core.network.LaunchAwareWikidataPlaceSource
 import app.openhikes.core.network.ManifestOkHttpClient
 import app.openhikes.core.network.OfflineCountryServer
 import app.openhikes.core.network.OpenHikesUserAgent
+import app.openhikes.core.network.OverpassEndpointUrl
+import app.openhikes.core.network.OverpassPlaceDataSource
+import app.openhikes.core.network.OverpassPlacesDir
+import app.openhikes.core.network.PlaceSquareDataSource
+import app.openhikes.core.network.PlaceSquaresDir
 import app.openhikes.core.network.PreviewTileOkHttpClient
 import app.openhikes.core.network.RoutingGraphSquareDataSource
 import app.openhikes.core.network.RoutingSquaresDir
@@ -58,6 +69,22 @@ abstract class NetworkBindingsModule {
     internal abstract fun bindRoutingGraphSquareDataSource(
         impl: HttpRoutingGraphSquareDataSource
     ): RoutingGraphSquareDataSource
+
+    @Binds
+    @Singleton
+    internal abstract fun bindPlaceSquareDataSource(impl: HttpPlaceSquareDataSource): PlaceSquareDataSource
+
+    @Binds
+    @Singleton
+    internal abstract fun bindOverpassPlaceDataSource(impl: HttpOverpassPlaceDataSource): OverpassPlaceDataSource
+
+    @Binds
+    @Singleton
+    internal abstract fun bindTrailPointSource(impl: LaunchAwareTrailPointSource): TrailPointSource
+
+    @Binds
+    @Singleton
+    internal abstract fun bindWikidataPlaceSource(impl: LaunchAwareWikidataPlaceSource): WikidataPlaceSource
 }
 
 @Module
@@ -87,6 +114,23 @@ object NetworkProvidesModule {
     @RoutingSquaresDir
     fun provideRoutingSquaresDir(@ApplicationContext context: Context): File =
         File(context.noBackupFilesDir, HttpRoutingGraphSquareDataSource.CACHE_DIR_NAME)
+
+    @Provides
+    @Singleton
+    @PlaceSquaresDir
+    fun providePlaceSquaresDir(@ApplicationContext context: Context): File =
+        File(context.noBackupFilesDir, HttpPlaceSquareDataSource.CACHE_DIR_NAME)
+
+    @Provides
+    @Singleton
+    @OverpassPlacesDir
+    fun provideOverpassPlacesDir(@ApplicationContext context: Context): File =
+        File(context.noBackupFilesDir, HttpOverpassPlaceDataSource.CACHE_DIR_NAME)
+
+    @Provides
+    @Singleton
+    @OverpassEndpointUrl
+    fun provideOverpassEndpointUrl(): String = HttpOverpassPlaceDataSource.DEFAULT_ENDPOINT
 
     @Provides
     @Singleton

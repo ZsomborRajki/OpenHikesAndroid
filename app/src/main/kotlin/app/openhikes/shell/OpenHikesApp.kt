@@ -36,12 +36,15 @@ import app.openhikes.core.map.MapOverlayState
 import app.openhikes.core.map.MapRouteEditOverlay
 import app.openhikes.core.map.MapRouteHighlight
 import app.openhikes.core.map.MapRouteOverlay
+import app.openhikes.core.map.MapSearchAreaPillState
 import app.openhikes.core.map.MapTrailDraftOverlay
+import app.openhikes.core.map.MapTrailPlacesOverlay
 import app.openhikes.core.map.MapWalkCoverageOverlay
 import app.openhikes.core.map.RouteEditMapInteractionHandler
 import app.openhikes.core.map.TrailDraftMapInteractionHandler
 import app.openhikes.core.map.TrailMapHost
 import app.openhikes.core.map.TrailMapRenderer
+import app.openhikes.core.map.TrailPlacesMapInteractionHandler
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.WalkTimeLeftMark
@@ -56,19 +59,29 @@ private val EmptyLiveOverlayFlow: StateFlow<MapRouteOverlay?> = MutableStateFlow
 private val EmptyWalkCoverageFlow: StateFlow<MapWalkCoverageOverlay?> = MutableStateFlow(null)
 private val EmptyRouteEditOverlayFlow: StateFlow<MapRouteEditOverlay?> = MutableStateFlow(null)
 private val EmptyTrailDraftOverlayFlow: StateFlow<MapTrailDraftOverlay?> = MutableStateFlow(null)
+private val EmptyTrailPlacesOverlayFlow: StateFlow<MapTrailPlacesOverlay?> = MutableStateFlow(null)
 
 @Immutable
 private data class ViewportChromeMetrics(val sidePanelEdge: Dp, val viewportPadding: PaddingValues)
 
 @Immutable
-private data class ShellMapOverlays(
-    val routeHighlightState: StateFlow<MapRouteHighlight?>,
-    val liveRecordingOverlayState: StateFlow<MapRouteOverlay?>,
-    val walkCoverageOverlayState: StateFlow<MapWalkCoverageOverlay?>,
-    val routeEditOverlayState: StateFlow<MapRouteEditOverlay?>,
-    val routeEditHandlerProvider: () -> RouteEditMapInteractionHandler?,
-    val trailDraftOverlayState: StateFlow<MapTrailDraftOverlay?>,
-    val trailDraftHandlerProvider: () -> TrailDraftMapInteractionHandler?
+internal data class ShellMapOverlays(
+    val liveRecordingOverlayState: StateFlow<MapRouteOverlay?> = EmptyLiveOverlayFlow,
+    val walkCoverageOverlayState: StateFlow<MapWalkCoverageOverlay?> = EmptyWalkCoverageFlow,
+    val routeEditOverlayState: StateFlow<MapRouteEditOverlay?> = EmptyRouteEditOverlayFlow,
+    val routeEditHandlerProvider: () -> RouteEditMapInteractionHandler? = { null },
+    val trailDraftOverlayState: StateFlow<MapTrailDraftOverlay?> = EmptyTrailDraftOverlayFlow,
+    val trailDraftHandlerProvider: () -> TrailDraftMapInteractionHandler? = { null },
+    val trailPlacesOverlayState: StateFlow<MapTrailPlacesOverlay?> = EmptyTrailPlacesOverlayFlow,
+    val trailPlacesHandlerProvider: () -> TrailPlacesMapInteractionHandler? = { null }
+)
+
+@Immutable
+internal data class ShellPlacesRuntime(
+    val searchAreaPill: MapSearchAreaPillState? = null,
+    val activeRecordingHikeId: HikeId? = null,
+    val defaultAddPlaceCoordinateProvider: (HikeId) -> GeoCoordinate = { MapCameraState.DEFAULT_CENTER },
+    val latestRecordingCoordinateProvider: () -> GeoCoordinate? = { null }
 )
 
 @Immutable
@@ -128,6 +141,8 @@ fun OpenHikesApp(
     val pendingCameraCommand by shellViewModel.pendingCameraCommand.collectAsStateWithLifecycle()
     val isRecordingActive by shellViewModel.isRecordingActive.collectAsStateWithLifecycle()
     val walkSession by shellViewModel.walkSession.collectAsStateWithLifecycle()
+    val activeRecordingHikeId by shellViewModel.activeRecordingHikeId.collectAsStateWithLifecycle()
+    val searchAreaPill by shellViewModel.searchAreaPillState.collectAsStateWithLifecycle()
     val showEndWalkForRecording by shellViewModel.showEndWalkForRecordingDialog.collectAsStateWithLifecycle()
     val uriHandler = LocalUriHandler.current
 
@@ -142,22 +157,11 @@ fun OpenHikesApp(
         pendingCameraCommand = pendingCameraCommand,
         routeHighlightState = shellViewModel.routeHighlight,
         isRecordingActive = isRecordingActive,
-        liveRecordingOverlayState = shellViewModel.liveRecordingOverlay,
-        walkCoverageOverlayState = shellViewModel.walkCoverageOverlay,
-        routeEditOverlayState = shellViewModel.routeEditOverlay,
-        routeEditHandlerProvider = shellViewModel::routeEditHandler,
-        trailDraftOverlayState = shellViewModel.trailDraftOverlay,
-        trailDraftHandlerProvider = shellViewModel::trailDraftHandler,
+        mapOverlays = shellViewModel.mapOverlays,
+        placesRuntime = shellViewModel.createPlacesRuntime(searchAreaPill, activeRecordingHikeId),
         walkSession = walkSession,
         walkTimeLeftMarkFlow = shellViewModel.walkTimeLeftMark,
-        walkDialogs = ShellWalkDialogCallbacks(
-            showEndWalkForRecordingDialog = showEndWalkForRecording,
-            onRequestEndWalkForRecording = shellViewModel::onRequestEndWalkForRecording,
-            onConfirmEndWalkForRecording = shellViewModel::onConfirmEndWalkForRecording,
-            onCancelEndWalkForRecording = shellViewModel::onCancelEndWalkForRecording,
-            onKeepFollowingOffTrail = shellViewModel::onKeepFollowingOffTrail,
-            onRecordInsteadFromOffTrail = shellViewModel::onRecordInsteadFromOffTrail
-        ),
+        walkDialogs = shellViewModel.createWalkDialogs(showEndWalkForRecording),
         onToggleJunctionWarnings = shellViewModel::onToggleJunctionWarnings,
         onDismissWalkStartNotice = shellViewModel::onDismissWalkStartNotice,
         openRecordingRequestCount = openRecordingRequestCount,
@@ -205,12 +209,8 @@ internal fun OpenHikesShellContent(
     modifier: Modifier = Modifier,
     onMapTap: (GeoCoordinate) -> Unit = {},
     isRecordingActive: Boolean = false,
-    liveRecordingOverlayState: StateFlow<MapRouteOverlay?> = EmptyLiveOverlayFlow,
-    walkCoverageOverlayState: StateFlow<MapWalkCoverageOverlay?> = EmptyWalkCoverageFlow,
-    routeEditOverlayState: StateFlow<MapRouteEditOverlay?> = EmptyRouteEditOverlayFlow,
-    routeEditHandlerProvider: () -> RouteEditMapInteractionHandler? = { null },
-    trailDraftOverlayState: StateFlow<MapTrailDraftOverlay?> = EmptyTrailDraftOverlayFlow,
-    trailDraftHandlerProvider: () -> TrailDraftMapInteractionHandler? = { null },
+    mapOverlays: ShellMapOverlays = ShellMapOverlays(),
+    placesRuntime: ShellPlacesRuntime = ShellPlacesRuntime(),
     walkSession: TrailWalkSessionState = TrailWalkSessionState(),
     walkTimeLeftMarkFlow: StateFlow<WalkTimeLeftMark?> = EmptyWalkTimeLeftFlow,
     walkDialogs: ShellWalkDialogCallbacks = ShellWalkDialogCallbacks(),
@@ -229,9 +229,12 @@ internal fun OpenHikesShellContent(
         showAttributionDialog = chromeUiState.showAttributionDialog,
         searchQueryState = searchQueryState,
         isRecordingActive = isRecordingActive,
+        activeRecordingHikeId = placesRuntime.activeRecordingHikeId,
         isWalkActive = walkSession.isWalkActive,
         openRecordingRequestCount = openRecordingRequestCount,
         openWalkHikeRequest = openWalkHikeRequest,
+        defaultAddPlaceCoordinateProvider = placesRuntime.defaultAddPlaceCoordinateProvider,
+        latestRecordingCoordinateProvider = placesRuntime.latestRecordingCoordinateProvider,
         onRequestAutoStartRecording = onRequestAutoStartRecording,
         onRequestEndWalkForRecording = walkDialogs.onRequestEndWalkForRecording,
         onSyncBackStack = onSyncBackStack,
@@ -247,15 +250,8 @@ internal fun OpenHikesShellContent(
         chromeUiState = chromeUiState,
         initialCameraState = initialCameraState,
         pendingCameraCommand = pendingCameraCommand,
-        mapOverlays = ShellMapOverlays(
-            routeHighlightState = routeHighlightState,
-            liveRecordingOverlayState = liveRecordingOverlayState,
-            walkCoverageOverlayState = walkCoverageOverlayState,
-            routeEditOverlayState = routeEditOverlayState,
-            routeEditHandlerProvider = routeEditHandlerProvider,
-            trailDraftOverlayState = trailDraftOverlayState,
-            trailDraftHandlerProvider = trailDraftHandlerProvider
-        ),
+        routeHighlightState = routeHighlightState,
+        mapOverlays = mapOverlays,
         isRecordingActive = isRecordingActive,
         walkChrome = MapWalkChromeState(
             session = walkSession,
@@ -264,6 +260,7 @@ internal fun OpenHikesShellContent(
             onOpenWalkedHike = navHostState.onOpenHike,
             onDismissStartNotice = onDismissWalkStartNotice
         ),
+        searchAreaPill = placesRuntime.searchAreaPill,
         onZoomIn = onZoomIn,
         onZoomOut = onZoomOut,
         onResetNorth = onResetNorth,
@@ -308,9 +305,11 @@ private fun OpenHikesShellStage(
     chromeUiState: MapChromeUiState,
     initialCameraState: MapCameraState,
     pendingCameraCommand: MapCameraCommand?,
+    routeHighlightState: StateFlow<MapRouteHighlight?>,
     mapOverlays: ShellMapOverlays,
     isRecordingActive: Boolean,
     walkChrome: MapWalkChromeState,
+    searchAreaPill: MapSearchAreaPillState?,
     onZoomIn: () -> Unit,
     onZoomOut: () -> Unit,
     onResetNorth: () -> Unit,
@@ -345,6 +344,7 @@ private fun OpenHikesShellStage(
             viewportPadding = metrics.viewportPadding,
             interactions = MapInteractionEvents(onCameraChanged = onCameraChanged, onMapTap = onMapTap),
             onCameraCommandHandled = onCameraCommandHandled,
+            routeHighlightState = routeHighlightState,
             mapOverlays = mapOverlays
         )
         MapFloatingControls(
@@ -358,6 +358,7 @@ private fun OpenHikesShellStage(
             isRecordingActive = isRecordingActive,
             showTrailMakerButton = navHostState.showTrailMakerButton,
             walkChrome = walkChrome,
+            placesChrome = shellPlacesChrome(navHostState, searchAreaPill),
             onOpenRecording = navHostState.onOpenRecording,
             onOpenTrailMaker = navHostState.onOpenTrailMaker,
             onOpenMapModes = navHostState.onOpenMapModes,
@@ -379,6 +380,15 @@ private fun OpenHikesShellStage(
     }
 }
 
+private fun shellPlacesChrome(
+    navHostState: ShellNavigationHostState,
+    searchAreaPill: MapSearchAreaPillState?
+): MapPlacesChromeState = MapPlacesChromeState(
+    showAddPlaceButton = navHostState.showAddPlaceButton,
+    onAddPlace = navHostState.onAddPlace,
+    searchAreaPill = searchAreaPill
+)
+
 @Composable
 private fun ShellTrailMap(
     trailMapRenderer: TrailMapRenderer,
@@ -388,6 +398,7 @@ private fun ShellTrailMap(
     viewportPadding: PaddingValues,
     interactions: MapInteractionEvents,
     onCameraCommandHandled: (Long) -> Unit,
+    routeHighlightState: StateFlow<MapRouteHighlight?>,
     mapOverlays: ShellMapOverlays
 ) {
     TrailMapHost(
@@ -398,13 +409,15 @@ private fun ShellTrailMap(
         viewportPadding = viewportPadding,
         interactions = interactions,
         onCameraCommandHandled = onCameraCommandHandled,
-        highlightState = mapOverlays.routeHighlightState,
+        highlightState = routeHighlightState,
         liveRecordingOverlayState = mapOverlays.liveRecordingOverlayState,
         walkCoverageOverlayState = mapOverlays.walkCoverageOverlayState,
         routeEditOverlayState = mapOverlays.routeEditOverlayState,
         routeEditHandlerProvider = mapOverlays.routeEditHandlerProvider,
         trailDraftOverlayState = mapOverlays.trailDraftOverlayState,
-        trailDraftHandlerProvider = mapOverlays.trailDraftHandlerProvider
+        trailDraftHandlerProvider = mapOverlays.trailDraftHandlerProvider,
+        trailPlacesOverlayState = mapOverlays.trailPlacesOverlayState,
+        trailPlacesHandlerProvider = mapOverlays.trailPlacesHandlerProvider
     )
 }
 

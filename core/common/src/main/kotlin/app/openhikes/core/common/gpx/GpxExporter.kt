@@ -114,6 +114,9 @@ object GpxExporter {
             if (place.note.isNotBlank()) {
                 sb.append("    <desc>${escaped(place.note)}</desc>\n")
             }
+            place.osm?.let { osm ->
+                sb.append("    <link href=\"${escaped(osm.url)}\"/>\n")
+            }
             place.symbol?.takeIf { it.isNotBlank() }?.let { sym ->
                 sb.append("    <sym>${escaped(sym)}</sym>\n")
             }

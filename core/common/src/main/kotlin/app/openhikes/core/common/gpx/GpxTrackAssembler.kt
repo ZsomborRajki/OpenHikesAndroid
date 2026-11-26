@@ -7,6 +7,7 @@ import app.openhikes.core.model.GpxWaypoint
 import app.openhikes.core.model.RouteBoundary
 import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteGeometry
+import app.openhikes.core.model.TrailPlaceOsm
 
 internal object GpxTrackAssembler {
     private const val PHOTOGRAPH_MARKER = "Photo"
@@ -87,7 +88,8 @@ internal object GpxTrackAssembler {
                 elevationMeters = validated.elevationMeters,
                 name = BoundedText.boundedOrEmpty(raw.name, TextBound.TITLE),
                 symbol = raw.symbol?.trim()?.takeIf { it.isNotEmpty() },
-                note = BoundedText.boundedOrEmpty(raw.note, TextBound.NOTES)
+                note = BoundedText.boundedOrEmpty(raw.note, TextBound.NOTES),
+                osm = TrailPlaceOsm.fromUrl(raw.linkHref)
             )
         }
     }

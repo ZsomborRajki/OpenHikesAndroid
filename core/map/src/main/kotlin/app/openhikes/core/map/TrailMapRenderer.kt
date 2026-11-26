@@ -27,6 +27,8 @@ interface TrailMapRenderer {
         routeEditOverlayState: StateFlow<MapRouteEditOverlay?> = remember { MutableStateFlow(null) },
         routeEditHandlerProvider: () -> RouteEditMapInteractionHandler? = { null },
         trailDraftOverlayState: StateFlow<MapTrailDraftOverlay?> = remember { MutableStateFlow(null) },
-        trailDraftHandlerProvider: () -> TrailDraftMapInteractionHandler? = { null }
+        trailDraftHandlerProvider: () -> TrailDraftMapInteractionHandler? = { null },
+        trailPlacesOverlayState: StateFlow<MapTrailPlacesOverlay?> = remember { MutableStateFlow(null) },
+        trailPlacesHandlerProvider: () -> TrailPlacesMapInteractionHandler? = { null }
     )
 }

@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import app.openhikes.core.location.TrailWalkSessionState
 import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.ExportedGpx
+import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeRouteStatistics
@@ -13,6 +14,7 @@ import app.openhikes.core.model.OfflineCountryDownload
 import app.openhikes.core.model.OfflineRouteSaving
 import app.openhikes.core.model.RouteProfile
 import app.openhikes.core.model.RouteSegment
+import app.openhikes.core.model.TrailPlaceRow
 
 /**
  * Tabs inside [HikeDetailScreen] separating route metadata from recorded walk history.
@@ -65,7 +67,12 @@ data class HikeDetailUiState(
     val showDeleteDialog: Boolean = false,
     val actionError: HikeDetailError? = null,
     val pendingExport: ExportedGpx? = null,
-    val exportSuccess: Boolean = false
+    val exportSuccess: Boolean = false,
+    val placeRows: List<TrailPlaceRow> = emptyList(),
+    val showsPlacePins: Boolean = true,
+    val canSearchPlaces: Boolean = false,
+    val pendingOpenPlaceId: String? = null,
+    val pendingAddPlaceCoordinate: GeoCoordinate? = null
 ) {
     val isWalkingThisHike: Boolean
         get() = walkSession.walkedHikeId == hikeId && walkSession.phase != null
@@ -98,4 +105,10 @@ sealed interface HikeWalkAction {
     data class SetAutoFollow(val enabled: Boolean) : HikeWalkAction
     data class SelectTab(val tab: HikeDetailTab) : HikeWalkAction
     data class OpenWalkSummary(val walkId: String) : HikeWalkAction
+}
+
+sealed interface HikePlaceAction {
+    data class OpenPlace(val placeId: String) : HikePlaceAction
+    data class SetShowPlacePins(val enabled: Boolean) : HikePlaceAction
+    data object OpenPlacesAround : HikePlaceAction
 }

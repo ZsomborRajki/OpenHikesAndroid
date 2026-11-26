@@ -18,4 +18,21 @@
     <string name="map_style_stamen_terrain_name">Stamen Terrain</string>
     <string name="map_style_thunderforest_outdoors_name">Thunderforest Outdoors</string>
     <string name="map_style_other_name">another map</string>
+    <string name="place_kind_none">None</string>
+    <string name="place_unnamed_fallback">Place</string>
+    <string name="place_kind_camp">Camp</string>
+    <string name="place_kind_caution">Caution</string>
+    <string name="place_kind_junction">Junction</string>
+    <string name="place_kind_parking">Parking</string>
+    <string name="place_kind_shelter">Shelter</string>
+    <string name="place_kind_summit">Summit</string>
+    <string name="place_kind_viewpoint">Viewpoint</string>
+    <string name="place_kind_water">Water</string>
+    <string name="place_chip_camp">Campsites</string>
+    <string name="place_chip_parking">Parking</string>
+    <string name="place_chip_shelter">Huts</string>
+    <string name="place_chip_summit">Summits</string>
+    <string name="place_chip_viewpoint">Viewpoints</string>
+    <string name="place_chip_water">Water</string>
+    <string name="place_off_trail_distance">%1$s off trail</string>
 </resources>

@@ -21,4 +21,6 @@ message UserPreferences {
     string map_style_id = 9;
     optional bool offline_countries_extra_detail = 10;
     bool junction_warnings_enabled = 11;
+    optional bool shows_place_pins = 12;
+    repeated string hidden_place_symbols = 13;
 }

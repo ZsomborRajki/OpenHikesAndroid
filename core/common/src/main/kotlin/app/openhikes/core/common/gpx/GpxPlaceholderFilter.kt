@@ -12,7 +12,8 @@ internal data class RawGpxPoint(
     val timestampEpochMillis: Long?,
     val name: String? = null,
     val symbol: String? = null,
-    val note: String? = null
+    val note: String? = null,
+    val linkHref: String? = null
 )
 
 internal data class ValidatedGpxPoint(

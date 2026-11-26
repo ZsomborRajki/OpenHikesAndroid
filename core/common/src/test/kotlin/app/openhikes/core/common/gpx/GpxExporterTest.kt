@@ -5,6 +5,8 @@ import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.RouteBoundary
 import app.openhikes.core.model.RouteCoordinate
+import app.openhikes.core.model.TrailPlaceOsm
+import app.openhikes.core.model.TrailPlaceSymbol
 import app.openhikes.core.model.TrailPoint
 import com.google.common.truth.Truth.assertThat
 import java.time.ZoneOffset
@@ -137,5 +139,38 @@ class GpxExporterTest {
         assertThat(reparsed.trackDescription).isEqualTo("Pass $cjkSupplementary")
         assertThat(reparsed.places.single().name).isEqualTo("Spring $cjkSupplementary")
         assertThat(reparsed.places.single().note).isEqualTo("Note $bootEmoji")
+    }
+
+    @Test
+    fun roundTripsOsmPlaceLinkHrefThroughExportAndImport() {
+        val hike = Hike(
+            id = HikeId("h-osm"),
+            title = "Thumsee Loop",
+            distanceMeters = 500.0,
+            dateEpochMillis = 1_767_225_600_000L,
+            route = listOf(
+                RouteCoordinate(47.71842, 12.83177),
+                RouteCoordinate(47.72150, 12.82950)
+            ),
+            places = listOf(
+                TrailPoint(
+                    id = "w-osm",
+                    hikeId = HikeId("h-osm"),
+                    coordinate = GeoCoordinate(47.7200, 12.8300),
+                    name = "Thumsee Spring",
+                    symbol = TrailPlaceSymbol.WATER.rawValue,
+                    osm = TrailPlaceOsm(elementType = "node", elementId = 123456L)
+                )
+            )
+        )
+
+        val exported = GpxExporter.export(hike, ZoneOffset.UTC)
+        assertThat(exported.xml).contains("<link href=\"https://www.openstreetmap.org/node/123456\"/>")
+
+        val reparsed = (GpxParser.parseSingle(exported.xml.encodeToByteArray()) as GpxParseResult.Success).value
+        val place = reparsed.places.single()
+        assertThat(place.name).isEqualTo("Thumsee Spring")
+        assertThat(place.symbol).isEqualTo("Water")
+        assertThat(place.osm).isEqualTo(TrailPlaceOsm(elementType = "node", elementId = 123456L))
     }
 }

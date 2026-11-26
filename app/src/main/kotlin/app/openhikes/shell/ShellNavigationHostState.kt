@@ -22,7 +22,9 @@ import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import app.openhikes.core.common.LaunchConfig
+import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeId
+import app.openhikes.core.ui.navigation.AddHikePlaceRoute
 import app.openhikes.core.ui.navigation.EntryProviderInstaller
 import app.openhikes.core.ui.navigation.HikeDetailRoute
 import app.openhikes.core.ui.navigation.MapHomeRoute
@@ -30,6 +32,7 @@ import app.openhikes.core.ui.navigation.MapModesRoute
 import app.openhikes.core.ui.navigation.OfflineMapsRoute
 import app.openhikes.core.ui.navigation.OpenHikesNavigator
 import app.openhikes.core.ui.navigation.OpenHikesRoute
+import app.openhikes.core.ui.navigation.RecordingAddPlaceRoute
 import app.openhikes.core.ui.navigation.RecordingRoute
 import app.openhikes.core.ui.navigation.SettingsRoute
 import app.openhikes.core.ui.navigation.TrailMakerRoute
@@ -39,10 +42,12 @@ internal data class ShellNavigationHostState(
     val sheetDetent: SheetDetent,
     val isMapModesOpen: Boolean,
     val showTrailMakerButton: Boolean,
+    val showAddPlaceButton: Boolean,
     val onDetentChange: (SheetDetent) -> Unit,
     val onOpenHike: (HikeId) -> Unit,
     val onOpenRecording: () -> Unit,
     val onOpenTrailMaker: () -> Unit,
+    val onAddPlace: () -> Unit,
     val onProceedToRecording: () -> Unit,
     val onOpenMapModes: () -> Unit,
     val navigationContent: @Composable () -> Unit
@@ -56,6 +61,7 @@ private data class ShellNavActions(
     val onOpenHike: (HikeId) -> Unit,
     val onOpenRecording: () -> Unit,
     val onOpenTrailMaker: () -> Unit,
+    val onAddPlace: () -> Unit,
     val onProceedToRecording: () -> Unit,
     val onOpenMapModes: () -> Unit,
     val onHikeDeleted: (HikeId) -> Unit
@@ -134,9 +140,12 @@ internal fun rememberShellNavigationHost(
     showAttributionDialog: Boolean,
     searchQueryState: State<String>,
     isRecordingActive: Boolean,
+    activeRecordingHikeId: HikeId?,
     isWalkActive: Boolean,
     openRecordingRequestCount: Int,
     openWalkHikeRequest: Pair<Int, HikeId>?,
+    defaultAddPlaceCoordinateProvider: (HikeId) -> GeoCoordinate,
+    latestRecordingCoordinateProvider: () -> GeoCoordinate?,
     onRequestAutoStartRecording: () -> Unit,
     onRequestEndWalkForRecording: () -> Unit,
     onSyncBackStack: (List<Any>) -> Unit,
@@ -150,7 +159,10 @@ internal fun rememberShellNavigationHost(
         controllers = controllers,
         searchQuery = searchQueryState.value,
         isRecordingActive = isRecordingActive,
+        activeRecordingHikeId = activeRecordingHikeId,
         isWalkActive = isWalkActive,
+        defaultAddPlaceCoordinateProvider = defaultAddPlaceCoordinateProvider,
+        latestRecordingCoordinateProvider = latestRecordingCoordinateProvider,
         onRequestAutoStartRecording = onRequestAutoStartRecording,
         onRequestEndWalkForRecording = onRequestEndWalkForRecording,
         onClearSearch = onClearSearch
@@ -176,10 +188,14 @@ internal fun rememberShellNavigationHost(
         actions = actions,
         homeContent = homeContent
     )
+    val topRoute = controllers.backStack.lastOrNull()
+    val showAddPlaceButton = topRoute is HikeDetailRoute ||
+        (topRoute == RecordingRoute && activeRecordingHikeId != null)
     return ShellNavigationHostState(
         sheetDetent = controllers.sheetDetent,
-        isMapModesOpen = controllers.backStack.lastOrNull() == MapModesRoute,
+        isMapModesOpen = topRoute == MapModesRoute,
         showTrailMakerButton = controllers.backStack.size <= 1,
+        showAddPlaceButton = showAddPlaceButton,
         onDetentChange = { next ->
             controllers.sheetDetent = next
             if (next == SheetDetent.PEEK && controllers.isSearchActive) actions.exitSearch()
@@ -187,6 +203,7 @@ internal fun rememberShellNavigationHost(
         onOpenHike = actions.onOpenHike,
         onOpenRecording = actions.onOpenRecording,
         onOpenTrailMaker = actions.onOpenTrailMaker,
+        onAddPlace = actions.onAddPlace,
         onProceedToRecording = actions.onProceedToRecording,
         onOpenMapModes = actions.onOpenMapModes,
         navigationContent = navigationContent
@@ -198,7 +215,10 @@ private fun rememberShellNavActions(
     controllers: ShellNavControllers,
     searchQuery: String,
     isRecordingActive: Boolean,
+    activeRecordingHikeId: HikeId?,
     isWalkActive: Boolean,
+    defaultAddPlaceCoordinateProvider: (HikeId) -> GeoCoordinate,
+    latestRecordingCoordinateProvider: () -> GeoCoordinate?,
     onRequestAutoStartRecording: () -> Unit,
     onRequestEndWalkForRecording: () -> Unit,
     onClearSearch: () -> Unit
@@ -206,6 +226,7 @@ private fun rememberShellNavActions(
     val focusManager = LocalFocusManager.current
     val currentSearchQuery by rememberUpdatedState(searchQuery)
     val currentIsRecordingActive by rememberUpdatedState(isRecordingActive)
+    val currentActiveRecordingHikeId by rememberUpdatedState(activeRecordingHikeId)
     val currentIsWalkActive by rememberUpdatedState(isWalkActive)
     val exitSearch = {
         onClearSearch()
@@ -222,26 +243,16 @@ private fun rememberShellNavActions(
     }
     return ShellNavActions(
         exitSearch = exitSearch,
-        onSearchFocusChanged = { focused ->
-            if (focused) {
-                controllers.isSearchActive = true
-                controllers.sheetDetent = SheetDetent.EXPANDED
-            } else if (currentSearchQuery.isBlank()) {
-                controllers.isSearchActive = false
-            }
-        },
-        onOpenSettings = {
-            if (controllers.isSearchActive) exitSearch()
-            if (controllers.detentBeforeSettings == null) controllers.detentBeforeSettings = controllers.sheetDetent
-            controllers.sheetDetent = SheetDetent.EXPANDED
-            controllers.navigator.navigate(SettingsRoute)
-        },
+        onSearchFocusChanged = { focused -> controllers.updateSearchFocus(focused, currentSearchQuery) },
+        onOpenSettings = { controllers.openSettings(exitSearch) },
         onOpenHike = { hikeId ->
             focusManager.clearFocus(force = true)
             controllers.navigateHalfSheetIfPeek(HikeDetailRoute(hikeId))
         },
         onOpenRecording = {
-            if (!currentIsRecordingActive && currentIsWalkActive) {
+            if (!currentIsRecordingActive &&
+                currentIsWalkActive
+            ) {
                 onRequestEndWalkForRecording()
             } else {
                 proceedToRecording()
@@ -252,6 +263,14 @@ private fun rememberShellNavActions(
             focusManager.clearFocus(force = true)
             controllers.navigateHalfSheetIfPeek(TrailMakerRoute)
         },
+        onAddPlace = {
+            focusManager.clearFocus(force = true)
+            controllers.openAddPlace(
+                activeRecordingHikeId = currentActiveRecordingHikeId,
+                defaultAddPlaceCoordinateProvider = defaultAddPlaceCoordinateProvider,
+                latestRecordingCoordinateProvider = latestRecordingCoordinateProvider
+            )
+        },
         onProceedToRecording = proceedToRecording,
         onOpenMapModes = {
             controllers.toggleMapModesRoute(
@@ -261,6 +280,22 @@ private fun rememberShellNavActions(
         },
         onHikeDeleted = { hikeId -> controllers.navigator.removeRoutesForHike(hikeId) }
     )
+}
+
+private fun ShellNavControllers.updateSearchFocus(focused: Boolean, currentSearchQuery: String) {
+    if (focused) {
+        isSearchActive = true
+        sheetDetent = SheetDetent.EXPANDED
+    } else if (currentSearchQuery.isBlank()) {
+        isSearchActive = false
+    }
+}
+
+private fun ShellNavControllers.openSettings(exitSearch: () -> Unit) {
+    if (isSearchActive) exitSearch()
+    if (detentBeforeSettings == null) detentBeforeSettings = sheetDetent
+    sheetDetent = SheetDetent.EXPANDED
+    navigator.navigate(SettingsRoute)
 }
 
 private fun ShellNavControllers.toggleMapModesRoute(exitSearch: () -> Unit, clearFocus: () -> Unit) {
@@ -288,6 +323,26 @@ private fun ShellNavControllers.proceedToRecordingRoute(
     clearFocus()
     if (!isRecordingActive) onRequestAutoStartRecording()
     navigateHalfSheetIfPeek(RecordingRoute)
+}
+
+private fun ShellNavControllers.openAddPlace(
+    activeRecordingHikeId: HikeId?,
+    defaultAddPlaceCoordinateProvider: (HikeId) -> GeoCoordinate,
+    latestRecordingCoordinateProvider: () -> GeoCoordinate?
+) {
+    when (val top = backStack.lastOrNull()) {
+        is HikeDetailRoute -> {
+            val coord = defaultAddPlaceCoordinateProvider(top.hikeId)
+            navigateHalfSheetIfPeek(AddHikePlaceRoute(top.hikeId, coord.latitude, coord.longitude))
+        }
+        RecordingRoute -> if (activeRecordingHikeId != null) {
+            val coord = latestRecordingCoordinateProvider()
+            navigateHalfSheetIfPeek(
+                RecordingAddPlaceRoute(activeRecordingHikeId, coord?.latitude, coord?.longitude)
+            )
+        }
+        else -> Unit
+    }
 }
 
 private fun ShellNavControllers.navigateHalfSheetIfPeek(route: OpenHikesRoute) {

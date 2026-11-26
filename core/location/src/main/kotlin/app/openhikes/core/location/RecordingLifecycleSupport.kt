@@ -24,6 +24,7 @@ import app.openhikes.core.model.RecordingStopStep
 import app.openhikes.core.model.TrackJournalSession
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
 
 /**
  * Encapsulates recording lifecycle transitions: session activation, fix ingestion, pause/resume,
@@ -198,11 +199,15 @@ internal class RecordingLifecycleSupport(
     suspend fun settledStopStep(): RecordingStopStep? {
         val current = runtime.stateFlow.value
         val hasLiveDrawableLeg = RecordingPreparation.hasDrawableRouteLeg(runtime.tracePoints)
+        val holdsKeepsakes = current.sessionId?.let { id ->
+            runCatching { hikeRepository.observeHike(HikeId(id)).first()?.places?.isNotEmpty() == true }
+                .getOrDefault(false)
+        } ?: false
         return when {
             !current.isStoppable -> null
             hasLiveDrawableLeg -> RecordingStopStep.resolve(
                 hasDrawableLeg = true,
-                holdsKeepsakes = false
+                holdsKeepsakes = holdsKeepsakes
             )
             else -> {
                 autoPauseSupport.cancelRefresh()
@@ -214,7 +219,7 @@ internal class RecordingLifecycleSupport(
                     onSuccess = { hasDrawableLeg ->
                         RecordingStopStep.resolve(
                             hasDrawableLeg = hasDrawableLeg,
-                            holdsKeepsakes = false
+                            holdsKeepsakes = holdsKeepsakes
                         )
                     },
                     onFailure = { RecordingStopStep.CONFIRM_DISCARD }

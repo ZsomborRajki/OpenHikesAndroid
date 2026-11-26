@@ -28,6 +28,8 @@ import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteEditOutcome
 import app.openhikes.core.model.RouteEditSources
 import app.openhikes.core.model.RouteStyleUpdate
+import app.openhikes.core.model.TrailPlaceSymbol
+import app.openhikes.core.model.TrailPoint
 import app.openhikes.core.model.TrailWalkEndReason
 import app.openhikes.core.model.TrailWalkRecord
 import java.io.IOException
@@ -114,6 +116,15 @@ internal class OfflineFirstHikeRepository @Inject constructor(
         },
         ioDispatcher = ioDispatcher,
         defaultDispatcher = defaultDispatcher
+    )
+    private val hikePlaceStore = HikePlaceStore(
+        hikeDao = hikeDao,
+        trailPointDao = trailPointDao,
+        clock = clock,
+        shouldFailFirstSave = {
+            launchConfigHolder.current.value.failsFirstSave && !hasConsumedFirstSaveFailure.getAndSet(true)
+        },
+        ioDispatcher = ioDispatcher
     )
 
     override val hikes: Flow<List<HikeSummary>> = combine(
@@ -315,6 +326,20 @@ internal class OfflineFirstHikeRepository @Inject constructor(
             )
         }
     }
+
+    override suspend fun addPlace(hikeId: HikeId, place: TrailPoint): Result<Boolean> =
+        hikePlaceStore.addPlace(hikeId, place)
+
+    override suspend fun editPlace(
+        hikeId: HikeId,
+        placeId: String,
+        name: String,
+        symbol: TrailPlaceSymbol?,
+        note: String
+    ): Result<Boolean> = hikePlaceStore.editPlace(hikeId, placeId, name, symbol, note)
+
+    override suspend fun removePlace(hikeId: HikeId, placeId: String): Result<Unit> =
+        hikePlaceStore.removePlace(hikeId, placeId)
 
     override suspend fun seedFixtureIfConfigured(): HikeId? {
         val config = launchConfigHolder.current.value

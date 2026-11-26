@@ -141,7 +141,12 @@ internal class GpxImportStore(
                 name = wpt.name,
                 symbol = wpt.symbol,
                 note = wpt.note,
-                sortOrder = idx
+                sortOrder = idx,
+                osmElementType = wpt.osm?.elementType.orEmpty(),
+                osmElementId = wpt.osm?.elementId ?: 0L,
+                osmFactsJson = "[]",
+                osmWikidata = wpt.osm?.wikidata,
+                createdAtEpochMillis = dateMillis + idx.toLong()
             )
         }
         val localEntity = HikeLocalStateEntity(

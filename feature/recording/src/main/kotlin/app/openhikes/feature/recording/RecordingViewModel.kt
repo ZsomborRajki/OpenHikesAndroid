@@ -3,12 +3,18 @@ package app.openhikes.feature.recording
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.openhikes.core.common.LaunchConfigHolder
+import app.openhikes.core.data.HikeRepository
 import app.openhikes.core.data.UserSettingsRepository
 import app.openhikes.core.location.RecordingController
 import app.openhikes.core.location.RecordingEntryCoordinator
 import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapClaim
 import app.openhikes.core.map.MapClaimCoordinator
+import app.openhikes.core.map.MapPlacePin
+import app.openhikes.core.map.MapTrailPlacesOverlay
+import app.openhikes.core.map.TrailPlacesClaim
+import app.openhikes.core.map.TrailPlacesMapInteractionHandler
+import app.openhikes.core.map.TrailPlacesOverlayState
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.RecordingPhase
 import app.openhikes.core.model.RecordingStatsSnapshot
@@ -18,6 +24,7 @@ import app.openhikes.core.ui.navigation.RecordingRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.IOException
 import javax.inject.Inject
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -25,6 +32,8 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -34,16 +43,38 @@ import kotlinx.coroutines.launch
  * ViewModel for [RecordingRoute] owning coarse recording chrome, stop/discard dialog flows,
  * map-claim camera tracking, and delegation into [RecordingController].
  */
+@OptIn(ExperimentalCoroutinesApi::class)
+@Suppress("LongParameterList")
 @HiltViewModel
 class RecordingViewModel @Inject constructor(
     private val recordingController: RecordingController,
     recordingEntryCoordinator: RecordingEntryCoordinator,
+    hikeRepository: HikeRepository,
     userSettingsRepository: UserSettingsRepository,
     private val mapClaimCoordinator: MapClaimCoordinator,
+    private val trailPlacesOverlayState: TrailPlacesOverlayState,
     private val launchConfigHolder: LaunchConfigHolder
 ) : ViewModel() {
     private val dialogState = MutableStateFlow(RecordingDialogState())
+    private val pendingOpenPlaceIdState = MutableStateFlow<String?>(null)
     private var pendingSaveSessionId: String? = null
+
+    private val placesInteractionHandler = object : TrailPlacesMapInteractionHandler {
+        override fun onTapPlacePin(placeId: String) {
+            pendingOpenPlaceIdState.value = placeId
+        }
+    }
+
+    private val activePlacesFlow = recordingController.state
+        .map { session -> session.sessionId?.takeIf { session.isActive } }
+        .distinctUntilChanged()
+        .flatMapLatest { sessionId ->
+            if (sessionId == null) {
+                flowOf(emptyList())
+            } else {
+                hikeRepository.observeHike(HikeId(sessionId)).map { it?.places.orEmpty() }
+            }
+        }
 
     val stats: StateFlow<RecordingStatsSnapshot> = recordingController.stats
 
@@ -53,8 +84,9 @@ class RecordingViewModel @Inject constructor(
             if (exception is IOException) emit(UserSettings()) else throw exception
         },
         launchConfigHolder.current,
-        dialogState
-    ) { session, settings, launchConfig, dialog ->
+        dialogState,
+        combine(activePlacesFlow, pendingOpenPlaceIdState) { places, openId -> places to openId }
+    ) { session, settings, launchConfig, dialog, placesPair ->
         RecordingUiState(
             session = session,
             distanceUnit = settings.distanceUnit,
@@ -66,7 +98,9 @@ class RecordingViewModel @Inject constructor(
             showDiscardDialog = dialog.showDiscardDialog,
             savedHikeId = dialog.savedHikeId,
             discardCompleted = dialog.discardCompleted,
-            requestLocationPermission = dialog.requestLocationPermission
+            requestLocationPermission = dialog.requestLocationPermission,
+            places = placesPair.first,
+            pendingOpenPlaceId = placesPair.second
         )
     }.stateIn(
         scope = viewModelScope,
@@ -85,13 +119,19 @@ class RecordingViewModel @Inject constructor(
         mapClaimCoordinator.registerClaim(MapClaim(routeKey = RecordingRoute, depth = DEFAULT_CLAIM_DEPTH))
         observeLiveCameraTracking()
         observeCompletedSaves()
+        observeRecordingPlaces()
         if (recordingEntryCoordinator.consumeAutoStart() && !initialState.isActive) {
             dispatchStart()
         }
     }
 
     override fun onCleared() {
+        trailPlacesOverlayState.clearClaim(RecordingRoute)
         mapClaimCoordinator.releaseClaim(RecordingRoute)
+    }
+
+    fun consumePendingOpenPlace() {
+        pendingOpenPlaceIdState.value = null
     }
 
     fun currentElapsedSeconds(): Double = recordingController.elapsedSeconds()
@@ -167,6 +207,28 @@ class RecordingViewModel @Inject constructor(
                         dialogState.update { it.copy(savedHikeId = completed.hikeId) }
                     }
                 }
+        }
+    }
+
+    private fun observeRecordingPlaces() {
+        viewModelScope.launch {
+            activePlacesFlow.collect { places ->
+                val pins = places.map { place ->
+                    MapPlacePin(
+                        id = place.id,
+                        coordinate = place.coordinate,
+                        symbol = place.symbolKind,
+                        title = place.name.ifBlank { place.symbol ?: DEFAULT_PIN_TITLE }
+                    )
+                }
+                trailPlacesOverlayState.setClaim(
+                    TrailPlacesClaim(
+                        routeKey = RecordingRoute,
+                        overlay = MapTrailPlacesOverlay(pins = pins),
+                        handler = placesInteractionHandler
+                    )
+                )
+            }
         }
     }
 
@@ -255,5 +317,6 @@ class RecordingViewModel @Inject constructor(
         const val STOP_TIMEOUT_MILLIS = 5_000L
         const val DEFAULT_CLAIM_DEPTH = 1
         const val FOLLOW_ZOOM = 15.5
+        const val DEFAULT_PIN_TITLE = "Place"
     }
 }

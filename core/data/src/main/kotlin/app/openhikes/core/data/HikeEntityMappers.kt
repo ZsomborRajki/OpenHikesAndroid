@@ -15,6 +15,8 @@ import app.openhikes.core.model.HikeMapRoute
 import app.openhikes.core.model.HikeSummary
 import app.openhikes.core.model.HikeWalk
 import app.openhikes.core.model.RouteLinePattern
+import app.openhikes.core.model.TrailPlaceFact
+import app.openhikes.core.model.TrailPlaceOsm
 import app.openhikes.core.model.TrailPoint
 import app.openhikes.core.model.TrailWalkEndReason
 import kotlinx.serialization.json.Json
@@ -62,14 +64,47 @@ internal fun HikeEntity.toDomain(routeChunks: List<HikeRouteChunkEntity>, trailP
         places = trailPoints.map { it.toDomain() }
     )
 
-internal fun TrailPointEntity.toDomain(): TrailPoint = TrailPoint(
+internal fun TrailPointEntity.toDomain(): TrailPoint {
+    val osm = if (osmElementType in TrailPlaceOsm.ELEMENT_TYPES && osmElementId > 0L) {
+        val facts = runCatching { Json.decodeFromString<List<TrailPlaceFact>>(osmFactsJson) }
+            .getOrDefault(emptyList())
+        TrailPlaceOsm(
+            elementType = osmElementType,
+            elementId = osmElementId,
+            facts = facts,
+            wikidata = TrailPlaceOsm.wikidataItem(osmWikidata)
+        )
+    } else {
+        null
+    }
+    return TrailPoint(
+        id = id,
+        hikeId = HikeId(hikeId),
+        coordinate = GeoCoordinate(latitude = latitude, longitude = longitude),
+        elevationMeters = elevationMeters,
+        name = name,
+        symbol = symbol,
+        note = note,
+        osm = osm,
+        createdAtEpochMillis = createdAtEpochMillis
+    )
+}
+
+internal fun TrailPoint.toEntity(hikeIdValue: String, sortOrder: Int): TrailPointEntity = TrailPointEntity(
     id = id,
-    hikeId = HikeId(hikeId),
-    coordinate = GeoCoordinate(latitude = latitude, longitude = longitude),
+    hikeId = hikeIdValue,
+    latitude = coordinate.latitude,
+    longitude = coordinate.longitude,
     elevationMeters = elevationMeters,
     name = name,
     symbol = symbol,
-    note = note
+    note = note,
+    sortOrder = sortOrder,
+    osmElementType = osm?.elementType.orEmpty(),
+    osmElementId = osm?.elementId ?: 0L,
+    osmFactsJson = osm?.facts?.takeIf { it.isNotEmpty() }?.let { Json.encodeToString(it) } ?: "[]",
+    osmWikidata = osm?.wikidata,
+    createdAtEpochMillis = createdAtEpochMillis
 )
 
 internal fun List<HikeMapRouteChunkRow>.toMapRoutes(): List<HikeMapRoute> {

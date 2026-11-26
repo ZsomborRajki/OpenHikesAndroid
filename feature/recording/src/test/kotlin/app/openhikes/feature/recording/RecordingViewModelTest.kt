@@ -7,6 +7,7 @@ import app.openhikes.core.common.LaunchConfigHolder
 import app.openhikes.core.location.RecordingEntryCoordinator
 import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapClaimCoordinator
+import app.openhikes.core.map.TrailPlacesOverlayState
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.RecordingFailure
@@ -16,6 +17,7 @@ import app.openhikes.core.model.RecordingStopStep
 import app.openhikes.core.model.RecordingTraceSnapshot
 import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.testing.MainDispatcherRule
+import app.openhikes.core.testing.android.FakeHikeRepository
 import app.openhikes.core.testing.android.FakeRecordingController
 import app.openhikes.core.testing.android.FakeUserSettingsRepository
 import app.openhikes.core.ui.navigation.RecordingRoute
@@ -42,8 +44,10 @@ class RecordingViewModelTest {
         val viewModel = RecordingViewModel(
             recordingController = controller,
             recordingEntryCoordinator = entryCoordinator,
+            hikeRepository = FakeHikeRepository(),
             userSettingsRepository = FakeUserSettingsRepository(),
             mapClaimCoordinator = coordinator,
+            trailPlacesOverlayState = TrailPlacesOverlayState(),
             launchConfigHolder = LaunchConfigHolder(LaunchConfig(isUiTesting = true, enableSimulatedLocation = true))
         )
         val store = ViewModelStore().apply { put("rec", viewModel) }
@@ -73,8 +77,10 @@ class RecordingViewModelTest {
         val viewModel = RecordingViewModel(
             recordingController = controller,
             recordingEntryCoordinator = RecordingEntryCoordinator(),
+            hikeRepository = FakeHikeRepository(),
             userSettingsRepository = FakeUserSettingsRepository(),
             mapClaimCoordinator = MapClaimCoordinator(),
+            trailPlacesOverlayState = TrailPlacesOverlayState(),
             launchConfigHolder = LaunchConfigHolder(LaunchConfig.Production)
         )
 
@@ -105,8 +111,10 @@ class RecordingViewModelTest {
         val viewModel = RecordingViewModel(
             recordingController = controller,
             recordingEntryCoordinator = RecordingEntryCoordinator(),
+            hikeRepository = FakeHikeRepository(),
             userSettingsRepository = FakeUserSettingsRepository(),
             mapClaimCoordinator = MapClaimCoordinator(),
+            trailPlacesOverlayState = TrailPlacesOverlayState(),
             launchConfigHolder = LaunchConfigHolder(LaunchConfig(isUiTesting = true, enableSimulatedLocation = true))
         )
 
@@ -163,8 +171,10 @@ class RecordingViewModelTest {
         val firstVm = RecordingViewModel(
             recordingController = controller,
             recordingEntryCoordinator = RecordingEntryCoordinator(),
+            hikeRepository = FakeHikeRepository(),
             userSettingsRepository = FakeUserSettingsRepository(),
             mapClaimCoordinator = MapClaimCoordinator(),
+            trailPlacesOverlayState = TrailPlacesOverlayState(),
             launchConfigHolder = LaunchConfigHolder(LaunchConfig(isUiTesting = true, enableSimulatedLocation = true))
         )
         val firstStore = ViewModelStore().apply { put("first", firstVm) }
@@ -191,8 +201,10 @@ class RecordingViewModelTest {
         val secondVm = RecordingViewModel(
             recordingController = controller,
             recordingEntryCoordinator = RecordingEntryCoordinator(),
+            hikeRepository = FakeHikeRepository(),
             userSettingsRepository = FakeUserSettingsRepository(),
             mapClaimCoordinator = MapClaimCoordinator(),
+            trailPlacesOverlayState = TrailPlacesOverlayState(),
             launchConfigHolder = LaunchConfigHolder(LaunchConfig(isUiTesting = true, enableSimulatedLocation = true))
         )
         val secondStore = ViewModelStore().apply { put("second", secondVm) }

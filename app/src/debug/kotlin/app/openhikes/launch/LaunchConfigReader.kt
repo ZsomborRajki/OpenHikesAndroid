@@ -23,6 +23,7 @@ object LaunchConfigReader {
     const val EXTRA_DISABLE_AUTO_RECOVERY = "ui_test_disable_auto_recovery"
     const val EXTRA_SEED_WALKS = "ui_test_seed_walks"
     const val EXTRA_TRAIL_GRAPH = "ui_test_trail_graph"
+    const val EXTRA_TRAIL_POINTS = "ui_test_trail_points"
 
     fun fromIntent(intent: Intent?): LaunchConfig {
         val extras = intent?.extras ?: return LaunchConfig.Production
@@ -53,7 +54,8 @@ object LaunchConfigReader {
             autoPauseSecondsOverride = parsePositiveSeconds(arguments[EXTRA_AUTO_PAUSE_SECONDS]),
             disableAutomaticRecovery = arguments.boolFlag(EXTRA_DISABLE_AUTO_RECOVERY),
             seedWalkPresetName = sanitizeFixtureName(arguments[EXTRA_SEED_WALKS]),
-            trailGraphFixtureName = sanitizeFixtureName(arguments[EXTRA_TRAIL_GRAPH])
+            trailGraphFixtureName = sanitizeFixtureName(arguments[EXTRA_TRAIL_GRAPH]),
+            trailPointsScenarioName = sanitizeFixtureName(arguments[EXTRA_TRAIL_POINTS])
         )
     }
 
@@ -81,7 +83,8 @@ object LaunchConfigReader {
         offlineCountriesScenarioName = override.offlineCountriesScenarioName ?: base.offlineCountriesScenarioName,
         autoPauseSecondsOverride = override.autoPauseSecondsOverride ?: base.autoPauseSecondsOverride,
         seedWalkPresetName = override.seedWalkPresetName ?: base.seedWalkPresetName,
-        trailGraphFixtureName = override.trailGraphFixtureName ?: base.trailGraphFixtureName
+        trailGraphFixtureName = override.trailGraphFixtureName ?: base.trailGraphFixtureName,
+        trailPointsScenarioName = override.trailPointsScenarioName ?: base.trailPointsScenarioName
     )
 
     private fun parsePositiveSeconds(raw: String?): Double? = raw?.trim()

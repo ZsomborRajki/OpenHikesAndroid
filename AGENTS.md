@@ -17,22 +17,27 @@ Supporting reference docs:
   pyramid, porting `OpenHikesUITests` fixtures/tags, static analysis wiring, and
   Phase 0–4 bootstrap roadmap.
 
-> **Repository status:** Phase 8 complete (Trail Maker: pure-JVM `TrailGraph`,
-> `TrailGraphIndex`, `TrailDraftEngine`, `TrailMakerModels`, `OHGS` v1 binary
-> `TrailGraphSquareFile` codec, `HikeTitle.drawn`, and bundled iOS OSM graph
-> fixtures in `:core:model`, `:core:common`, and `:core:testing`; Room v3
-> device-local `trail_draft` & `trail_stop_recents` in `noBackupFilesDir`,
-> cached `HttpRoutingGraphSquareDataSource` with manifest refresh,
-> `OfflineFirstTrailDraftRepository`, `OsmTrailLegRouter`,
-> `AndroidStopPlaceSearchSource`, `HikeRepository.saveDrawnTrail`, and
-> production `TrailGraphRouteStretchRouter` wiring across `:core:database`,
-> `:core:network`, and `:core:data`; `TrailDraftOverlayState` and interactive
-> MapLibre + fake draft layers in `:core:map` and `:core:testing-android`; new
-> `:feature:trailmaker` module with Material 3 Expressive stop list, travel
-> modes, Follow Paths / Straight toggle, route alternatives, place card, search
-> & recents overlay, and Save Trail flow; `:app` floating toolbar & adaptive
-> shell integration, plus Tier 1/2/3 & screenshot tests). Phases 0–8 are
-> complete.
+> **Repository status:** Phase 9 complete (Places along a trail: pure-JVM
+> `TrailPlaceSymbol`, `TrailPlaceOsm`, `TrailPlaceFact`, `TrailPlaceOrder`,
+> `TrailPlaceHolding`, `TrailPlaceCorridorSearch`, `PlaceSquareGrid`,
+> `TrailPointQuery`, `PlacesNearbyFrame`, `NearbyPlaceSuggestions`,
+> `WikidataPlace`/`WikidataPhoto`, `OHPS` v2 binary `PlaceSquareFile` codec,
+> `TrailPointDecoding`, `WikidataQuery`/`CommonsPhotoQuery`, GPX `<wpt><link>`
+> OSM round-trip, and bundled `ThumseeLoopPlaces.gpx` fixture across
+> `:core:model`, `:core:common`, and `:core:testing`; Proto DataStore
+> `shows_place_pins` & `hidden_place_symbols`, Room v4 `trail_points` OSM/facts/
+> Wikidata persistence, `HikePlaceStore`, in-memory `WikidataPlaceLookup`,
+> `noBackupFilesDir` cached `HttpPlaceSquareDataSource` &
+> `OverpassPlaceDataSource`, `HttpWikidataPlaceSource`, and launch-aware test
+> scenarios across `:core:datastore`, `:core:database`, `:core:network`, and
+> `:core:data`; `TrailPlacesOverlayState`, `MapCameraTracker`, and interactive
+> MapLibre + fake place pin/candidate/placement layers in `:core:map` and
+> `:core:testing-android`; new `:feature:places` module with place detail &
+> inline edit, Wikidata/Wikipedia summary & Wikimedia Commons photo attribution,
+> map-pan *Add Place*, *Places Around Trail*, *Places Nearby*, and recording
+> place picker; `:feature:hikes`, `:feature:recording`, `:core:location`
+> (`holdsKeepsakes`), and `:app` adaptive shell & floating controls integration,
+> plus Tier 1/2/3 & screenshot tests). Phases 0–9 are complete.
 
 ---
 

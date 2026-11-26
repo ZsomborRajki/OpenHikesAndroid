@@ -38,12 +38,23 @@ import app.openhikes.core.designsystem.icon.OpenHikesIcons
 import app.openhikes.core.location.OffTrailQuestion
 import app.openhikes.core.location.TrailWalkSessionState
 import app.openhikes.core.location.TrailWalkStartNotice
+import app.openhikes.core.map.MapSearchAreaPillState
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.WalkTimeLeftMark
 import app.openhikes.core.ui.format.HikeMetricsFormatter
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+
+/**
+ * Floating map controls chrome specific to Places (Add Place toolbar button & Search This Area pill).
+ */
+@Immutable
+data class MapPlacesChromeState(
+    val showAddPlaceButton: Boolean = false,
+    val onAddPlace: () -> Unit = {},
+    val searchAreaPill: MapSearchAreaPillState? = null
+)
 
 private val WalkChromeTouchMin = 48.dp
 private val WalkPillElevation = 3.dp

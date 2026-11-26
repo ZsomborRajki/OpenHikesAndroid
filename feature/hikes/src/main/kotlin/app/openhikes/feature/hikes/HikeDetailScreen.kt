@@ -39,6 +39,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openhikes.core.location.TrailWalkPermissionIssue
 import app.openhikes.core.location.TrailWalkProgressState
+import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.ui.components.ElevationProfileChart
 import app.openhikes.core.ui.components.HikeSegmentList
@@ -66,6 +67,9 @@ fun HikeDetailRoute(
     onCollapseSheet: () -> Unit,
     modifier: Modifier = Modifier,
     onOpenRouteEdit: (HikeId) -> Unit = {},
+    onOpenPlace: (HikeId, String) -> Unit = { _, _ -> },
+    onOpenPlacesAround: (HikeId) -> Unit = {},
+    onAddPlaceAt: (HikeId, GeoCoordinate) -> Unit = { _, _ -> },
     viewModel: HikeDetailViewModel = hiltViewModel<HikeDetailViewModel, HikeDetailViewModel.Factory>(
         key = hikeId.value
     ) { factory ->
@@ -85,7 +89,11 @@ fun HikeDetailRoute(
             )
         },
         onConsumeEndedWalk = viewModel::onConsumeEndedWalk,
-        onOpenWalkSummary = onOpenWalkSummary
+        onOpenWalkSummary = onOpenWalkSummary,
+        onConsumeOpenPlace = viewModel::consumePendingOpenPlace,
+        onOpenPlace = onOpenPlace,
+        onConsumeAddPlaceCoordinate = viewModel::consumePendingAddPlaceCoordinate,
+        onAddPlaceAt = onAddPlaceAt
     )
 
     HikeDetailScreen(
@@ -112,7 +120,14 @@ fun HikeDetailRoute(
         activeSecondsProvider = viewModel::walkActiveSeconds,
         onDismissMessages = viewModel::onDismissMessages,
         onOfflineAction = viewModel::onOfflineAction,
-        onWalkAction = { action -> viewModel.onWalkAction(action, onOpenWalkSummary) }
+        onWalkAction = { action -> viewModel.onWalkAction(action, onOpenWalkSummary) },
+        onPlaceAction = { action ->
+            when (action) {
+                is HikePlaceAction.OpenPlace -> onOpenPlace(hikeId, action.placeId)
+                is HikePlaceAction.SetShowPlacePins -> viewModel.onSetShowPlacePins(action.enabled)
+                HikePlaceAction.OpenPlacesAround -> onOpenPlacesAround(hikeId)
+            }
+        }
     )
 }
 
@@ -123,7 +138,11 @@ private fun HikeDetailRouteEffects(
     onExportDestinationPicked: (String?) -> Unit,
     onPermissionResult: (Boolean, Boolean) -> Unit,
     onConsumeEndedWalk: () -> Unit,
-    onOpenWalkSummary: (HikeId, String) -> Unit
+    onOpenWalkSummary: (HikeId, String) -> Unit,
+    onConsumeOpenPlace: () -> Unit,
+    onOpenPlace: (HikeId, String) -> Unit,
+    onConsumeAddPlaceCoordinate: () -> Unit,
+    onAddPlaceAt: (HikeId, GeoCoordinate) -> Unit
 ) {
     val exportLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/gpx+xml")
@@ -144,6 +163,16 @@ private fun HikeDetailRouteEffects(
             onConsumeEndedWalk()
             onOpenWalkSummary(hikeId, ended.id)
         }
+    }
+    LaunchedEffect(uiState.pendingOpenPlaceId) {
+        val placeId = uiState.pendingOpenPlaceId ?: return@LaunchedEffect
+        onConsumeOpenPlace()
+        onOpenPlace(hikeId, placeId)
+    }
+    LaunchedEffect(uiState.pendingAddPlaceCoordinate) {
+        val coordinate = uiState.pendingAddPlaceCoordinate ?: return@LaunchedEffect
+        onConsumeAddPlaceCoordinate()
+        onAddPlaceAt(hikeId, coordinate)
     }
 }
 
@@ -172,7 +201,8 @@ fun HikeDetailScreen(
     activeSecondsProvider: () -> Double = { 0.0 },
     onDismissMessages: () -> Unit = {},
     onOfflineAction: (HikeOfflineAction) -> Unit = {},
-    onWalkAction: (HikeWalkAction) -> Unit = {}
+    onWalkAction: (HikeWalkAction) -> Unit = {},
+    onPlaceAction: (HikePlaceAction) -> Unit = {}
 ) {
     val hike = uiState.hike
     val listState = rememberLazyListState()
@@ -217,7 +247,8 @@ fun HikeDetailScreen(
                     onCommitRename = onCommitRename,
                     onCancelRename = onCancelRename,
                     onRequestDelete = onRequestDelete,
-                    onWalkAction = onWalkAction
+                    onWalkAction = onWalkAction,
+                    onPlaceAction = onPlaceAction
                 ),
                 modifier = Modifier.weight(1f)
             )
@@ -286,7 +317,8 @@ private data class DetailListCallbacks(
     val onCommitRename: () -> Unit,
     val onCancelRename: () -> Unit,
     val onRequestDelete: () -> Unit,
-    val onWalkAction: (HikeWalkAction) -> Unit
+    val onWalkAction: (HikeWalkAction) -> Unit,
+    val onPlaceAction: (HikePlaceAction) -> Unit
 )
 
 @Composable
@@ -399,7 +431,8 @@ private fun LazyListScope.addDetailTabItems(uiState: HikeDetailUiState, callback
         onOpenRouteStyle = callbacks.onOpenRouteStyle,
         onOpenRouteEdit = callbacks.onOpenRouteEdit,
         onStartRename = callbacks.onStartRename,
-        onRequestDelete = callbacks.onRequestDelete
+        onRequestDelete = callbacks.onRequestDelete,
+        onPlaceAction = callbacks.onPlaceAction
     )
 }
 
@@ -425,13 +458,25 @@ private fun LazyListScope.addDetailSecondaryItems(
     onOpenRouteStyle: () -> Unit,
     onOpenRouteEdit: () -> Unit,
     onStartRename: () -> Unit,
-    onRequestDelete: () -> Unit
+    onRequestDelete: () -> Unit,
+    onPlaceAction: (HikePlaceAction) -> Unit
 ) {
     val hike = uiState.hike ?: return
     val statistics = uiState.statistics
     val distanceUnit = uiState.distanceUnit
     item(key = "about") {
         HikeAboutCard(hike = hike)
+    }
+    if (uiState.placeRows.isNotEmpty() || uiState.canSearchPlaces) {
+        item(key = "places") {
+            HikeDetailPlacesSection(
+                placeRows = uiState.placeRows,
+                showsPlacePins = uiState.showsPlacePins,
+                canSearchPlaces = uiState.canSearchPlaces,
+                distanceUnit = distanceUnit,
+                onPlaceAction = onPlaceAction
+            )
+        }
     }
     if (uiState.routeSegments.size > 1) {
         item(key = "segments") {

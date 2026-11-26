@@ -146,6 +146,17 @@ internal class LocalFakeUserSettingsRepository : UserSettingsRepository {
     override suspend fun setJunctionWarningsEnabled(enabled: Boolean) {
         state.update { it.copy(junctionWarningsEnabled = enabled) }
     }
+
+    override suspend fun setShowsPlacePins(enabled: Boolean) {
+        state.update { it.copy(showsPlacePins = enabled) }
+    }
+
+    override suspend fun setPlaceSymbolVisible(symbol: app.openhikes.core.model.TrailPlaceSymbol, visible: Boolean) {
+        state.update { current ->
+            val next = if (visible) current.hiddenPlaceSymbols - symbol else current.hiddenPlaceSymbols + symbol
+            current.copy(hiddenPlaceSymbols = next)
+        }
+    }
 }
 
 @Suppress("TooManyFunctions")
@@ -206,6 +217,15 @@ internal class LocalFakeHikeRepository : HikeRepository {
         hikeId: HikeId,
         expectedCurrentRoute: List<app.openhikes.core.model.RouteCoordinate>
     ) = error("Unused")
+    override suspend fun addPlace(hikeId: HikeId, place: app.openhikes.core.model.TrailPoint) = Result.success(true)
+    override suspend fun editPlace(
+        hikeId: HikeId,
+        placeId: String,
+        name: String,
+        symbol: app.openhikes.core.model.TrailPlaceSymbol?,
+        note: String
+    ) = Result.success(true)
+    override suspend fun removePlace(hikeId: HikeId, placeId: String) = Result.success(Unit)
     override suspend fun seedFixtureIfConfigured(): HikeId? = null
 
     fun getHike(hikeId: HikeId): Hike? = hikesState.value.firstOrNull { it.id == hikeId }

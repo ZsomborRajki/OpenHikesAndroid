@@ -10,13 +10,16 @@ import app.openhikes.core.location.TrailWalkProgressState
 import app.openhikes.core.map.MapCameraCommand
 import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.map.RouteHighlightState
+import app.openhikes.core.map.TrailPlacesOverlayState
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.MapProviderKeys
 import app.openhikes.core.model.MapStyleId
 import app.openhikes.core.model.RouteCoordinate
+import app.openhikes.core.model.TrailPointSource
 import app.openhikes.core.model.TrailWalkPhase
 import app.openhikes.core.model.UserSettings
+import app.openhikes.core.testing.FakeTrailPointSource
 import app.openhikes.core.testing.MainDispatcherRule
 import app.openhikes.core.testing.android.FakeHikeRepository
 import app.openhikes.core.testing.android.FakeOfflineCountryRepository
@@ -244,6 +247,8 @@ class HikeDetailViewModelTest {
         walkController: FakeTrailWalkController = FakeTrailWalkController(),
         coordinator: MapClaimCoordinator = MapClaimCoordinator(),
         highlightState: RouteHighlightState = RouteHighlightState(),
+        trailPlacesOverlayState: TrailPlacesOverlayState = TrailPlacesOverlayState(),
+        trailPointSource: TrailPointSource = FakeTrailPointSource(),
         launchConfigHolder: LaunchConfigHolder = LaunchConfigHolder(LaunchConfig(enableSimulatedLocation = true))
     ): HikeDetailViewModel = HikeDetailViewModel(
         rawHikeId = hike.id.value,
@@ -254,6 +259,8 @@ class HikeDetailViewModelTest {
         recordingController = FakeRecordingController(),
         mapClaimCoordinator = coordinator,
         routeHighlightState = highlightState,
+        trailPlacesOverlayState = trailPlacesOverlayState,
+        trailPointSource = trailPointSource,
         mapProviderKeys = mapProviderKeys,
         launchConfigHolder = launchConfigHolder,
         defaultDispatcher = mainDispatcherRule.testDispatcher

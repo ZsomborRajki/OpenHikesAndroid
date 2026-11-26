@@ -17,8 +17,13 @@ data class UserSettings(
     val savePhotosToLibrary: Boolean = DEFAULT_SAVE_PHOTOS_TO_LIBRARY,
     val mapStyleId: String = MapStyleId.OPENHIKES,
     val offlineCountriesExtraDetail: Boolean = DEFAULT_OFFLINE_COUNTRIES_EXTRA_DETAIL,
-    val junctionWarningsEnabled: Boolean = DEFAULT_JUNCTION_WARNINGS_ENABLED
+    val junctionWarningsEnabled: Boolean = DEFAULT_JUNCTION_WARNINGS_ENABLED,
+    val showsPlacePins: Boolean = DEFAULT_SHOWS_PLACE_PINS,
+    val hiddenPlaceSymbols: Set<TrailPlaceSymbol> = emptySet()
 ) {
+    val shownSearchPlaceSymbols: Set<TrailPlaceSymbol>
+        get() = TrailPointQuery.searchableSymbols.toSet() - hiddenPlaceSymbols
+
     companion object {
         const val DEFAULT_SHOWS_HIKING_ROUTES = true
         const val DEFAULT_AUTO_PAUSE_ENABLED = true
@@ -29,5 +34,6 @@ data class UserSettings(
         const val DEFAULT_SAVE_PHOTOS_TO_LIBRARY = false
         const val DEFAULT_OFFLINE_COUNTRIES_EXTRA_DETAIL = true
         const val DEFAULT_JUNCTION_WARNINGS_ENABLED = false
+        const val DEFAULT_SHOWS_PLACE_PINS = true
     }
 }
