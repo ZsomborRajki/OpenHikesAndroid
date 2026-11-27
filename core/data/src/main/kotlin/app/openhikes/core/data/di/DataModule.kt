@@ -26,6 +26,7 @@ import app.openhikes.core.data.LaunchAwareRouteElevationSource
 import app.openhikes.core.data.MediaStorePhotoLibraryMirror
 import app.openhikes.core.data.OfflineCountryArchives
 import app.openhikes.core.data.OfflineCountryDownloadScheduler
+import app.openhikes.core.data.OfflineCountryElevationSquares
 import app.openhikes.core.data.OfflineCountryRepository
 import app.openhikes.core.data.OfflineFirstHikeRepository
 import app.openhikes.core.data.OfflineFirstTrailDraftRepository
@@ -92,7 +93,9 @@ abstract class DataModule {
 
     @Binds
     @Singleton
-    internal abstract fun bindDownloadedElevationSquares(impl: OfflineCountryArchives): DownloadedElevationSquares
+    internal abstract fun bindDownloadedElevationSquares(
+        impl: OfflineCountryElevationSquares
+    ): DownloadedElevationSquares
 
     @Binds
     @Singleton

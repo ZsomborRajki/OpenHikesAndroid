@@ -23,6 +23,12 @@ interface OfflineCountryRepository {
 
     suspend fun start()
 
+    /**
+     * Ensures the local offline country index and installed PMTiles archives have been opened from
+     * disk without triggering network activity. Safe to call concurrently with [start].
+     */
+    suspend fun ensurePrepared() = Unit
+
     suspend fun refreshCatalog()
 
     suspend fun downloadCountry(countryId: String)

@@ -3,15 +3,27 @@ package app.openhikes.core.data
 import app.openhikes.core.common.LaunchConfig
 import app.openhikes.core.common.LaunchConfigHolder
 import app.openhikes.core.common.elevation.ElevationSquareFile
+import app.openhikes.core.common.offline.OfflineCountryDigest
+import app.openhikes.core.common.offline.OfflineCountryStore
+import app.openhikes.core.common.pmtiles.PMTilesWriter
 import app.openhikes.core.model.ElevationFailure
 import app.openhikes.core.model.ElevationFetchResult
 import app.openhikes.core.model.ElevationSquare
 import app.openhikes.core.model.ElevationSquareGrid
 import app.openhikes.core.model.GeoCoordinate
+import app.openhikes.core.model.InstalledCountryRecord
+import app.openhikes.core.model.OfflineBounds
+import app.openhikes.core.model.OfflineCountry
+import app.openhikes.core.model.OfflineCountryFile
+import app.openhikes.core.model.OfflineFileRole
 import app.openhikes.core.network.ElevationSquareDataSource
 import app.openhikes.core.network.ElevationSquaresBatchAnswer
 import com.google.common.truth.Truth.assertThat
+import java.io.File
+import java.nio.file.Files
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
@@ -143,6 +155,122 @@ class ElevationSquareLibraryTest {
         assertThat(source.isAvailable).isTrue()
         val live = source.heights(listOf(point)) as ElevationFetchResult.Heights
         assertThat(live.heights.single()).isWithin(1e-6).of(740.0)
+    }
+
+    @Test
+    fun offlineCountryElevationSquaresWaitsForArchivePreparationBeforeFirstLookup() = runTest {
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        val tempDir = Files.createTempDirectory("cold-offline-elev").toFile()
+        try {
+            val point = GeoCoordinate(47.7185, 12.8317)
+            val (store, installed) = createInstalledElevationCountry(tempDir, squaresFor(point), height = 815)
+            val archives = OfflineCountryArchives()
+            val prepareGate = CompletableDeferred<Unit>()
+            val offlineRepo = GatedOfflineCountryRepository(prepareGate) { archives.reopen(listOf(installed), store) }
+            var remoteCalls = 0
+            val library = ElevationSquareLibrary(
+                remoteDataSource = object : ElevationSquareDataSource {
+                    override suspend fun readSquares(squares: List<ElevationSquare>): ElevationSquaresBatchAnswer {
+                        remoteCalls += 1
+                        return ElevationSquaresBatchAnswer.Unreachable
+                    }
+                },
+                downloadedSquares = OfflineCountryElevationSquares(offlineRepo, archives),
+                ioDispatcher = dispatcher,
+                defaultDispatcher = dispatcher
+            )
+
+            // Cold offline lookup suspends until archive preparation completes, then reads offline without remote.
+            val deferred = async { library.heights(listOf(point)) }
+            assertThat(deferred.isCompleted).isFalse()
+            prepareGate.complete(Unit)
+
+            val result = deferred.await() as ElevationFetchResult.Heights
+            assertThat(result.heights.single()).isWithin(1e-6).of(815.0)
+            assertThat(remoteCalls).isEqualTo(0)
+            archives.close()
+        } finally {
+            tempDir.deleteRecursively()
+        }
+    }
+
+    private fun createInstalledElevationCountry(
+        tempDir: File,
+        squares: Set<ElevationSquare>,
+        height: Short
+    ): Pair<OfflineCountryStore, InstalledCountryRecord> {
+        val store = OfflineCountryStore(File(tempDir, "OfflineCountries"))
+        val basemapBytes = PMTilesWriter.buildArchive(
+            listOf(PMTilesWriter.TileSpec(z = 4, x = 8, y = 5, payload = "base".encodeToByteArray()))
+        )
+        val elevationBytes = PMTilesWriter.buildArchive(
+            squares.map { sq ->
+                PMTilesWriter.TileSpec(
+                    z = ElevationSquareGrid.ARCHIVE_ZOOM,
+                    x = sq.column,
+                    y = sq.row,
+                    payload = squareFile(sq, height = height).encode()
+                )
+            }
+        )
+        val basemapFile = OfflineCountryFile(
+            role = OfflineFileRole.BASEMAP,
+            path = "countries/AT-20261126.pmtiles",
+            byteCount = basemapBytes.size.toLong(),
+            sha256 = OfflineCountryDigest.sha256Hex(basemapBytes),
+            minimumZoom = 0,
+            maximumZoom = 14
+        )
+        val elevationFile = OfflineCountryFile(
+            role = OfflineFileRole.ELEVATION,
+            path = "countries/AT-elevation-20261126.pmtiles",
+            byteCount = elevationBytes.size.toLong(),
+            sha256 = OfflineCountryDigest.sha256Hex(elevationBytes),
+            minimumZoom = 12,
+            maximumZoom = 12
+        )
+        store.fileFor(basemapFile).apply {
+            parentFile?.mkdirs()
+            writeBytes(basemapBytes)
+        }
+        store.fileFor(elevationFile).apply {
+            parentFile?.mkdirs()
+            writeBytes(elevationBytes)
+        }
+        val country = OfflineCountry(
+            id = "AT",
+            build = "20261126",
+            schema = 4,
+            bounds = OfflineBounds(9.0, 46.0, 17.0, 49.0),
+            outline = emptyList(),
+            files = listOf(basemapFile, elevationFile)
+        )
+        return store to InstalledCountryRecord(country = country, installedAtEpochMillis = 1L)
+    }
+
+    private class GatedOfflineCountryRepository(
+        private val gate: CompletableDeferred<Unit>,
+        private val onPrepared: () -> Unit
+    ) : OfflineCountryRepository {
+        override val state = kotlinx.coroutines.flow.MutableStateFlow(
+            app.openhikes.core.model.OfflineCountriesState(isPrepared = false)
+        )
+
+        override suspend fun start() = ensurePrepared()
+
+        override suspend fun ensurePrepared() {
+            gate.await()
+            onPrepared()
+        }
+
+        override suspend fun refreshCatalog() = Unit
+        override suspend fun downloadCountry(countryId: String) = Unit
+        override suspend fun retryDownload(countryId: String) = Unit
+        override suspend fun repairCountry(countryId: String) = Unit
+        override suspend fun cancelDownload(countryId: String) = Unit
+        override suspend fun deleteCountry(countryId: String) = Unit
+        override suspend fun setIncludesDetail(enabled: Boolean) = Unit
+        override suspend fun runScheduledDownload(countryId: String) = OfflineDownloadExecutionResult.COMPLETED
     }
 
     private fun squaresFor(coord: GeoCoordinate): Set<ElevationSquare> =

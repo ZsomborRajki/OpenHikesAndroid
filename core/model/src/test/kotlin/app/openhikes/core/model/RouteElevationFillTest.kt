@@ -46,7 +46,8 @@ class RouteElevationFillTest {
             routePointCount = 3,
             indexes = listOf(0, 2),
             coordinates = listOf(uneven[0], uneven[2]),
-            heights = listOf(500.0, 900.0)
+            heights = listOf(500.0, 900.0),
+            routeRevision = TrailWalkRecord.routeRevision(uneven)
         )
         assertThat(samples.describes(uneven)).isTrue()
         val filled = samples.interpolating(uneven)
@@ -54,10 +55,17 @@ class RouteElevationFillTest {
         assertThat(filled[1].elevationMeters).isWithin(0.5).of(600.0)
         assertThat(filled[2].elevationMeters).isWithin(1e-6).of(900.0)
 
-        // Moving a sampled coordinate makes describes() false and leaves route untouched.
+        // Moving a sampled coordinate or an unsampled interior point/pause makes describes() false.
         val moved = listOf(uneven[0], uneven[1], uneven[2].copy(latitude = 47.7050))
         assertThat(samples.describes(moved)).isFalse()
         assertThat(samples.interpolating(moved)).isEqualTo(moved)
+
+        val movedInterior = listOf(uneven[0], uneven[1].copy(longitude = 12.8050), uneven[2])
+        assertThat(samples.describes(movedInterior)).isFalse()
+        assertThat(samples.interpolating(movedInterior)).isEqualTo(movedInterior)
+
+        val addedPause = listOf(uneven[0], uneven[1].copy(boundary = RouteBoundary.PAUSED), uneven[2])
+        assertThat(samples.describes(addedPause)).isFalse()
 
         // Pause inside a span holds start height up to pause and end height after pause without bridging.
         val paused = listOf(
@@ -71,7 +79,8 @@ class RouteElevationFillTest {
             routePointCount = paused.size,
             indexes = listOf(0, 4),
             coordinates = listOf(paused[0], paused[4]),
-            heights = listOf(400.0, 1_200.0)
+            heights = listOf(400.0, 1_200.0),
+            routeRevision = TrailWalkRecord.routeRevision(paused)
         )
         val pausedFilled = pausedSamples.interpolating(paused)
         assertThat(pausedFilled.map { it.elevationMeters }).containsExactly(400.0, 400.0, 1_200.0, 1_200.0, 1_200.0)
@@ -90,7 +99,8 @@ class RouteElevationFillTest {
             routePointCount = 4,
             indexes = listOf(0, 1, 2, 3),
             coordinates = paused,
-            heights = listOf(500.0, 600.0, 1_000.0, 950.0)
+            heights = listOf(500.0, 600.0, 1_000.0, 950.0),
+            routeRevision = TrailWalkRecord.routeRevision(paused)
         )
         val summary = samples.summary
         assertThat(summary.gainMeters).isWithin(1e-6).of(100.0)

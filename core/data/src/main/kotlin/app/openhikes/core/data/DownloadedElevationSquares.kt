@@ -1,6 +1,8 @@
 package app.openhikes.core.data
 
 import app.openhikes.core.model.ElevationSquare
+import javax.inject.Inject
+import javax.inject.Singleton
 
 /**
  * Local elevation squares bundled inside downloaded offline countries, read ahead of the disk
@@ -12,5 +14,20 @@ fun interface DownloadedElevationSquares {
      * country elevation archive (newest build wins when areas overlap). Missing keys mean no
      * downloaded country covers that square.
      */
-    fun elevationSquares(squares: List<ElevationSquare>): Map<ElevationSquare, ByteArray>
+    suspend fun elevationSquares(squares: List<ElevationSquare>): Map<ElevationSquare, ByteArray>
+}
+
+/**
+ * Production [DownloadedElevationSquares] ensuring installed offline country archives are prepared
+ * on disk before reading so cold-start elevation lookups never race ahead of archive startup.
+ */
+@Singleton
+internal class OfflineCountryElevationSquares @Inject constructor(
+    private val offlineCountryRepository: OfflineCountryRepository,
+    private val archives: OfflineCountryArchives
+) : DownloadedElevationSquares {
+    override suspend fun elevationSquares(squares: List<ElevationSquare>): Map<ElevationSquare, ByteArray> {
+        offlineCountryRepository.ensurePrepared()
+        return archives.elevationSquares(squares)
+    }
 }

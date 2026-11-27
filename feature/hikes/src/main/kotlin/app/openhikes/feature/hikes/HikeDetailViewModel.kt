@@ -568,24 +568,37 @@ class HikeDetailViewModel @AssistedInject constructor(
     private data class ElevationFillObservation(
         val lineRevision: String,
         val canFill: Boolean,
+        val installedFilesKey: Map<String, List<String>>,
         val route: List<RouteCoordinate>
     )
 
+    private fun sameElevationFillTrigger(old: ElevationFillObservation?, new: ElevationFillObservation?): Boolean {
+        val sameRoute = old?.lineRevision == new?.lineRevision && old?.canFill == new?.canFill
+        return sameRoute && (new?.canFill != true || old?.installedFilesKey == new.installedFilesKey)
+    }
+
     private fun observeElevationFill() {
         viewModelScope.launch {
-            hikeRepository.observeHike(hikeId)
-                .map { hike ->
-                    hike?.let {
-                        ElevationFillObservation(
-                            lineRevision = RouteElevationRevision.of(it.route),
-                            canFill = HikeElevationFill.canFill(it),
-                            route = it.route
-                        )
+            combine(
+                hikeRepository.observeHike(hikeId),
+                offlineCountryRepository.state
+                    .map { state ->
+                        state.installed.entries.associate { (id, record) ->
+                            id to record.files.map { file -> file.fileName }
+                        }
                     }
+                    .distinctUntilChanged()
+            ) { hike, installedFiles ->
+                hike?.let {
+                    ElevationFillObservation(
+                        lineRevision = RouteElevationRevision.of(it.route),
+                        canFill = HikeElevationFill.canFill(it),
+                        installedFilesKey = installedFiles,
+                        route = it.route
+                    )
                 }
-                .distinctUntilChanged { old, new ->
-                    old?.lineRevision == new?.lineRevision && old?.canFill == new?.canFill
-                }
+            }
+                .distinctUntilChanged(::sameElevationFillTrigger)
                 .collectLatest { observation ->
                     val token = ++activeElevationRequestToken
                     if (observation == null || !observation.canFill || !routeElevationSource.isAvailable) {

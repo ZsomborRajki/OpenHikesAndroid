@@ -23,6 +23,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -204,6 +205,93 @@ class HttpElevationSquareDataSourceTest {
             assertThat((result as ElevationSquaresBatchAnswer.Loaded).squares[square]?.heightAt(0)).isEqualTo(777.0)
             assertThat(server.requestCount).isEqualTo(1)
             harness.scope.cancel()
+        }
+    }
+
+    @Test
+    fun stopsQueuedRequestsImmediatelyAfterHttp429AndSharesConcurrencyGateAcrossBatches() = runBlocking {
+        val squares = List(18) { idx -> ElevationSquare(row = 338, column = 1_600 + idx) }
+        val activeCalls = AtomicInteger(0)
+        val peakActiveCalls = AtomicInteger(0)
+        val firstWaveStarted = CountDownLatch(8)
+        val releaseFirstWave = CountDownLatch(1)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val active = activeCalls.incrementAndGet()
+                peakActiveCalls.accumulateAndGet(active, ::maxOf)
+                firstWaveStarted.countDown()
+                releaseFirstWave.await(5, TimeUnit.SECONDS)
+                activeCalls.decrementAndGet()
+                return MockResponse.Builder().code(429).addHeader("Retry-After", "90").build()
+            }
+        }
+
+        Executors.newFixedThreadPool(16).asCoroutineDispatcher().use { pool ->
+            val harness = createDataSource(allowsNetwork = true, ioDispatcher = pool, cacheSubdir = "rate_limit_batch")
+            val firstBatch = async(pool) { harness.dataSource.readSquares(squares.take(9)) }
+            val secondBatch = async(pool) { harness.dataSource.readSquares(squares.drop(9)) }
+            assertThat(firstWaveStarted.await(5, TimeUnit.SECONDS)).isTrue()
+            releaseFirstWave.countDown()
+
+            val results = listOf(firstBatch, secondBatch).awaitAll()
+            assertThat(results).containsExactly(
+                ElevationSquaresBatchAnswer.Unreachable,
+                ElevationSquaresBatchAnswer.Unreachable
+            )
+            // Shared gate caps simultaneous in-flight calls at 8, and queued requests abort once 429 lands.
+            assertThat(peakActiveCalls.get()).isAtMost(8)
+            assertThat(server.requestCount).isAtMost(8)
+            harness.scope.cancel()
+        }
+    }
+
+    @Test
+    fun overlappingWritersUseSeparateTempFilesWithoutCorruptingLandCacheToSea() = runBlocking {
+        val sharedSquare = ElevationSquare(row = 338, column = 1_542)
+        val payload = buildValidSquareBytes(sharedSquare, constantHeight = 910)
+        val extraSquares = List(12) { idx -> ElevationSquare(row = 338, column = 1_700 + idx) }
+        val extraPayloads = extraSquares.associateWith { sq -> buildValidSquareBytes(sq, constantHeight = 620) }
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val target = request.target
+                return when {
+                    target == "/elevation-20261126-20/12/1542/338.bin" ->
+                        MockResponse.Builder().code(200).body(Buffer().write(payload)).build()
+                    else -> {
+                        val col = target.substringAfter("/12/").substringBefore("/").toIntOrNull()
+                        val sq = extraSquares.firstOrNull { it.column == col }
+                        val bytes = sq?.let { extraPayloads[it] }
+                        if (bytes != null) {
+                            MockResponse.Builder().code(200).body(Buffer().write(bytes)).build()
+                        } else {
+                            MockResponse.Builder().code(404).build()
+                        }
+                    }
+                }
+            }
+        }
+
+        Executors.newFixedThreadPool(12).asCoroutineDispatcher().use { pool ->
+            val cacheSubdir = "concurrent_writers"
+            val harness = createDataSource(allowsNetwork = true, ioDispatcher = pool, cacheSubdir = cacheSubdir)
+            val batches = extraSquares.map { extra ->
+                async(pool) { harness.dataSource.readSquares(listOf(sharedSquare, extra)) }
+            }.awaitAll()
+            for (batch in batches) {
+                val loaded = batch as ElevationSquaresBatchAnswer.Loaded
+                assertThat(loaded.squares[sharedSquare]?.heightAt(0)).isEqualTo(910.0)
+            }
+
+            // Re-reading from disk cache must never observe a 0-byte (sea-level) file or leftover temp files.
+            val cacheDir = File(tempDir, cacheSubdir)
+            assertThat(cacheDir.listFiles { f -> f.name.endsWith(".tmp") }.orEmpty()).isEmpty()
+            val offlineHarness = createDataSource(allowsNetwork = false, ioDispatcher = pool, cacheSubdir = cacheSubdir)
+            offlineHarness.clock.advanceBy(Duration.ofSeconds(65L))
+            val fromDisk = offlineHarness.dataSource.readSquares(listOf(sharedSquare))
+                as ElevationSquaresBatchAnswer.Loaded
+            assertThat(fromDisk.squares[sharedSquare]?.heightAt(0)).isEqualTo(910.0)
+            harness.scope.cancel()
+            offlineHarness.scope.cancel()
         }
     }
 

@@ -272,7 +272,7 @@ internal class DefaultOfflineCountryRepository @Inject constructor(
         return executor.execute(countryId, executorCallbacks)
     }
 
-    private suspend fun ensurePrepared() {
+    override suspend fun ensurePrepared() {
         if (stateFlow.value.isPrepared) return
         prepareMutex.withLock {
             if (stateFlow.value.isPrepared) return

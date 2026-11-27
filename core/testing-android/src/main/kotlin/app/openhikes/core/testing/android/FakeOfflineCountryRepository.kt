@@ -39,6 +39,10 @@ class FakeOfflineCountryRepository(initialState: OfflineCountriesState = Offline
     }
 
     override suspend fun start() {
+        ensurePrepared()
+    }
+
+    override suspend fun ensurePrepared() {
         startGate?.await()
         stateFlow.update { it.copy(isPrepared = true) }
     }

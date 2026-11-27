@@ -25,7 +25,6 @@ import kotlinx.coroutines.flow.asStateFlow
 @Singleton
 class OfflineCountryArchives @Inject constructor() :
     OfflineTileArchiveSource,
-    DownloadedElevationSquares,
     Closeable {
     private val lock = Any()
     private val revisionCounter = AtomicLong(0L)
@@ -121,7 +120,7 @@ class OfflineCountryArchives @Inject constructor() :
         }
     }
 
-    override fun elevationSquares(squares: List<ElevationSquare>): Map<ElevationSquare, ByteArray> {
+    fun elevationSquares(squares: List<ElevationSquare>): Map<ElevationSquare, ByteArray> {
         if (squares.isEmpty()) return emptyMap()
         return synchronized(lock) {
             val candidates = openedCountries
