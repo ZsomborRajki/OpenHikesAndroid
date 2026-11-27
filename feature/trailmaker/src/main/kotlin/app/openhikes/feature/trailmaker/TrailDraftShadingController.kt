@@ -99,7 +99,13 @@ internal class TrailDraftShadingController(
                     allowNetwork = false,
                     checkActive = { ctx.ensureActive() }
                 ).mapNotNull { run ->
-                    run.category.shade?.let { shade -> RouteShadeStretch(shade, run.coordinates) }
+                    run.category.shade?.let { shade ->
+                        RouteShadeStretch(
+                            shade = shade,
+                            coordinates = run.coordinates,
+                            joinsPrevious = run.joinsPrevious
+                        )
+                    }
                 }
             }
             if (isMeasurementStillValid(generation)) {

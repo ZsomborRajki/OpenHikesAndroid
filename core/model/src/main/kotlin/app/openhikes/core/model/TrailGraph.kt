@@ -1,8 +1,11 @@
 package app.openhikes.core.model
 
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.ln
+import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 import kotlinx.serialization.SerialName
@@ -208,7 +211,6 @@ object TrailGraphCorridor {
     const val SAMPLING_INTERVAL_METERS = 2_000.0
     const val MAXIMUM_SAMPLES_PER_GAP = 32
     const val MAXIMUM_REGIONS = 12
-    private const val CORNER_TIE_EPSILON = 1e-12
 
     fun samples(from: GeoCoordinate, to: GeoCoordinate): List<GeoCoordinate> {
         val distance = RouteGeometry.distanceMeters(from, to)
@@ -234,32 +236,40 @@ object TrailGraphCorridor {
         ends: TrailLegEnds,
         zoom: Int = TrailGraphSquareGrid.REGION_ZOOM,
         maxRegions: Int = MAXIMUM_REGIONS
-    ): List<TrailGraphRegion> = regionsBetween(ends.start, ends.end, zoom, maxRegions)
+    ): List<TrailGraphRegion> = regionsCoveringRuns(
+        runs = listOf(listOf(ends.start, ends.end)),
+        marginMeters = 0.0,
+        zoom = zoom,
+        maxRegions = maxRegions
+    )
 
     /**
-     * Returns every distinct tile at [zoom] intersected by the polyline [covering], ordered by
-     * first visit and capped at [maxRegions].
+     * Returns every distinct tile at [zoom] intersected by the polyline [covering] (expanded by
+     * [marginMeters] when positive), ordered by first visit and capped at [maxRegions].
      */
     fun regionsCovering(
         covering: List<GeoCoordinate>,
         zoom: Int = TrailGraphSquareGrid.REGION_ZOOM,
+        maxRegions: Int = MAXIMUM_REGIONS,
+        marginMeters: Double = 0.0
+    ): List<TrailGraphRegion> = regionsCoveringRuns(
+        runs = listOf(covering),
+        marginMeters = marginMeters,
+        zoom = zoom,
+        maxRegions = maxRegions
+    )
+
+    /**
+     * Returns the union of tiles at [zoom] intersected by every walked polyline in [runs] —
+     * excluding gaps between runs and expanding each walked segment by [marginMeters] so nearby
+     * parallel OSM ways in adjacent tiles are never missed — capped at [maxRegions].
+     */
+    fun regionsCoveringRuns(
+        runs: List<List<GeoCoordinate>>,
+        marginMeters: Double = 0.0,
+        zoom: Int = TrailGraphSquareGrid.REGION_ZOOM,
         maxRegions: Int = MAXIMUM_REGIONS
-    ): List<TrailGraphRegion> = when {
-        covering.isEmpty() || maxRegions <= 0 -> emptyList()
-        covering.size == 1 -> listOf(TrailGraphSquareGrid.regionContaining(covering.first(), zoom))
-        else -> {
-            val collected = LinkedHashSet<TrailGraphRegion>()
-            var index = 0
-            while (index < covering.lastIndex && collected.size < maxRegions) {
-                val segmentRegions = regionsBetween(covering[index], covering[index + 1], zoom, maxRegions)
-                for (region in segmentRegions) {
-                    if (collected.size < maxRegions) collected.add(region)
-                }
-                index += 1
-            }
-            collected.toList()
-        }
-    }
+    ): List<TrailGraphRegion> = TrailCorridorSweeper.regionsCoveringRuns(runs, marginMeters, zoom, maxRegions)
 
     /**
      * Returns [ends.start], one interior representative coordinate for every intermediate tile
@@ -279,28 +289,137 @@ object TrailGraphCorridor {
             add(ends.end)
         }
     }
+}
 
-    private fun regionsBetween(
-        from: GeoCoordinate,
-        to: GeoCoordinate,
+private object TrailCorridorSweeper {
+    private const val CORNER_TIE_EPSILON = 1e-12
+    private const val EARTH_CIRCUMFERENCE_METERS = 2.0 * PI * 6_371_008.8
+    private const val DEGREES_IN_HALF_TURN = 180.0
+    private const val MIN_COS_LATITUDE = 1e-6
+    private const val MARGIN_SAFETY_FACTOR = 1.0 + 1e-6
+    private val CORNER_SIGNS = listOf(-1 to -1, 1 to -1, -1 to 1, 1 to 1)
+
+    private data class TileSweep(val count: Int, val zoom: Int, val maxRegions: Int)
+
+    fun regionsCoveringRuns(
+        runs: List<List<GeoCoordinate>>,
+        marginMeters: Double,
         zoom: Int,
         maxRegions: Int
     ): List<TrailGraphRegion> {
-        if (maxRegions <= 0) return emptyList()
-        val count = TrailGraphSquareGrid.tilesPerSide(zoom)
-        val x0 = Mercator.unitX(from.longitude) * count
-        val y0 = Mercator.unitY(from.latitude) * count
+        if (runs.isEmpty() || maxRegions <= 0) return emptyList()
+        val sweep = TileSweep(
+            count = TrailGraphSquareGrid.tilesPerSide(zoom),
+            zoom = zoom,
+            maxRegions = maxRegions
+        )
+        val collected = LinkedHashSet<TrailGraphRegion>()
+        for (run in runs) {
+            if (collected.size >= maxRegions) break
+            collectRunRegions(run, marginMeters, sweep, collected)
+        }
+        return collected.toList()
+    }
+
+    private fun collectRunRegions(
+        run: List<GeoCoordinate>,
+        marginMeters: Double,
+        sweep: TileSweep,
+        collected: MutableSet<TrailGraphRegion>
+    ) {
+        if (run.isEmpty()) return
+        if (run.size == 1) {
+            val point = run.first()
+            val x = Mercator.unitX(point.longitude) * sweep.count
+            val y = Mercator.unitY(point.latitude) * sweep.count
+            val pad = marginInTiles(point, point, marginMeters, sweep.count)
+            addPointBox(x, y, pad, sweep, collected)
+            return
+        }
+        var index = 0
+        while (index < run.lastIndex && collected.size < sweep.maxRegions) {
+            collectSegmentRegions(run[index], run[index + 1], marginMeters, sweep, collected)
+            index += 1
+        }
+    }
+
+    private fun collectSegmentRegions(
+        from: GeoCoordinate,
+        to: GeoCoordinate,
+        marginMeters: Double,
+        sweep: TileSweep,
+        collected: MutableSet<TrailGraphRegion>
+    ) {
+        val x0 = Mercator.unitX(from.longitude) * sweep.count
+        val y0 = Mercator.unitY(from.latitude) * sweep.count
         val shiftedToLon = to.longitude + TrailGraphSquareGrid.turn(from.longitude, to.longitude)
-        val x1 = Mercator.unitX(shiftedToLon) * count
-        val y1 = Mercator.unitY(to.latitude) * count
+        val x1 = Mercator.unitX(shiftedToLon) * sweep.count
+        val y1 = Mercator.unitY(to.latitude) * sweep.count
 
+        sweepMercatorSegment(x0, y0, x1, y1, sweep, collected)
+        val pad = marginInTiles(from, to, marginMeters, sweep.count)
+        if (pad <= 0.0 || collected.size >= sweep.maxRegions) return
+
+        addPointBox(x0, y0, pad, sweep, collected)
+        addPointBox(x1, y1, pad, sweep, collected)
+        for ((sx, sy) in CORNER_SIGNS) {
+            if (collected.size >= sweep.maxRegions) break
+            sweepMercatorSegment(
+                x0 = x0 + sx * pad,
+                y0 = clampY(y0 + sy * pad, sweep.count),
+                x1 = x1 + sx * pad,
+                y1 = clampY(y1 + sy * pad, sweep.count),
+                sweep = sweep,
+                collected = collected
+            )
+        }
+    }
+
+    private fun addPointBox(
+        x: Double,
+        y: Double,
+        pad: Double,
+        sweep: TileSweep,
+        collected: MutableSet<TrailGraphRegion>
+    ) {
+        val minX = floor(x - pad).toInt()
+        val maxX = floor(x + pad).toInt()
+        val minY = floor(y - pad).toInt().coerceIn(0, sweep.count - 1)
+        val maxY = floor(y + pad).toInt().coerceIn(0, sweep.count - 1)
+        for (ix in minX..maxX) {
+            for (iy in minY..maxY) {
+                if (collected.size >= sweep.maxRegions) return
+                collected.add(TrailGraphRegion(zoom = sweep.zoom, x = Math.floorMod(ix, sweep.count), y = iy))
+            }
+        }
+    }
+
+    private fun marginInTiles(from: GeoCoordinate, to: GeoCoordinate, marginMeters: Double, count: Int): Double {
+        if (!marginMeters.isFinite() || marginMeters <= 0.0) return 0.0
+        val maxAbsLat = max(abs(from.latitude), abs(to.latitude)).coerceAtMost(Mercator.LATITUDE_LIMIT)
+        val cosLat = cos(maxAbsLat * PI / DEGREES_IN_HALF_TURN).coerceAtLeast(MIN_COS_LATITUDE)
+        val metersPerTile = EARTH_CIRCUMFERENCE_METERS * cosLat / count.toDouble()
+        return (marginMeters * MARGIN_SAFETY_FACTOR) / metersPerTile
+    }
+
+    private fun clampY(y: Double, count: Int): Double = y.coerceIn(0.0, count.toDouble() - CORNER_TIE_EPSILON)
+
+    @Suppress("LongParameterList")
+    private fun sweepMercatorSegment(
+        x0: Double,
+        y0: Double,
+        x1: Double,
+        y1: Double,
+        sweep: TileSweep,
+        collected: MutableSet<TrailGraphRegion>
+    ) {
+        if (collected.size >= sweep.maxRegions) return
         var ix = floor(x0).toInt()
-        var iy = floor(y0).toInt().coerceIn(0, count - 1)
+        var iy = floor(y0).toInt().coerceIn(0, sweep.count - 1)
         val endIx = floor(x1).toInt()
-        val endIy = floor(y1).toInt().coerceIn(0, count - 1)
+        val endIy = floor(y1).toInt().coerceIn(0, sweep.count - 1)
 
-        val regions = ArrayList<TrailGraphRegion>()
-        regions.add(TrailGraphRegion(zoom = zoom, x = Math.floorMod(ix, count), y = iy))
+        collected.add(TrailGraphRegion(zoom = sweep.zoom, x = Math.floorMod(ix, sweep.count), y = iy))
 
         val stepX = (endIx - ix).coerceIn(-1, 1)
         val stepY = (endIy - iy).coerceIn(-1, 1)
@@ -311,24 +430,22 @@ object TrailGraphCorridor {
         val tDeltaX = axisTDelta(step = stepX, delta = dx)
         val tDeltaY = axisTDelta(step = stepY, delta = dy)
 
-        while ((ix != endIx || iy != endIy) && regions.size < maxRegions) {
+        while ((ix != endIx || iy != endIy) && collected.size < sweep.maxRegions) {
             val diff = tMaxX - tMaxY
             if (diff < -CORNER_TIE_EPSILON) {
                 ix += stepX
                 tMaxX += tDeltaX
             } else if (diff > CORNER_TIE_EPSILON) {
-                iy = (iy + stepY).coerceIn(0, count - 1)
+                iy = (iy + stepY).coerceIn(0, sweep.count - 1)
                 tMaxY += tDeltaY
             } else {
                 ix += stepX
-                iy = (iy + stepY).coerceIn(0, count - 1)
+                iy = (iy + stepY).coerceIn(0, sweep.count - 1)
                 tMaxX += tDeltaX
                 tMaxY += tDeltaY
             }
-            val next = TrailGraphRegion(zoom = zoom, x = Math.floorMod(ix, count), y = iy)
-            if (regions.lastOrNull() != next) regions.add(next)
+            collected.add(TrailGraphRegion(zoom = sweep.zoom, x = Math.floorMod(ix, sweep.count), y = iy))
         }
-        return regions
     }
 
     private fun initialAxisTMax(coord: Double, cell: Int, step: Int, delta: Double): Double = when {
@@ -366,8 +483,24 @@ interface TrailGraphProvider {
     suspend fun assembledGraph(covering: List<GeoCoordinate>): AssembledTrailGraph
 
     /**
+     * Assembles every graph region intersecting the walked polylines in [runs] (expanded by
+     * [marginMeters]) without traversing gaps between separate runs.
+     */
+    suspend fun assembledGraphForRuns(
+        runs: List<List<GeoCoordinate>>,
+        marginMeters: Double = 0.0
+    ): AssembledTrailGraph = assembledGraph(runs.flatten())
+
+    /**
      * Merges only already-cached graph regions covering [covering] without reaching the network.
      * Used by Trail Maker shading so moving pins never triggers extra routing-square downloads.
      */
     suspend fun cachedGraphOnly(covering: List<GeoCoordinate>): TrailGraph? = null
+
+    /**
+     * Merges already-cached graph regions covering the walked polylines in [runs] (expanded by
+     * [marginMeters]) without reaching the network or traversing gaps between runs.
+     */
+    suspend fun cachedGraphOnlyForRuns(runs: List<List<GeoCoordinate>>, marginMeters: Double = 0.0): TrailGraph? =
+        cachedGraphOnly(runs.flatten())
 }

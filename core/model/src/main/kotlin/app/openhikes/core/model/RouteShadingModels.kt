@@ -53,8 +53,15 @@ enum class RouteShade(val hexColor: String) {
 
 /**
  * One unbroken stretch of route painted in a single [RouteShade] step.
+ *
+ * [joinsPrevious] records whether this stretch continues directly from the preceding stretch within
+ * the same walked segment so [RouteShadeBlend] never blends across a same-coordinate pause break.
  */
-data class RouteShadeStretch(val shade: RouteShade, val coordinates: List<GeoCoordinate>)
+data class RouteShadeStretch(
+    val shade: RouteShade,
+    val coordinates: List<GeoCoordinate>,
+    val joinsPrevious: Boolean = true
+)
 
 /**
  * One route-ordered colored polyline span ready for map rendering, carrying either a flat
@@ -211,7 +218,8 @@ private class SteepnessRunBuilder(private val route: List<RouteCoordinate>, priv
     fun build(): List<RouteShadeStretch> = SteepnessAbsorption.absorbingShort(pieces).map { piece ->
         RouteShadeStretch(
             shade = piece.shade,
-            coordinates = route.subList(piece.start, piece.end + 1).map { it.coordinate }
+            coordinates = route.subList(piece.start, piece.end + 1).map { it.coordinate },
+            joinsPrevious = piece.joinsPrevious
         )
     }
 
@@ -377,13 +385,15 @@ object RouteShadeBlend {
     private const val MIN_COORDINATES = 2
 
     fun blend(stretches: List<RouteShadeStretch>): List<BlendedShadeSegment> {
-        val valid = stretches.filter { it.coordinates.size >= MIN_COORDINATES }
+        val valid = filterValidPreservingContinuity(stretches)
         if (valid.isEmpty()) return emptyList()
         val lengths = DoubleArray(valid.size) { i -> RouteGeometry.lengthMeters(valid[i].coordinates) }
         val jointReaches = DoubleArray(valid.size - 1) { i ->
             val prev = valid[i]
             val next = valid[i + 1]
-            val meets = prev.coordinates.last() == next.coordinates.first() && prev.shade != next.shade
+            val meets = next.joinsPrevious &&
+                prev.coordinates.last() == next.coordinates.first() &&
+                prev.shade != next.shade
             if (meets) REACH_SHARE * min(lengths[i], lengths[i + 1]) else 0.0
         }
         val result = ArrayList<BlendedShadeSegment>(valid.size * 2)
@@ -406,6 +416,21 @@ object RouteShadeBlend {
             }
         }
         return result
+    }
+
+    private fun filterValidPreservingContinuity(stretches: List<RouteShadeStretch>): List<RouteShadeStretch> {
+        val kept = ArrayList<RouteShadeStretch>(stretches.size)
+        var previousKept = false
+        for (stretch in stretches) {
+            if (stretch.coordinates.size >= MIN_COORDINATES) {
+                val joined = stretch.joinsPrevious && previousKept
+                kept.add(if (joined == stretch.joinsPrevious) stretch else stretch.copy(joinsPrevious = joined))
+                previousKept = true
+            } else {
+                previousKept = false
+            }
+        }
+        return kept
     }
 
     private fun appendTransition(

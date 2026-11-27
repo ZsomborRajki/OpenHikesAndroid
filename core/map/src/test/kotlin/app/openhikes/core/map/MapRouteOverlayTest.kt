@@ -157,12 +157,93 @@ class MapRouteOverlayTest {
         val overlay = mapRoute.toMapRouteOverlay(isSelected = true, shadedStretches = stretches)
         assertThat(overlay.shadedStretches).isEqualTo(stretches)
 
-        val collection = buildBlendedShadeFeatures(overlay.shadedStretches)
+        val collection = buildPartitionedShadeFeatures(
+            walkedSegments = overlay.walkedSegments,
+            shadedStretches = overlay.shadedStretches,
+            baseTintHex = overlay.tintHex,
+            blendTransitions = true
+        )
         assertThat(collection.features).hasSize(2 + app.openhikes.core.model.RouteShadeBlend.BLEND_SUBSTEPS)
-        assertThat(collection.features.first().properties["color"]?.jsonPrimitive?.content)
+        assertThat(collection.features.first().properties[SHADE_COLOR_PROPERTY]?.jsonPrimitive?.content)
             .isEqualTo(RouteShade.EASIEST.hexColor)
-        assertThat(collection.features.last().properties["color"]?.jsonPrimitive?.content)
+        assertThat(collection.features.last().properties[SHADE_COLOR_PROPERTY]?.jsonPrimitive?.content)
             .isEqualTo(RouteShade.HARD.hexColor)
+    }
+
+    @Test
+    fun partitionedPatternShadingUsesSingleNonOverlappingPlacementWithBaseTintForUncoveredParts() {
+        val a = app.openhikes.core.model.GeoCoordinate(47.700, 12.830)
+        val b = app.openhikes.core.model.GeoCoordinate(47.703, 12.830)
+        val c = app.openhikes.core.model.GeoCoordinate(47.706, 12.830)
+        val d = app.openhikes.core.model.GeoCoordinate(47.709, 12.830)
+        val tintHex = "#1B7F3B"
+
+        val collection = buildPartitionedShadeFeatures(
+            walkedSegments = listOf(listOf(a, b, c, d)),
+            shadedStretches = listOf(
+                RouteShadeStretch(RouteShade.HARD, listOf(b, c), joinsPrevious = false)
+            ),
+            baseTintHex = tintHex,
+            blendTransitions = false
+        )
+
+        // Exactly 3 non-overlapping stretches: [a..b] base tint, [b..c] HARD shade, [c..d] base tint.
+        assertThat(collection.features).hasSize(3)
+        assertThat(collection.features.map { it.properties[SHADE_COLOR_PROPERTY]?.jsonPrimitive?.content })
+            .containsExactly(tintHex, RouteShade.HARD.hexColor, tintHex)
+            .inOrder()
+        assertThat(collection.features.map { it.properties[SHADE_STEP_PROPERTY]?.jsonPrimitive?.content })
+            .containsExactly(BASE_SHADE_STEP, RouteShade.HARD.step.toString(), BASE_SHADE_STEP)
+            .inOrder()
+
+        val totalSpanLength = partitionWalkedSegmentsWithShades(
+            walkedSegments = listOf(listOf(a, b, c, d)),
+            shadedStretches = listOf(RouteShadeStretch(RouteShade.HARD, listOf(b, c), joinsPrevious = false)),
+            baseTintHex = tintHex,
+            blendTransitions = false
+        ).sumOf { app.openhikes.core.model.RouteGeometry.lengthMeters(it.coordinates) }
+        val fullRouteLength = app.openhikes.core.model.RouteGeometry.lengthMeters(listOf(a, b, c, d))
+        assertThat(totalSpanLength).isWithin(1.0).of(fullRouteLength)
+    }
+
+    @Test
+    fun partitionedShadingPreservesOutAndBackOrderAndNeverBlendsSameCoordinatePauses() {
+        val a = app.openhikes.core.model.GeoCoordinate(47.700, 12.830)
+        val b = app.openhikes.core.model.GeoCoordinate(47.704, 12.830)
+        val c = app.openhikes.core.model.GeoCoordinate(47.708, 12.830)
+        val tintHex = "#1B7F3B"
+
+        // Out-and-back a -> b -> c -> b -> a with middle uncovered and different shade on return.
+        val outAndBack = partitionWalkedSegmentsWithShades(
+            walkedSegments = listOf(listOf(a, b, c, b, a)),
+            shadedStretches = listOf(
+                RouteShadeStretch(RouteShade.EASIEST, listOf(a, b), joinsPrevious = false),
+                RouteShadeStretch(RouteShade.HARD, listOf(b, a), joinsPrevious = false)
+            ),
+            baseTintHex = tintHex,
+            blendTransitions = false
+        )
+        assertThat(outAndBack.map { it.colorHex }).containsExactly(
+            RouteShade.EASIEST.hexColor,
+            tintHex,
+            RouteShade.HARD.hexColor
+        ).inOrder()
+
+        // Same-coordinate pause split across two walked segments never produces blend spans.
+        val paused = partitionWalkedSegmentsWithShades(
+            walkedSegments = listOf(listOf(a, b), listOf(b, c)),
+            shadedStretches = listOf(
+                RouteShadeStretch(RouteShade.EASIEST, listOf(a, b), joinsPrevious = false),
+                RouteShadeStretch(RouteShade.HARD, listOf(b, c), joinsPrevious = false)
+            ),
+            baseTintHex = tintHex,
+            blendTransitions = true
+        )
+        assertThat(paused).hasSize(2)
+        assertThat(paused.map { it.colorHex }).containsExactly(
+            RouteShade.EASIEST.hexColor,
+            RouteShade.HARD.hexColor
+        ).inOrder()
     }
 
     private fun sampleOverlay(

@@ -318,6 +318,58 @@ class HikeDetailViewModelTest {
         }
     }
 
+    @Test
+    fun reanalyzesRevertedRouteWithinSameDetailSession() = runTest {
+        val parsed = GpxParser.parseSingle(TestFixtures.thumseeLoopFastGpxBytes()) as GpxParseResult.Success
+        val originalRoute = parsed.value.route
+        val distances = app.openhikes.core.model.RouteTrim.distances(originalRoute)
+        val cutIndex = (originalRoute.size * 2) / 3
+        val editedLine = requireNotNull(
+            app.openhikes.core.model.EditedLine.build(
+                whole = originalRoute,
+                distances = distances,
+                cuts = app.openhikes.core.model.EditedLine.Cuts(range = 0.0..distances[cutIndex]),
+                replacing = originalRoute
+            )
+        )
+        val hike = sampleDetailHike().copy(route = originalRoute)
+        val repo = FakeHikeRepository(listOf(hike))
+        val provider = FakeTrailGraphProvider.fromThumseeLoopFixture()
+        val viewModel = createViewModel(hike = hike, repo = repo, trailGraphProvider = provider)
+
+        viewModel.uiState.test {
+            advanceUntilIdle()
+            val initialState = expectMostRecentItem()
+            assertThat(initialState.surfaceBreakdown).isNotNull()
+            assertThat(initialState.difficultyBreakdown).isNotNull()
+            assertThat(provider.assembledGraphCalls).isEqualTo(1)
+
+            // Save a route trim while keeping the same detail ViewModel alive.
+            assertThat(repo.applyRouteEdit(hike.id, originalRoute, editedLine))
+                .isEqualTo(app.openhikes.core.model.RouteEditOutcome.Saved(editedLine.route))
+            advanceUntilIdle()
+            assertThat(expectMostRecentItem().surfaceBreakdown).isNotNull()
+            assertThat(provider.assembledGraphCalls).isEqualTo(2)
+
+            // Reverting restores the original route revision and clears stored breakdowns;
+            // the same ViewModel must re-analyze the restored revision and repopulate both cards.
+            assertThat(repo.revertRouteEdit(hike.id, editedLine.route))
+                .isEqualTo(app.openhikes.core.model.RouteEditOutcome.Saved(originalRoute))
+            advanceUntilIdle()
+            val revertedState = expectMostRecentItem()
+            assertThat(revertedState.surfaceBreakdown).isNotNull()
+            assertThat(revertedState.difficultyBreakdown).isNotNull()
+            assertThat(provider.assembledGraphCalls).isEqualTo(3)
+
+            // Unrelated edits (e.g. rename) do not trigger redundant re-analysis.
+            repo.renameHike(hike.id, "Renamed Thumsee")
+            advanceUntilIdle()
+            assertThat(provider.assembledGraphCalls).isEqualTo(3)
+
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
     private fun createViewModel(
         hike: Hike,
         repo: FakeHikeRepository = FakeHikeRepository(listOf(hike)),

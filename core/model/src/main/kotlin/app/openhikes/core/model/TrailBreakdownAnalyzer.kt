@@ -193,7 +193,10 @@ object TrailBreakdownAnalyzer {
         var resumesAfterPause = false
 
         for ((runIndex, range) in runs.walkedRuns.withIndex()) {
-            if (runIndex > 0) resumesAfterPause = true
+            if (runIndex > 0) {
+                resumesAfterPause = true
+                previousWayId = null
+            }
             for (leg in range.first until range.last) {
                 val from = route[leg].coordinate
                 val to = route[leg + 1].coordinate
@@ -274,13 +277,15 @@ private data class TrailCategorySample<C : TrailCategory>(
 private class TrailCategoryRunBuilder<C : TrailCategory> {
     private val runs = ArrayList<TrailCategoryRun<C>>()
     private var currentCategory: C? = null
+    private var currentJoinsPrevious: Boolean = false
     private val coordinates = ArrayList<GeoCoordinate>()
     private var pendingEnd: GeoCoordinate? = null
 
     fun add(sample: TrailCategorySample<C>) {
         if (sample.category != currentCategory || sample.resumesAfterPause) {
-            close()
+            val emittedPrevious = close()
             currentCategory = sample.category
+            currentJoinsPrevious = emittedPrevious && !sample.resumesAfterPause
             coordinates.clear()
             coordinates.add(sample.start)
         }
@@ -297,15 +302,24 @@ private class TrailCategoryRunBuilder<C : TrailCategory> {
         return runs
     }
 
-    private fun close() {
-        val category = currentCategory ?: return
+    private fun close(): Boolean {
+        val category = currentCategory ?: return false
         pendingEnd?.let(coordinates::add)
-        if (coordinates.size > 1) {
-            runs.add(TrailCategoryRun(category = category, coordinates = coordinates.toList()))
+        val emitted = coordinates.size > 1
+        if (emitted) {
+            runs.add(
+                TrailCategoryRun(
+                    category = category,
+                    coordinates = coordinates.toList(),
+                    joinsPrevious = currentJoinsPrevious
+                )
+            )
         }
         currentCategory = null
+        currentJoinsPrevious = false
         coordinates.clear()
         pendingEnd = null
+        return emitted
     }
 }
 
@@ -316,16 +330,23 @@ private class TrailCategoryRunBuilder<C : TrailCategory> {
 object HikeTrailAnalysis {
     /**
      * Measures both surface and SAC difficulty breakdowns from a single complete graph covering
-     * [route]. Quietly returns [HikeTrailBreakdowns.Empty] when the graph is unavailable, partial,
-     * or empty so missing network regions are never misreported as unmapped ground.
+     * every walked run of [route] (excluding pause gaps and expanding by the matching tolerance).
+     * Quietly returns [HikeTrailBreakdowns.Empty] when the graph is unavailable, partial, or empty
+     * so missing network regions are never misreported as unmapped ground.
      */
     suspend fun breakdowns(
         route: List<RouteCoordinate>,
         provider: TrailGraphProvider,
         checkActive: () -> Unit = {}
     ): HikeTrailBreakdowns {
-        val graph = if (route.size > 1 && provider.isAvailable) {
-            completeNonEmptyGraph(provider.assembledGraph(route.map { it.coordinate }))
+        val runs = walkedCoordinateRuns(route)
+        val graph = if (runs.isNotEmpty() && provider.isAvailable) {
+            completeNonEmptyGraph(
+                provider.assembledGraphForRuns(
+                    runs = runs,
+                    marginMeters = TrailBreakdownAnalyzer.DEFAULT_TOLERANCE_METERS
+                )
+            )
         } else {
             null
         }
@@ -366,12 +387,13 @@ object HikeTrailAnalysis {
         allowNetwork: Boolean = true,
         checkActive: () -> Unit = {}
     ): List<TrailCategoryRun<TrailDifficulty>> {
-        val graph = if (route.size > 1 && provider.isAvailable) {
-            val coordinates = route.map { it.coordinate }
+        val runs = walkedCoordinateRuns(route)
+        val graph = if (runs.isNotEmpty() && provider.isAvailable) {
+            val margin = TrailBreakdownAnalyzer.DEFAULT_TOLERANCE_METERS
             if (allowNetwork) {
-                provider.assembledGraph(coordinates).graph
+                provider.assembledGraphForRuns(runs = runs, marginMeters = margin).graph
             } else {
-                provider.cachedGraphOnly(coordinates)
+                provider.cachedGraphOnlyForRuns(runs = runs, marginMeters = margin)
             }
         } else {
             null
@@ -379,12 +401,38 @@ object HikeTrailAnalysis {
         return if (graph == null || graph.isEmpty) {
             emptyList()
         } else {
-            TrailBreakdownAnalyzer.difficultyRuns(
-                route = route,
-                graph = graph,
-                checkActive = checkActive
-            ).filter { it.category.isSurveyed }
+            filterSurveyedPreservingContinuity(
+                TrailBreakdownAnalyzer.difficultyRuns(
+                    route = route,
+                    graph = graph,
+                    checkActive = checkActive
+                )
+            )
         }
+    }
+
+    private fun walkedCoordinateRuns(route: List<RouteCoordinate>): List<List<GeoCoordinate>> {
+        if (route.size <= 1) return emptyList()
+        return route.toTrailRuns().walkedRuns.map { range ->
+            route.subList(range.first, range.last + 1).map { it.coordinate }
+        }
+    }
+
+    private fun filterSurveyedPreservingContinuity(
+        runs: List<TrailCategoryRun<TrailDifficulty>>
+    ): List<TrailCategoryRun<TrailDifficulty>> {
+        val kept = ArrayList<TrailCategoryRun<TrailDifficulty>>(runs.size)
+        var previousKept = false
+        for (run in runs) {
+            if (run.category.isSurveyed) {
+                val joined = run.joinsPrevious && previousKept
+                kept.add(if (joined == run.joinsPrevious) run else run.copy(joinsPrevious = joined))
+                previousKept = true
+            } else {
+                previousKept = false
+            }
+        }
+        return kept
     }
 
     private fun completeNonEmptyGraph(assembled: AssembledTrailGraph): TrailGraph? =

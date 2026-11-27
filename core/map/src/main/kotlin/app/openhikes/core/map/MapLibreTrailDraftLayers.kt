@@ -90,13 +90,23 @@ internal fun TrailDraftOverlayLayers(trailDraftOverlayState: StateFlow<MapTrailD
             opacity = 0.9f
         )
     }
+    val showShading = current.draggedPinIndex == null &&
+        current.legs.none { it.snap.isRouting } &&
+        current.shadedStretches.isNotEmpty()
     if (buckets.solid.isNotEmpty()) {
-        DraftLineLayer(
-            id = "trail-draft-solid",
-            segments = buckets.solid,
-            color = TrailDraftAccentColor,
-            widthDp = LEG_STROKE_WIDTH_DP
-        )
+        if (showShading) {
+            TrailDraftShadedLayer(
+                solidSegments = buckets.solid,
+                shadedStretches = current.shadedStretches
+            )
+        } else {
+            DraftLineLayer(
+                id = "trail-draft-solid",
+                segments = buckets.solid,
+                color = TrailDraftAccentColor,
+                widthDp = LEG_STROKE_WIDTH_DP
+            )
+        }
     }
     if (buckets.routing.isNotEmpty()) {
         DraftLineLayer(
@@ -116,23 +126,26 @@ internal fun TrailDraftOverlayLayers(trailDraftOverlayState: StateFlow<MapTrailD
             dashPattern = listOf(LONG_DASH_ON, LONG_DASH_OFF)
         )
     }
-    val showShading = current.draggedPinIndex == null &&
-        current.legs.none { it.snap.isRouting } &&
-        current.shadedStretches.isNotEmpty()
-    if (showShading) {
-        TrailDraftShadedLayer(shadedStretches = current.shadedStretches)
-    }
 }
 
 @Composable
 @MaplibreComposable
-private fun TrailDraftShadedLayer(shadedStretches: List<app.openhikes.core.model.RouteShadeStretch>) {
-    val shadedData = remember(shadedStretches) {
-        buildBlendedShadeFeatureCollection(shadedStretches)
+private fun TrailDraftShadedLayer(
+    solidSegments: List<List<GeoCoordinate>>,
+    shadedStretches: List<app.openhikes.core.model.RouteShadeStretch>
+) {
+    val baseTintHex = remember { colorToRgbHex(TrailDraftAccentColor) }
+    val shadedData = remember(solidSegments, shadedStretches, baseTintHex) {
+        buildPartitionedShadeFeatureCollection(
+            walkedSegments = solidSegments,
+            shadedStretches = shadedStretches,
+            baseTintHex = baseTintHex,
+            blendTransitions = true
+        )
     }
     val shadedSource = rememberGeoJsonSource(data = shadedData)
     LineLayer(
-        id = "trail-draft-shaded",
+        id = "trail-draft-solid",
         source = shadedSource,
         color = feature[SHADE_COLOR_PROPERTY].convertToColor(const(TrailDraftAccentColor)),
         width = const(LEG_STROKE_WIDTH_DP.dp),

@@ -87,4 +87,83 @@ class RouteShadeBlendTest {
         assertThat(RouteColoring.fromStoredId("difficulty")).isEqualTo(RouteColoring.DIFFICULTY)
         assertThat(RouteColoring.fromStoredId("off")).isEqualTo(RouteColoring.OFF)
     }
+
+    @Test
+    fun neverBlendsAcrossSameCoordinatePauseInSteepnessRuns() {
+        val degPer25m = Math.toDegrees(25.0 / 6_371_008.8)
+        // Flat 400 m segment followed by steep 400 m segment resuming at the EXACT same coordinate.
+        val flatPoints = (0..16).map { i ->
+            RouteCoordinate(47.700 + i * degPer25m, 12.830, elevationMeters = 1000.0)
+        }
+        val joinLat = flatPoints.last().latitude
+        val steepPoints = (0..16).map { i ->
+            RouteCoordinate(
+                latitude = joinLat + i * degPer25m,
+                longitude = 12.830,
+                elevationMeters = 1000.0 + i * 8.0, // ~32% grade -> HARDER
+                boundary = if (i == 0) RouteBoundary.PAUSED else null
+            )
+        }
+        val steepnessRuns = RouteSteepness.runs(flatPoints + steepPoints)
+        assertThat(steepnessRuns).hasSize(2)
+        assertThat(steepnessRuns[0].coordinates.last()).isEqualTo(steepnessRuns[1].coordinates.first())
+        assertThat(steepnessRuns[1].joinsPrevious).isFalse()
+
+        val blendedSteepness = RouteShadeBlend.blend(steepnessRuns)
+        assertThat(blendedSteepness).hasSize(2)
+        assertThat(blendedSteepness.map { it.colorHex }).containsExactly(
+            steepnessRuns[0].shade.hexColor,
+            steepnessRuns[1].shade.hexColor
+        ).inOrder()
+    }
+
+    @Test
+    fun neverBlendsAcrossSameCoordinatePauseInDifficultyRuns() {
+        val a = GeoCoordinate(47.700, 12.830)
+        val b = GeoCoordinate(47.702, 12.830)
+        val c = GeoCoordinate(47.704, 12.830)
+        val graph = TrailGraph(
+            nodes = listOf(
+                TrailGraphNode(1L, a.latitude, a.longitude),
+                TrailGraphNode(2L, b.latitude, b.longitude),
+                TrailGraphNode(3L, c.latitude, c.longitude)
+            ),
+            edges = listOf(
+                TrailGraphEdge(
+                    id = TrailGraphEdgeId(10L, 0),
+                    fromNodeId = 1L,
+                    toNodeId = 2L,
+                    lengthMeters = RouteGeometry.distanceMeters(a, b),
+                    highway = "path",
+                    sacScale = "hiking"
+                ),
+                TrailGraphEdge(
+                    id = TrailGraphEdgeId(20L, 0),
+                    fromNodeId = 2L,
+                    toNodeId = 3L,
+                    lengthMeters = RouteGeometry.distanceMeters(b, c),
+                    highway = "path",
+                    sacScale = "alpine_hiking"
+                )
+            )
+        )
+        val pausedRoute = listOf(
+            RouteCoordinate(a.latitude, a.longitude),
+            RouteCoordinate(b.latitude, b.longitude),
+            RouteCoordinate(b.latitude, b.longitude, boundary = RouteBoundary.PAUSED),
+            RouteCoordinate(c.latitude, c.longitude)
+        )
+        val diffRuns = TrailBreakdownAnalyzer.difficultyRuns(pausedRoute, graph)
+        assertThat(diffRuns).hasSize(2)
+        assertThat(diffRuns[1].joinsPrevious).isFalse()
+        val diffStretches = diffRuns.mapNotNull { run ->
+            run.category.shade?.let { shade -> RouteShadeStretch(shade, run.coordinates, run.joinsPrevious) }
+        }
+        val blendedDiff = RouteShadeBlend.blend(diffStretches)
+        assertThat(blendedDiff).hasSize(2)
+        assertThat(blendedDiff.map { it.colorHex }).containsExactly(
+            RouteShade.EASIEST.hexColor,
+            RouteShade.HARD.hexColor
+        ).inOrder()
+    }
 }
