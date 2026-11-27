@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.RouteColoring
+import app.openhikes.core.model.RouteElevationSummary
 import app.openhikes.core.model.TrailDraftRefusal
 import app.openhikes.core.model.TrailLegEnds
 import app.openhikes.core.model.TrailLegSnap
@@ -92,6 +93,8 @@ data class TrailMakerUiState(
     val rows: List<TrailStopRowItem> = emptyList(),
     val distanceMeters: Double = 0.0,
     val travelTimeSeconds: Double? = null,
+    val elevationSummary: RouteElevationSummary? = null,
+    val isMeasuringElevation: Boolean = false,
     val distanceUnit: DistanceUnit = DistanceUnit.METRIC,
     val canBeSaved: Boolean = false,
     val isEmpty: Boolean = true,
@@ -99,6 +102,7 @@ data class TrailMakerUiState(
     val snapsToPaths: Boolean = true,
     val routeColoring: RouteColoring = RouteColoring.Default,
     val showsColoringSection: Boolean = false,
+    val isElevationColoringAvailable: Boolean = false,
     val isRouting: Boolean = false,
     val hasRetryableLegs: Boolean = false,
     val worstLegSnap: TrailLegSnap? = null,

@@ -30,6 +30,7 @@ object LaunchConfigReader {
     const val EXTRA_STUB_PHOTO_LIBRARY_ACCESS = "ui_test_stub_photo_library_access"
     const val EXTRA_SEED_HIKES = "ui_test_seed_hikes"
     const val EXTRA_SEED_NEARBY_TRAILS = "ui_test_seed_nearby_trails"
+    const val EXTRA_ELEVATION = "ui_test_elevation"
 
     fun fromIntent(intent: Intent?): LaunchConfig {
         val extras = intent?.extras ?: return LaunchConfig.Production
@@ -67,7 +68,8 @@ object LaunchConfigReader {
             stubPhotoLibraryCount = parseNonNegativeInt(arguments[EXTRA_STUB_PHOTO_LIBRARY_COUNT]),
             stubPhotoLibraryAccess = sanitizeFixtureName(arguments[EXTRA_STUB_PHOTO_LIBRARY_ACCESS]),
             seedHikeCount = parseNonNegativeInt(arguments[EXTRA_SEED_HIKES]) ?: 0,
-            seedNearbyTrails = arguments.boolFlag(EXTRA_SEED_NEARBY_TRAILS)
+            seedNearbyTrails = arguments.boolFlag(EXTRA_SEED_NEARBY_TRAILS),
+            elevationScenarioName = sanitizeFixtureName(arguments[EXTRA_ELEVATION])
         )
     }
 
@@ -102,7 +104,8 @@ object LaunchConfigReader {
         seedPhotoCount = override.seedPhotoCount.takeIf { it > 0 } ?: base.seedPhotoCount,
         stubPhotoLibraryCount = override.stubPhotoLibraryCount ?: base.stubPhotoLibraryCount,
         stubPhotoLibraryAccess = override.stubPhotoLibraryAccess ?: base.stubPhotoLibraryAccess,
-        seedHikeCount = override.seedHikeCount.takeIf { it > 0 } ?: base.seedHikeCount
+        seedHikeCount = override.seedHikeCount.takeIf { it > 0 } ?: base.seedHikeCount,
+        elevationScenarioName = override.elevationScenarioName ?: base.elevationScenarioName
     )
 
     private fun parseNonNegativeInt(raw: String?): Int? = raw?.trim()?.toIntOrNull()?.takeIf { it >= 0 }

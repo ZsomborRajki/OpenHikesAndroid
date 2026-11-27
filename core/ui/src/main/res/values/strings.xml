@@ -5,6 +5,8 @@
     <string name="elevation_chart_step_backward">Step backward along trail</string>
     <string name="elevation_chart_no_data">No elevation data</string>
     <string name="elevation_chart_state_description">%1$s at %2$s, %3$d%% along the trail</string>
+    <string name="elevation_placeholder_reading">Reading elevation…</string>
+    <string name="elevation_placeholder_empty">No elevation data for this hike</string>
     <string name="hike_segments_section_title">Segments</string>
     <string name="hike_segment_label">Segment %1$d</string>
     <string name="hike_segment_paused_label">Paused</string>

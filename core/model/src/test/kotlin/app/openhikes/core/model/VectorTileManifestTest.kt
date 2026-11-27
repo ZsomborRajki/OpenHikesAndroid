@@ -34,6 +34,11 @@ class VectorTileManifestTest {
             places = listOf(
                 VectorTileArchiveManifest.SquareArchive(name = "places-future", generation = 9, zoom = 9),
                 VectorTileArchiveManifest.SquareArchive(name = "places-20261122-00", generation = 1, zoom = 9)
+            ),
+            elevation = listOf(
+                VectorTileArchiveManifest.SquareArchive(name = "elevation-future", generation = 9, zoom = 12),
+                VectorTileArchiveManifest.SquareArchive(name = "elevation-wrong-zoom", generation = 1, zoom = 10),
+                VectorTileArchiveManifest.SquareArchive(name = "elevation-20261126-20", generation = 1, zoom = 12)
             )
         )
 
@@ -45,6 +50,9 @@ class VectorTileManifestTest {
         assertThat(source.places?.archiveName).isEqualTo("places-20261122-00")
         assertThat(source.places?.squareTileUrl(PlaceSquare(row = 137, column = 192)))
             .isEqualTo("https://tiles.openhikes.app/places-20261122-00/9/192/137.bin")
+        assertThat(source.elevation?.archiveName).isEqualTo("elevation-20261126-20")
+        assertThat(source.elevation?.squareTileUrl(ElevationSquare(row = 338, column = 1542)))
+            .isEqualTo("https://tiles.openhikes.app/elevation-20261126-20/12/1542/338.bin")
         assertThat(source.basemapTileUrl(TileAddress(17, 400, 800)))
             .isEqualTo("https://tiles.openhikes.app/planet-20261118/15/100/200.mvt")
         assertThat(source.extrasTileUrl(TileAddress(3, 1, 1))).isNull()

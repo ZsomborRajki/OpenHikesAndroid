@@ -17,6 +17,7 @@ import app.openhikes.core.database.dao.HikeLocalStateDao
 import app.openhikes.core.database.dao.HikePhotoDao
 import app.openhikes.core.database.dao.HikeWalkDao
 import app.openhikes.core.database.dao.TrailPointDao
+import app.openhikes.core.database.entity.HikeRouteChunkEntity
 import app.openhikes.core.model.EditedLine
 import app.openhikes.core.model.ExportedGpx
 import app.openhikes.core.model.ExportedHikeArchive
@@ -24,10 +25,12 @@ import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.GpxImportFailure
 import app.openhikes.core.model.GpxImportResult
 import app.openhikes.core.model.Hike
+import app.openhikes.core.model.HikeElevationFill
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeLocalState
 import app.openhikes.core.model.HikeMapRoute
 import app.openhikes.core.model.HikePhoto
+import app.openhikes.core.model.HikeRouteStatistics
 import app.openhikes.core.model.HikeSummary
 import app.openhikes.core.model.HikeTrailBreakdowns
 import app.openhikes.core.model.HikeWalk
@@ -38,6 +41,8 @@ import app.openhikes.core.model.PreparedRecording
 import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteEditOutcome
 import app.openhikes.core.model.RouteEditSources
+import app.openhikes.core.model.RouteElevationRevision
+import app.openhikes.core.model.RouteHeightSamples
 import app.openhikes.core.model.RouteStyleUpdate
 import app.openhikes.core.model.TrailPlaceSymbol
 import app.openhikes.core.model.TrailPoint
@@ -325,6 +330,53 @@ internal class OfflineFirstHikeRepository @Inject constructor(
             }
         }
     }
+
+    override suspend fun fillHikeElevation(hikeId: HikeId, samples: RouteHeightSamples): Result<Boolean> =
+        withContext(ioDispatcher) {
+            val failSave = launchConfigHolder.current.value.failsFirstSave &&
+                !hasConsumedFirstSaveFailure.getAndSet(true)
+            if (failSave) {
+                return@withContext Result.failure(IOException("Simulated elevation fill save failure"))
+            }
+            runCatching {
+                val persisted = database.withTransaction {
+                    val existing = hikeDao.getHikeById(hikeId.value) ?: return@withTransaction null
+                    if (existing.isRecording) return@withTransaction null
+                    val chunks = hikeDao.getRouteChunks(hikeId.value)
+                    val currentRoute = RouteBlobCodec.decodeChunksOrEmpty(
+                        chunks.sortedBy { it.chunkIndex }.map { it.chunkBlob }
+                    )
+                    if (!HikeElevationFill.needsHeights(currentRoute) || !samples.describes(currentRoute)) {
+                        return@withTransaction null
+                    }
+                    val filledRoute = samples.interpolating(currentRoute)
+                    if (HikeElevationFill.needsHeights(filledRoute)) return@withTransaction null
+                    val newChunks = RouteBlobCodec.encodeChunked(filledRoute).mapIndexed { index, blob ->
+                        HikeRouteChunkEntity(hikeId = existing.id, chunkIndex = index, chunkBlob = blob)
+                    }
+                    if (hikeDao.updateExistingHikeWithRoute(existing, newChunks)) {
+                        existing.distanceMeters to filledRoute
+                    } else {
+                        null
+                    }
+                }
+                if (persisted != null) {
+                    val (distanceMeters, filledRoute) = persisted
+                    val stats = withContext(defaultDispatcher) {
+                        HikeRouteStatistics.from(distanceMeters, filledRoute)
+                    }
+                    localStateRepairer.upsertElevationMetricsBestEffort(
+                        hikeId = hikeId.value,
+                        climbMeters = stats.elevationGainMeters,
+                        descentMeters = stats.elevationLossMeters,
+                        elevationRouteRevision = RouteElevationRevision.of(filledRoute)
+                    )
+                    true
+                } else {
+                    false
+                }
+            }
+        }
 
     override suspend fun loadRouteEditSources(hikeId: HikeId): RouteEditSources? =
         routeEditStore.loadRouteEditSources(hikeId)

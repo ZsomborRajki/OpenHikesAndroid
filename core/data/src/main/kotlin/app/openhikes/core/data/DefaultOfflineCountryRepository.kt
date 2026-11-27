@@ -141,6 +141,7 @@ internal class DefaultOfflineCountryRepository @Inject constructor(
 
     override suspend fun refreshCatalog() {
         ensurePrepared()
+        var loaded = false
         refreshMutex.withLock {
             if (stateFlow.value.holdings == OfflineHoldingsState.UNREADABLE) return
             stateFlow.update { it.copy(listPhase = OfflineListPhase.LOADING) }
@@ -157,11 +158,15 @@ internal class DefaultOfflineCountryRepository @Inject constructor(
                         offered = readable
                     )
                 }
+                loaded = true
             } catch (_: IOException) {
                 stateFlow.update { current -> current.copy(listPhase = OfflineListPhase.FAILED) }
             } catch (_: IllegalArgumentException) {
                 stateFlow.update { current -> current.copy(listPhase = OfflineListPhase.FAILED) }
             }
+        }
+        if (loaded) {
+            reconcileAfterStateChange()
         }
     }
 
@@ -315,11 +320,10 @@ internal class DefaultOfflineCountryRepository @Inject constructor(
                 val (updatedInstalled, updatedUnopenable) = reconciler.stripInstalledDetail(stateFlow.value)
                 stateFlow.update { it.copy(installed = updatedInstalled, unopenable = updatedUnopenable) }
             }
-        } else {
-            val missingDetailIds = reconciler.findInstalledMissingDetail(current)
-            for (id in missingDetailIds) {
-                downloadCountry(id)
-            }
+        }
+        val missingFileIds = reconciler.findInstalledMissingFiles(stateFlow.value)
+        for (id in missingFileIds) {
+            downloadCountry(id)
         }
     }
 

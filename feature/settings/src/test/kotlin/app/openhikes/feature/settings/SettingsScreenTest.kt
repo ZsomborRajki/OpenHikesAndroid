@@ -11,6 +11,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToKey
 import app.openhikes.core.designsystem.theme.OpenHikesTheme
 import app.openhikes.core.model.DistanceUnit
+import app.openhikes.core.model.ElevationCredit
 import app.openhikes.core.model.LegalLinks
 import app.openhikes.core.model.UserSettings
 import app.openhikes.core.ui.testing.OpenHikesTestTags
@@ -115,13 +116,16 @@ class SettingsScreenTest {
         composeRule.onNodeWithTag(OpenHikesTestTags.PRIVACY_POLICY_LINK).performScrollTo().performClick()
         composeRule.onNodeWithTag(OpenHikesTestTags.TERMS_LINK).performScrollTo().performClick()
         composeRule.onNodeWithTag(OpenHikesTestTags.PROJECT_GITHUB_LINK).performScrollTo().performClick()
+        composeRule.onNodeWithTag(OpenHikesTestTags.ELEVATION_CREDIT_LINK).performScrollTo().performClick()
+        composeRule.onNodeWithText(ElevationCredit.NOTICE).assertIsDisplayed()
         composeRule.onNodeWithTag(OpenHikesTestTags.APP_VERSION_ROW).performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithText("0.1.0 (1)").assertIsDisplayed()
 
         assertThat(openedUrls).containsExactly(
             LegalLinks.PRIVACY_POLICY_URL,
             LegalLinks.TERMS_URL,
-            LegalLinks.GITHUB_REPOSITORY_URL
+            LegalLinks.GITHUB_REPOSITORY_URL,
+            ElevationCredit.PRODUCT_PAGE_URL
         ).inOrder()
     }
 

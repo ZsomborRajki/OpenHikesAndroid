@@ -13,7 +13,8 @@ data class VectorTileArchiveManifest(
     val basemaps: List<BasemapArchive> = emptyList(),
     val extras: List<ExtrasArchive> = emptyList(),
     val routing: List<SquareArchive> = emptyList(),
-    val places: List<SquareArchive> = emptyList()
+    val places: List<SquareArchive> = emptyList(),
+    val elevation: List<SquareArchive> = emptyList()
 ) {
     /**
      * Resolves the newest compatible basemap and optional extras source on [serverBaseUrl],
@@ -26,6 +27,7 @@ data class VectorTileArchiveManifest(
             val drawnExtras = extras.firstOrNull { it.isDrawn }
             val activeRouting = routing.firstOrNull { it.isReadableRouting }
             val activePlaces = places.firstOrNull { it.isReadablePlaces }
+            val activeElevation = elevation.firstOrNull { it.isReadableElevation }
             VectorTileSource(
                 basemapArchiveName = chosen.name,
                 basemapUrl = "$normalizedBase/${chosen.name}",
@@ -46,6 +48,13 @@ data class VectorTileArchiveManifest(
                 },
                 places = activePlaces?.let { item ->
                     PlacesArchiveSource(
+                        archiveName = item.name,
+                        archiveUrl = "$normalizedBase/${item.name}",
+                        zoom = item.zoom
+                    )
+                },
+                elevation = activeElevation?.let { item ->
+                    ElevationArchiveSource(
                         archiveName = item.name,
                         archiveUrl = "$normalizedBase/${item.name}",
                         zoom = item.zoom
@@ -84,6 +93,12 @@ data class VectorTileArchiveManifest(
                 zoom == PlaceSquareGrid.ARCHIVE_ZOOM &&
                 isArchiveName(name) &&
                 name.startsWith(PLACES_ARCHIVE_PREFIX)
+
+        val isReadableElevation: Boolean
+            get() = generation == ElevationSquareGrid.GENERATION &&
+                zoom == ElevationSquareGrid.ARCHIVE_ZOOM &&
+                isArchiveName(name) &&
+                name.startsWith(ELEVATION_ARCHIVE_PREFIX)
     }
 
     companion object {
@@ -92,6 +107,7 @@ data class VectorTileArchiveManifest(
         const val READABLE_EXTRAS_GENERATION = OfflineCountryManifest.READABLE_EXTRAS_GENERATION
         private const val ROUTING_ARCHIVE_PREFIX = "routing-"
         private const val PLACES_ARCHIVE_PREFIX = "places-"
+        private const val ELEVATION_ARCHIVE_PREFIX = "elevation-"
         private const val MAX_ARCHIVE_NAME_LENGTH = 64
         private val VALID_ZOOM_RANGE = 0..30
 
@@ -119,7 +135,8 @@ data class VectorTileSource(
     val maximumZoom: Int,
     val extras: ExtrasTileSource? = null,
     val routing: RoutingArchiveSource? = null,
-    val places: PlacesArchiveSource? = null
+    val places: PlacesArchiveSource? = null,
+    val elevation: ElevationArchiveSource? = null
 ) {
     /**
      * Returns the source tile coordinate clamped to [maximumZoom] so deeper map zooms overzoom cleanly.
@@ -162,4 +179,12 @@ data class RoutingArchiveSource(val archiveName: String, val archiveUrl: String,
 @Serializable
 data class PlacesArchiveSource(val archiveName: String, val archiveUrl: String, val zoom: Int) {
     fun squareTileUrl(square: PlaceSquare): String = "$archiveUrl/$zoom/${square.column}/${square.row}.bin"
+}
+
+/**
+ * Resolved pre-built Copernicus DEM elevation archive endpoint paired with a [VectorTileSource].
+ */
+@Serializable
+data class ElevationArchiveSource(val archiveName: String, val archiveUrl: String, val zoom: Int) {
+    fun squareTileUrl(square: ElevationSquare): String = "$archiveUrl/$zoom/${square.column}/${square.row}.bin"
 }

@@ -4,6 +4,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.tooling.preview.Preview
 import app.openhikes.core.designsystem.theme.OpenHikesTheme
+import app.openhikes.core.model.RouteColoring
+import app.openhikes.core.model.RouteElevationSummary
 import app.openhikes.core.model.TrailLegOutage
 import app.openhikes.core.model.TrailLegSnap
 import app.openhikes.core.model.TrailStopRole
@@ -178,6 +180,62 @@ fun TrailMakerLargeFontPreview() {
             isEmpty = false,
             canSnapToPaths = true,
             snapsToPaths = true
+        )
+    )
+}
+
+@PreviewTest
+@Preview(name = "Trail Maker Light Measured Elevation", showBackground = true, widthDp = 411, heightDp = 820)
+@Composable
+fun TrailMakerLightMeasuredElevationPreview() {
+    TrailMakerPreviewHost(
+        darkTheme = false,
+        uiState = TrailMakerUiState(
+            travelMode = TrailTravelMode.HIKING,
+            rows = filledPreviewRows(),
+            distanceMeters = 5_420.0,
+            travelTimeSeconds = 5_880.0,
+            elevationSummary = RouteElevationSummary(
+                gainMeters = 412.0,
+                lossMeters = 185.0,
+                highMeters = 1_120.0,
+                lowMeters = 708.0
+            ),
+            canBeSaved = true,
+            isEmpty = false,
+            canSnapToPaths = true,
+            snapsToPaths = true,
+            routeColoring = RouteColoring.ELEVATION,
+            showsColoringSection = true,
+            isElevationColoringAvailable = true
+        )
+    )
+}
+
+@PreviewTest
+@Preview(name = "Trail Maker Dark Measured Elevation", showBackground = true, widthDp = 411, heightDp = 820)
+@Composable
+fun TrailMakerDarkMeasuredElevationPreview() {
+    TrailMakerPreviewHost(
+        darkTheme = true,
+        uiState = TrailMakerUiState(
+            travelMode = TrailTravelMode.HIKING,
+            rows = filledPreviewRows(),
+            distanceMeters = 5_420.0,
+            travelTimeSeconds = 5_880.0,
+            elevationSummary = RouteElevationSummary(
+                gainMeters = 412.0,
+                lossMeters = 185.0,
+                highMeters = 1_120.0,
+                lowMeters = 708.0
+            ),
+            canBeSaved = true,
+            isEmpty = false,
+            canSnapToPaths = true,
+            snapsToPaths = true,
+            routeColoring = RouteColoring.ELEVATION,
+            showsColoringSection = true,
+            isElevationColoringAvailable = true
         )
     )
 }

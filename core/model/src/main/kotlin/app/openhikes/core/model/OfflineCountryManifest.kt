@@ -197,8 +197,12 @@ data class OfflineCountryFile(
             if (parts.size < 2) return false
             val build = parts.removeAt(parts.lastIndex)
             if (build.length != BUILD_DATE_LENGTH || !build.all { it in '0'..'9' }) return false
-            if (parts.lastOrNull() == ROLE_EXTRAS_SEGMENT) parts.removeAt(parts.lastIndex)
-            if (parts.lastOrNull() == ROLE_DETAIL_SEGMENT) parts.removeAt(parts.lastIndex)
+            if (parts.lastOrNull() == ROLE_TRAILS_SEGMENT || parts.lastOrNull() == ROLE_ELEVATION_SEGMENT) {
+                parts.removeAt(parts.lastIndex)
+            } else {
+                if (parts.lastOrNull() == ROLE_EXTRAS_SEGMENT) parts.removeAt(parts.lastIndex)
+                if (parts.lastOrNull() == ROLE_DETAIL_SEGMENT) parts.removeAt(parts.lastIndex)
+            }
             return OfflineCountryManifest.isAreaCode(parts.joinToString("-"))
         }
 
@@ -207,6 +211,8 @@ data class OfflineCountryFile(
         private const val BUILD_DATE_LENGTH = 8
         private const val ROLE_EXTRAS_SEGMENT = "extras"
         private const val ROLE_DETAIL_SEGMENT = "detail"
+        private const val ROLE_TRAILS_SEGMENT = "trails"
+        private const val ROLE_ELEVATION_SEGMENT = "elevation"
     }
 }
 
@@ -225,7 +231,10 @@ enum class OfflineFileRole(val wireName: String) {
     DETAIL("detail"),
 
     @SerialName("detail-extras")
-    DETAIL_EXTRAS("detail-extras");
+    DETAIL_EXTRAS("detail-extras"),
+
+    @SerialName("elevation")
+    ELEVATION("elevation");
 
     val isDetail: Boolean
         get() = this == DETAIL || this == DETAIL_EXTRAS

@@ -47,6 +47,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openhikes.core.designsystem.icon.OpenHikesIcons
 import app.openhikes.core.model.DistanceUnit
+import app.openhikes.core.model.ElevationCredit
 import app.openhikes.core.model.LegalLinks
 import app.openhikes.core.model.UserSettings
 import app.openhikes.core.ui.format.StorageSizeFormatter
@@ -450,6 +451,13 @@ private fun SettingsAboutSection(appVersion: String, onOpenUrl: (String) -> Unit
         )
         SectionDivider()
         SettingsLinkRow(
+            title = stringResource(R.string.settings_elevation_data),
+            summary = ElevationCredit.NOTICE,
+            onClick = { onOpenUrl(ElevationCredit.PRODUCT_PAGE_URL) },
+            testTag = OpenHikesTestTags.ELEVATION_CREDIT_LINK
+        )
+        SectionDivider()
+        SettingsLinkRow(
             title = stringResource(R.string.settings_github),
             onClick = { onOpenUrl(LegalLinks.GITHUB_REPOSITORY_URL) },
             testTag = OpenHikesTestTags.PROJECT_GITHUB_LINK
@@ -534,27 +542,36 @@ private fun SettingsSwitchRow(
 }
 
 @Composable
-private fun SettingsLinkRow(title: String, onClick: () -> Unit, testTag: String) {
+private fun SettingsLinkRow(title: String, onClick: () -> Unit, testTag: String, summary: String? = null) {
     val openDescription = stringResource(R.string.settings_open_external_link)
+    val spoken = if (summary != null) "$title. $summary, $openDescription" else "$title, $openDescription"
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = LinkMinHeight)
             .clickable(onClickLabel = openDescription, role = Role.Button, onClick = onClick)
             .semantics(mergeDescendants = true) {
-                contentDescription = "$title, $openDescription"
+                contentDescription = spoken
             }
             .padding(horizontal = RowHorizontalPadding, vertical = RowVerticalPadding)
             .testTag(testTag),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.weight(1f)
-        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+            if (summary != null) {
+                Text(
+                    text = summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
         Icon(
             painter = painterResource(OpenHikesIcons.OpenInNew),
             contentDescription = null,

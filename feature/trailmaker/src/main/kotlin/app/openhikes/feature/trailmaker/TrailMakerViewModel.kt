@@ -22,6 +22,7 @@ import app.openhikes.core.model.GeoBoundingBox
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.RouteColoring
+import app.openhikes.core.model.RouteElevationSource
 import app.openhikes.core.model.StoredTrailDraft
 import app.openhikes.core.model.TrailDraftDroppedPin
 import app.openhikes.core.model.TrailDraftEngine
@@ -49,7 +50,7 @@ import kotlinx.coroutines.launch
  * Scoped ViewModel for [TrailMakerRoute] owning draft restoration & persistence, sequential leg
  * routing, reverse stop naming, stop search, place card state, map overlay publication, and save.
  */
-@Suppress("LongParameterList", "TooManyFunctions")
+@Suppress("LongParameterList", "TooManyFunctions", "LargeClass")
 @HiltViewModel
 class TrailMakerViewModel @Inject constructor(
     private val trailDraftRepository: TrailDraftRepository,
@@ -57,6 +58,7 @@ class TrailMakerViewModel @Inject constructor(
     private val userSettingsRepository: UserSettingsRepository,
     private val trailLegRouter: TrailLegRouter,
     trailGraphProvider: TrailGraphProvider,
+    private val routeElevationSource: RouteElevationSource,
     private val stopPlaceSearchSource: StopPlaceSearchSource,
     private val locationFeed: LocationFeed,
     private val clock: OpenHikesClock,
@@ -115,6 +117,21 @@ class TrailMakerViewModel @Inject constructor(
         onStretchesUpdated = {
             publishOverlay()
             publishUiState()
+        }
+    )
+
+    private val elevationController = TrailDraftElevationController(
+        scope = viewModelScope,
+        engine = engine,
+        elevationSource = routeElevationSource,
+        defaultDispatcher = defaultDispatcher,
+        canMutateDraft = { canMutateDraft },
+        onStateChanged = {
+            publishOverlay()
+            publishUiState()
+        },
+        onHeightsLanded = { measured ->
+            shadingController.onHeightsLanded(measured)
         }
     )
 
@@ -301,7 +318,8 @@ class TrailMakerViewModel @Inject constructor(
         }
         val titleInput = nameDraft
         val distanceMeters = engine.distanceMeters
-        val route = engine.routeCoordinates
+        val rawRoute = engine.routeCoordinates
+        val route = elevationController.samples?.interpolating(rawRoute) ?: rawRoute
         prepareForSave()
         viewModelScope.launch {
             val result = hikeRepository.saveDrawnTrail(
@@ -648,6 +666,7 @@ class TrailMakerViewModel @Inject constructor(
         cancelRouting()
         cancelNaming()
         shadingController.reset()
+        elevationController.reset()
         cancelMyLocationLookup()
         droppedPin = null
         selection = null
@@ -699,6 +718,7 @@ class TrailMakerViewModel @Inject constructor(
 
     private fun publishAll() {
         shadingController.refresh()
+        elevationController.refresh()
         publishOverlay()
         publishUiState()
     }
@@ -708,7 +728,11 @@ class TrailMakerViewModel @Inject constructor(
             TrailMakerOverlayBuilder.build(
                 engine = engine,
                 droppedPin = droppedPin,
-                shadedStretches = shadingController.activeStretches(routeColoring)
+                shadedStretches = shadingController.activeStretches(
+                    routeColoring = routeColoring,
+                    elevationAvailable = routeElevationSource.isAvailable
+                ),
+                climb = elevationController.summary?.toRouteClimb()
             )
         )
     }
@@ -719,7 +743,10 @@ class TrailMakerViewModel @Inject constructor(
                 engine = engine,
                 distanceUnit = distanceUnit,
                 routeColoring = routeColoring,
-                hasOfferedDifficultyShading = shadingController.hasOffered,
+                hasOfferedShading = shadingController.hasOffered,
+                isElevationAvailable = routeElevationSource.isAvailable,
+                elevationSummary = elevationController.summary,
+                isMeasuringElevation = elevationController.isMeasuring,
                 canSnapToPaths = trailLegRouter.supportsMode(engine.travelMode),
                 isRestoring = isRestoring,
                 isSaving = isSaving,
@@ -738,6 +765,7 @@ class TrailMakerViewModel @Inject constructor(
 
     private fun cancelShading() {
         shadingController.cancel()
+        elevationController.cancel()
     }
 
     private companion object {

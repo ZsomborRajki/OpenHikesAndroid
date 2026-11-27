@@ -15,15 +15,19 @@ import app.openhikes.core.map.PhotoCaptureController
 import app.openhikes.core.map.RouteHighlightState
 import app.openhikes.core.map.TrailPhotosOverlayState
 import app.openhikes.core.map.TrailPlacesOverlayState
+import app.openhikes.core.model.ElevationFailure
+import app.openhikes.core.model.ElevationFetchResult
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.MapProviderKeys
 import app.openhikes.core.model.MapStyleId
 import app.openhikes.core.model.RouteCoordinate
+import app.openhikes.core.model.RouteElevationSource
 import app.openhikes.core.model.TrailGraphProvider
 import app.openhikes.core.model.TrailPointSource
 import app.openhikes.core.model.TrailWalkPhase
 import app.openhikes.core.model.UserSettings
+import app.openhikes.core.testing.FakeRouteElevationSource
 import app.openhikes.core.testing.FakeTrailGraphProvider
 import app.openhikes.core.testing.FakeTrailPointSource
 import app.openhikes.core.testing.MainDispatcherRule
@@ -35,6 +39,7 @@ import app.openhikes.core.testing.android.FakeTrailWalkController
 import app.openhikes.core.testing.android.FakeUserSettingsRepository
 import com.google.common.truth.Truth.assertThat
 import java.io.IOException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -370,6 +375,83 @@ class HikeDetailViewModelTest {
         }
     }
 
+    @Test
+    fun fillsFlatHikeElevationOnceShowsReadingStateAndLeavesMeasuredHikesUntouched() = runTest {
+        val flatHike = sampleFlatDetailHike()
+        val repo = FakeHikeRepository(listOf(flatHike))
+        val gate = CompletableDeferred<Unit>()
+        val elevationSource = FakeRouteElevationSource(cannedHeights = listOf(510.0, 590.0)).apply {
+            this.gate = gate
+        }
+        val viewModel = createViewModel(hike = flatHike, repo = repo, routeElevationSource = elevationSource)
+
+        viewModel.uiState.test {
+            advanceUntilIdle()
+            val reading = expectMostRecentItem()
+            assertThat(reading.isReadingElevation).isTrue()
+            assertThat(reading.profile?.samples.orEmpty()).isEmpty()
+            assertThat(elevationSource.requestCount).isEqualTo(1)
+
+            gate.complete(Unit)
+            advanceUntilIdle()
+            val filled = expectMostRecentItem()
+            assertThat(filled.isReadingElevation).isFalse()
+            assertThat(filled.profile?.samples).hasSize(2)
+            assertThat(filled.statistics?.elevationGainMeters).isWithin(1e-6).of(80.0)
+
+            // Renaming an already-filled hike does not request elevation again.
+            repo.renameHike(flatHike.id, "Renamed Flat")
+            advanceUntilIdle()
+            assertThat(elevationSource.requestCount).isEqualTo(1)
+            cancelAndIgnoreRemainingEvents()
+        }
+
+        // Measured hike never asks the elevation source.
+        val measuredSource = FakeRouteElevationSource(cannedHeights = listOf(900.0, 950.0))
+        val measuredVm = createViewModel(hike = sampleDetailHike(), routeElevationSource = measuredSource)
+        measuredVm.uiState.test {
+            advanceUntilIdle()
+            assertThat(expectMostRecentItem().statistics?.elevationGainMeters).isWithin(1e-6).of(30.0)
+            assertThat(measuredSource.requestCount).isEqualTo(0)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun handlesRefusedAndWithheldElevationGracefullyWithoutRetryingSameRevision() = runTest {
+        val flatHike = sampleFlatDetailHike()
+        val repo = FakeHikeRepository(listOf(flatHike))
+        val refusedSource = FakeRouteElevationSource(failure = ElevationFailure.UNREACHABLE)
+        val viewModel = createViewModel(hike = flatHike, repo = repo, routeElevationSource = refusedSource)
+
+        viewModel.uiState.test {
+            advanceUntilIdle()
+            val afterRefusal = expectMostRecentItem()
+            assertThat(afterRefusal.isReadingElevation).isFalse()
+            assertThat(afterRefusal.profile?.samples.orEmpty()).isEmpty()
+            assertThat(refusedSource.requestCount).isEqualTo(1)
+
+            // Unrelated rename does not retry the failed elevation lookup on the same route revision.
+            repo.renameHike(flatHike.id, "Still Flat")
+            advanceUntilIdle()
+            assertThat(refusedSource.requestCount).isEqualTo(1)
+            cancelAndIgnoreRemainingEvents()
+        }
+
+        val withheldSource = FakeRouteElevationSource(
+            handler = { coords -> ElevationFetchResult.Heights(List(coords.size) { Double.NaN }) }
+        )
+        val withheldVm = createViewModel(hike = flatHike, routeElevationSource = withheldSource)
+        withheldVm.uiState.test {
+            advanceUntilIdle()
+            val state = expectMostRecentItem()
+            assertThat(state.isReadingElevation).isFalse()
+            assertThat(state.profile?.samples.orEmpty()).isEmpty()
+            assertThat(withheldSource.requestCount).isEqualTo(1)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
     private fun createViewModel(
         hike: Hike,
         repo: FakeHikeRepository = FakeHikeRepository(listOf(hike)),
@@ -383,6 +465,7 @@ class HikeDetailViewModelTest {
         photoCaptureController: PhotoCaptureController = PhotoCaptureController(),
         trailPointSource: TrailPointSource = FakeTrailPointSource(),
         trailGraphProvider: TrailGraphProvider = FakeTrailGraphProvider(isAvailable = false),
+        routeElevationSource: RouteElevationSource = FakeRouteElevationSource(isAvailable = false),
         launchConfigHolder: LaunchConfigHolder = LaunchConfigHolder(LaunchConfig(enableSimulatedLocation = true))
     ): HikeDetailViewModel = HikeDetailViewModel(
         rawHikeId = hike.id.value,
@@ -398,9 +481,21 @@ class HikeDetailViewModelTest {
         photoCaptureController = photoCaptureController,
         trailPointSource = trailPointSource,
         trailGraphProvider = trailGraphProvider,
+        routeElevationSource = routeElevationSource,
         mapProviderKeys = mapProviderKeys,
         launchConfigHolder = launchConfigHolder,
         defaultDispatcher = mainDispatcherRule.testDispatcher
+    )
+
+    private fun sampleFlatDetailHike(): Hike = Hike(
+        id = HikeId("flat-1"),
+        title = "Drawn Flat Trail",
+        distanceMeters = 1500.0,
+        dateEpochMillis = 20_000L,
+        route = listOf(
+            RouteCoordinate(47.7180, 12.8300),
+            RouteCoordinate(47.7200, 12.8320)
+        )
     )
 
     private fun followMarkerProgress(hikeId: HikeId, distanceMeters: Double): TrailWalkProgressState =

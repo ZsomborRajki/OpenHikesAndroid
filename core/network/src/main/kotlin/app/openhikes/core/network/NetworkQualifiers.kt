@@ -41,3 +41,7 @@ annotation class OverpassPlacesDir
 @Qualifier
 @Retention(AnnotationRetention.BINARY)
 annotation class OverpassEndpointUrl
+
+@Qualifier
+@Retention(AnnotationRetention.BINARY)
+annotation class ElevationSquaresDir

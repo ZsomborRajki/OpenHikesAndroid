@@ -330,3 +330,38 @@ GitHub issues once created.)*
       `MapShellViewModel` off-main steepness / difficulty route shading across
       `:feature:hikes`, `:feature:trailmaker`, and `:app`, verified with Tier
       1/2, Robolectric journey, and Compose screenshot tests.
+14. **Phase 13 — Elevation Enrichment (Copernicus WorldDEM-30) (Slice 13):**
+    - Pure-JVM Copernicus DEM grid & route-fill domain (`ElevationSquare`,
+      `ElevationPost`, `ElevationPostPlace`, `ElevationCredit`,
+      `ElevationSquareGrid` covering all six latitude bands, antimeridian wrap,
+      and bilinear interpolation; `RouteElevationRequest` pause-end-pinning
+      sampling; `RouteHeightSamples` distance-weighted, pause-safe
+      interpolation; `ElevationFailure`, `ElevationFetchResult`,
+      `RouteElevationSource`, `HikeElevationFill`, `ElevationArchiveSource`,
+      and `OfflineFileRole.ELEVATION`) across `:core:model`, `OHEL` v1 binary
+      `ElevationSquareFile` codec and `LaunchConfig.elevationScenarioName` in
+      `:core:common`, and `FakeRouteElevationSource` in `:core:testing`.
+    - `VectorTileArchiveManifest.json` elevation archive entry and
+      `HttpElevationSquareDataSource` (`noBackupFilesDir/elevation_squares`
+      256-file 30-day LRU cache, dimension validation, HTTP `200`/`204`
+      sea-level/`410` single-retry/`429` cooldown, bounded concurrency, and
+      in-flight coalescing) in `:core:network`.
+    - `DownloadedElevationSquares` served from `OfflineCountryArchives` (newest
+      build wins on overlap) with same-build catalog top-up in
+      `OfflineCountryReconciler` / `DefaultOfflineCountryRepository`,
+      offline-first `ElevationSquareLibrary` (64-square cap),
+      `LaunchAwareRouteElevationSource` (`ui_test_elevation=seeded|refused|withheld`),
+      and atomic cascade-safe `HikeRepository.fillHikeElevation` updating
+      portable route chunks and `hike_local_state` climb/descent caches in
+      `:core:data`.
+    - Material 3 Expressive `ElevationPlaceholderCard` in `:core:ui`; Hike
+      Detail automatic one-time DEM enrichment & reading/empty placeholder;
+      `MapShellViewModel` `RouteElevationRevision`-keyed steepness re-shading;
+      Trail Maker 2 s debounced `TrailDraftElevationController`, live
+      climb/descent header figures (`TrailMakerRouteHeader`), climb-adjusted
+      travel times & alternative time bubbles, steepness shading masking
+      degraded legs, unlocked `Elevation` coloring option, and saving drawn
+      trails with interpolated heights; and verbatim Copernicus WorldDEM-30
+      attribution in Settings About across `:feature:hikes`,
+      `:feature:trailmaker`, `:feature:settings`, and `:app`, verified with
+      Tier 1/2, Robolectric journey, and Compose screenshot tests.

@@ -17,10 +17,12 @@ import app.openhikes.core.data.BundledGpxFixtureSource
 import app.openhikes.core.data.BundledTrailGraphFixtureSource
 import app.openhikes.core.data.DefaultOfflineCountryRepository
 import app.openhikes.core.data.DiskHikePhotoStore
+import app.openhikes.core.data.DownloadedElevationSquares
 import app.openhikes.core.data.GpxFileSink
 import app.openhikes.core.data.GpxFileSource
 import app.openhikes.core.data.HikePhotoStore
 import app.openhikes.core.data.HikeRepository
+import app.openhikes.core.data.LaunchAwareRouteElevationSource
 import app.openhikes.core.data.MediaStorePhotoLibraryMirror
 import app.openhikes.core.data.OfflineCountryArchives
 import app.openhikes.core.data.OfflineCountryDownloadScheduler
@@ -38,6 +40,7 @@ import app.openhikes.core.data.TrailDraftRepository
 import app.openhikes.core.data.TrailGraphRouteStretchRouter
 import app.openhikes.core.data.UserSettingsRepository
 import app.openhikes.core.data.WorkManagerOfflineCountryDownloadScheduler
+import app.openhikes.core.model.RouteElevationSource
 import app.openhikes.core.model.RouteStretchRouter
 import app.openhikes.core.model.TrailGraphProvider
 import app.openhikes.core.model.TrailLegRouter
@@ -57,6 +60,7 @@ import kotlinx.coroutines.CoroutineDispatcher
  */
 @Module
 @InstallIn(SingletonComponent::class)
+@Suppress("TooManyFunctions")
 abstract class DataModule {
     @Binds
     @Singleton
@@ -85,6 +89,14 @@ abstract class DataModule {
     @Binds
     @Singleton
     internal abstract fun bindOfflineTileArchiveSource(impl: OfflineCountryArchives): OfflineTileArchiveSource
+
+    @Binds
+    @Singleton
+    internal abstract fun bindDownloadedElevationSquares(impl: OfflineCountryArchives): DownloadedElevationSquares
+
+    @Binds
+    @Singleton
+    internal abstract fun bindRouteElevationSource(impl: LaunchAwareRouteElevationSource): RouteElevationSource
 
     @Binds
     @Singleton

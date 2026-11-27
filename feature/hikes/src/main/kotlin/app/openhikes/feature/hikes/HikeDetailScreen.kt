@@ -42,6 +42,7 @@ import app.openhikes.core.location.TrailWalkProgressState
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikePhoto
+import app.openhikes.core.ui.components.ElevationPlaceholderCard
 import app.openhikes.core.ui.components.ElevationProfileChart
 import app.openhikes.core.ui.components.HikeSegmentList
 import app.openhikes.core.ui.components.TrailDifficultySection
@@ -437,20 +438,7 @@ private fun LazyListScope.addWalkStatusItem(uiState: HikeDetailUiState, callback
 
 private fun LazyListScope.addDetailTabItems(uiState: HikeDetailUiState, callbacks: DetailListCallbacks) {
     val hike = uiState.hike ?: return
-    val profile = uiState.profile
-    val statistics = uiState.statistics
-
-    if (profile != null && profile.samples.size > 1) {
-        item(key = "elevation") {
-            ElevationProfileChart(
-                profile = profile,
-                distanceUnit = uiState.distanceUnit,
-                tintHex = hike.tintHex,
-                scrubDistanceProvider = callbacks.scrubDistanceProvider,
-                onScrubDistance = callbacks.onScrubDistance
-            )
-        }
-    }
+    addElevationItem(uiState = uiState, callbacks = callbacks)
     item(key = "actions") {
         HikeDetailActionsRow(
             onZoomToRoute = callbacks.onZoomToRoute,
@@ -470,7 +458,7 @@ private fun LazyListScope.addDetailTabItems(uiState: HikeDetailUiState, callback
     item(key = "headline_stats") {
         HikeHeadlineStatsStrip(
             hike = hike,
-            statistics = statistics,
+            statistics = uiState.statistics,
             distanceUnit = uiState.distanceUnit
         )
     }
@@ -491,6 +479,29 @@ private fun LazyListScope.addDetailTabItems(uiState: HikeDetailUiState, callback
         onRequestDelete = callbacks.onRequestDelete,
         onPlaceAction = callbacks.onPlaceAction
     )
+}
+
+private fun LazyListScope.addElevationItem(uiState: HikeDetailUiState, callbacks: DetailListCallbacks) {
+    val hike = uiState.hike ?: return
+    val profile = uiState.profile
+    if (profile != null && profile.samples.size > 1) {
+        item(key = "elevation") {
+            ElevationProfileChart(
+                profile = profile,
+                distanceUnit = uiState.distanceUnit,
+                tintHex = hike.tintHex,
+                scrubDistanceProvider = callbacks.scrubDistanceProvider,
+                onScrubDistance = callbacks.onScrubDistance
+            )
+        }
+    } else if (hike.route.size > 1) {
+        item(key = "elevation") {
+            ElevationPlaceholderCard(
+                tintHex = hike.tintHex,
+                isReading = uiState.isReadingElevation
+            )
+        }
+    }
 }
 
 private fun LazyListScope.addHistoryTabItems(uiState: HikeDetailUiState, onOpenWalkSummary: (String) -> Unit) {

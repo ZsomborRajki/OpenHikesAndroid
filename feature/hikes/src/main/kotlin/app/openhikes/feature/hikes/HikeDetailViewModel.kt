@@ -34,6 +34,7 @@ import app.openhikes.core.model.ExportedGpx
 import app.openhikes.core.model.GeoBoundingBox
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.Hike
+import app.openhikes.core.model.HikeElevationFill
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikePhoto
 import app.openhikes.core.model.HikePhotoSearchPlan
@@ -52,6 +53,8 @@ import app.openhikes.core.model.OrderedHikePhotos
 import app.openhikes.core.model.PhotoMapPin
 import app.openhikes.core.model.PhotoTrailAnchor
 import app.openhikes.core.model.RouteCoordinate
+import app.openhikes.core.model.RouteElevationRevision
+import app.openhikes.core.model.RouteElevationSource
 import app.openhikes.core.model.RouteProfile
 import app.openhikes.core.model.RouteSegment
 import app.openhikes.core.model.RouteSegments
@@ -63,6 +66,7 @@ import app.openhikes.core.model.TrailPointSource
 import app.openhikes.core.model.TrailWalkPhase
 import app.openhikes.core.model.TrailWalkRecord
 import app.openhikes.core.model.UserSettings
+import app.openhikes.core.model.samplesOf
 import app.openhikes.core.ui.components.PhotoPresentationFormatter
 import app.openhikes.core.ui.navigation.HikeDetailRoute
 import dagger.assisted.Assisted
@@ -113,6 +117,7 @@ class HikeDetailViewModel @AssistedInject constructor(
     private val photoCaptureController: PhotoCaptureController,
     trailPointSource: TrailPointSource,
     private val trailGraphProvider: TrailGraphProvider,
+    private val routeElevationSource: RouteElevationSource,
     mapProviderKeys: MapProviderKeys,
     private val launchConfigHolder: LaunchConfigHolder,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
@@ -143,7 +148,11 @@ class HikeDetailViewModel @AssistedInject constructor(
     private val pendingOpenPlaceIdState = MutableStateFlow<String?>(null)
     private val pendingAddPlaceCoordinateState = MutableStateFlow<GeoCoordinate?>(null)
     private val pendingOpenPhotoIdState = MutableStateFlow<String?>(null)
+    private val isReadingElevationState = MutableStateFlow(false)
     private var pendingPermissionAction: PendingWalkPermissionAction? = null
+
+    @Volatile
+    private var activeElevationRequestToken: Long = 0L
 
     @Volatile
     private var latestProfile: RouteProfile? = null
@@ -191,17 +200,21 @@ class HikeDetailViewModel @AssistedInject constructor(
         combine(
             pendingExportState,
             pendingArchiveFileNameState,
-            exportSuccessState
-        ) { pending, archiveFileName, success -> Triple(pending, archiveFileName, success) }
-    ) { isRenaming, draft, showDelete, error, exportTriple ->
+            exportSuccessState,
+            isReadingElevationState
+        ) { pending, archiveFileName, success, readingElevation ->
+            ExportAndElevationTransient(pending, archiveFileName, success, readingElevation)
+        }
+    ) { isRenaming, draft, showDelete, error, exportTransient ->
         TransientDetailState(
             isRenaming = isRenaming,
             titleDraft = draft,
             showDeleteDialog = showDelete,
             actionError = error,
-            pendingExport = exportTriple.first,
-            pendingArchiveFileName = exportTriple.second,
-            exportSuccess = exportTriple.third
+            pendingExport = exportTransient.pendingExport,
+            pendingArchiveFileName = exportTransient.pendingArchiveFileName,
+            exportSuccess = exportTransient.exportSuccess,
+            isReadingElevation = exportTransient.isReadingElevation
         )
     }
 
@@ -351,7 +364,8 @@ class HikeDetailViewModel @AssistedInject constructor(
             pendingOpenPlaceId = bundle.placesBundle.pendingOpenPlaceId,
             pendingAddPlaceCoordinate = bundle.placesBundle.pendingAddPlaceCoordinate,
             surfaceBreakdown = hike?.surfaceBreakdown,
-            difficultyBreakdown = hike?.difficultyBreakdown
+            difficultyBreakdown = hike?.difficultyBreakdown,
+            isReadingElevation = transient.isReadingElevation
         )
     }.stateIn(
         scope = viewModelScope,
@@ -379,6 +393,7 @@ class HikeDetailViewModel @AssistedInject constructor(
         )
         observePhotoPins()
         observeTrailBreakdowns()
+        observeElevationFill()
         viewModelScope.launch {
             val snapshot = offlineCountryRepository.state.value
             if (snapshot.listPhase == OfflineListPhase.IDLE && snapshot.listedCountries.isEmpty()) {
@@ -545,6 +560,50 @@ class HikeDetailViewModel @AssistedInject constructor(
                             expectedRouteRevision = observation.revision,
                             breakdowns = breakdowns
                         )
+                    }
+                }
+        }
+    }
+
+    private data class ElevationFillObservation(
+        val lineRevision: String,
+        val canFill: Boolean,
+        val route: List<RouteCoordinate>
+    )
+
+    private fun observeElevationFill() {
+        viewModelScope.launch {
+            hikeRepository.observeHike(hikeId)
+                .map { hike ->
+                    hike?.let {
+                        ElevationFillObservation(
+                            lineRevision = RouteElevationRevision.of(it.route),
+                            canFill = HikeElevationFill.canFill(it),
+                            route = it.route
+                        )
+                    }
+                }
+                .distinctUntilChanged { old, new ->
+                    old?.lineRevision == new?.lineRevision && old?.canFill == new?.canFill
+                }
+                .collectLatest { observation ->
+                    val token = ++activeElevationRequestToken
+                    if (observation == null || !observation.canFill || !routeElevationSource.isAvailable) {
+                        isReadingElevationState.value = false
+                        return@collectLatest
+                    }
+                    isReadingElevationState.value = true
+                    try {
+                        val samples = withContext(defaultDispatcher) {
+                            routeElevationSource.samplesOf(observation.route)
+                        }
+                        if (samples != null) {
+                            hikeRepository.fillHikeElevation(hikeId = hikeId, samples = samples)
+                        }
+                    } finally {
+                        if (activeElevationRequestToken == token) {
+                            isReadingElevationState.value = false
+                        }
                     }
                 }
         }
@@ -846,6 +905,13 @@ class HikeDetailViewModel @AssistedInject constructor(
         val segments: List<RouteSegment>
     )
 
+    private data class ExportAndElevationTransient(
+        val pendingExport: ExportedGpx?,
+        val pendingArchiveFileName: String?,
+        val exportSuccess: Boolean,
+        val isReadingElevation: Boolean
+    )
+
     private data class TransientDetailState(
         val isRenaming: Boolean,
         val titleDraft: String,
@@ -853,7 +919,8 @@ class HikeDetailViewModel @AssistedInject constructor(
         val actionError: HikeDetailError?,
         val pendingExport: ExportedGpx?,
         val pendingArchiveFileName: String?,
-        val exportSuccess: Boolean
+        val exportSuccess: Boolean,
+        val isReadingElevation: Boolean
     )
 
     private data class PhotosSectionBundle(

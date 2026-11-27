@@ -170,17 +170,18 @@ data class OfflineCountriesState(
     }
 
     fun filesToFetch(country: OfflineCountry): List<OfflineCountryFile> {
+        val wanted = country.files(withDetail = includesDetail)
         val current = installed[country.id]
-        val needsDetailTopUp = includesDetail && current != null && current.needsDetailFor(country)
-        return if (needsDetailTopUp) {
-            country.files.filter { it.role.isDetail }
+        if (current == null || current.country.build != country.build) return wanted
+        val broken = unopenable[country.id].orEmpty()
+        val heldNames = current.files.filterNot { it.role in broken }.map { it.fileName }.toSet()
+        val owed = wanted.filter { it.fileName !in heldNames }
+        return if (!current.hasDetail && owed.any { !it.role.isDetail }) {
+            owed.filter { !it.role.isDetail }
         } else {
-            country.files(withDetail = includesDetail)
+            owed
         }
     }
-
-    private fun InstalledCountryRecord.needsDetailFor(candidate: OfflineCountry): Boolean =
-        country.build == candidate.build && !hasDetail
 
     fun listedByteCount(country: OfflineCountry): Long {
         val current = installed[country.id]
