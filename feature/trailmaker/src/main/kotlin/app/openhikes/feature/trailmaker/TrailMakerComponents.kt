@@ -5,8 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
@@ -62,7 +60,6 @@ private val RailSpacing = 12.dp
 private val RowMinHeight = 52.dp
 private val TouchTarget = 48.dp
 private val SmallIconSize = 18.dp
-private val FigureSpacing = 10.dp
 private val DotRadiusDp = 5.5.dp
 private val StemStrokeDp = 2.dp
 private val DashOnDp = 3.dp
@@ -123,6 +120,8 @@ internal fun TrailRouteCard(
             RouteHeaderRow(
                 distanceMeters = uiState.distanceMeters,
                 travelTimeSeconds = uiState.travelTimeSeconds,
+                elevationSummary = uiState.elevationSummary,
+                isMeasuringElevation = uiState.isMeasuringElevation,
                 distanceUnit = uiState.distanceUnit
             )
             Spacer(modifier = Modifier.height(RowVerticalPadding))
@@ -186,42 +185,6 @@ private fun TrailRetryRoutingButton(enabled: Boolean, onClick: () -> Unit) {
         )
         Spacer(modifier = Modifier.width(RowVerticalPadding))
         Text(text = stringResource(R.string.trail_draft_try_again))
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun RouteHeaderRow(distanceMeters: Double, travelTimeSeconds: Double?, distanceUnit: DistanceUnit) {
-    val lengthText = HikeMetricsFormatter.formatDistance(distanceMeters, distanceUnit)
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Text(
-            text = stringResource(R.string.trail_route_header),
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface
-        )
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(FigureSpacing),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            if (travelTimeSeconds != null) {
-                Text(
-                    text = HikeMetricsFormatter.formatDuration(travelTimeSeconds),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Text(
-                text = lengthText,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.testTag(OpenHikesTestTags.TRAIL_DRAFT_LENGTH)
-            )
-        }
     }
 }
 

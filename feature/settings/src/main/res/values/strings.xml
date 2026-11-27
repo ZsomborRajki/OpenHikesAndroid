@@ -31,6 +31,7 @@
     <string name="settings_section_about">About</string>
     <string name="settings_privacy_policy">Privacy Policy</string>
     <string name="settings_terms">Terms &amp; Conditions</string>
+    <string name="settings_elevation_data">Elevation Data</string>
     <string name="settings_github">Project on GitHub</string>
     <string name="settings_open_external_link">Opens in browser</string>
     <string name="settings_version_label">Version</string>

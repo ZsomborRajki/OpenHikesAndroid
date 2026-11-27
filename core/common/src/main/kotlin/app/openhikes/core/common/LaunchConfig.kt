@@ -30,7 +30,8 @@ data class LaunchConfig(
     val stubPhotoLibraryCount: Int? = null,
     val stubPhotoLibraryAccess: String? = null,
     val seedHikeCount: Int = 0,
-    val seedNearbyTrails: Boolean = false
+    val seedNearbyTrails: Boolean = false,
+    val elevationScenarioName: String? = null
 ) {
     companion object {
         val Production = LaunchConfig()

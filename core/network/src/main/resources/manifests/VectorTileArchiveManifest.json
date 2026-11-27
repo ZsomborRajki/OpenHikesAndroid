@@ -18,5 +18,8 @@
   ],
   "places": [
     { "name": "places-20261122-00", "generation": 1, "zoom": 9 }
+  ],
+  "elevation": [
+    { "name": "elevation-20261126-20", "generation": 1, "zoom": 12 }
   ]
 }

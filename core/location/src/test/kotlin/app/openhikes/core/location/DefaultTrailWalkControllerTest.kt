@@ -520,6 +520,10 @@ class DefaultTrailWalkControllerTest {
             expectedRouteRevision: String,
             breakdowns: app.openhikes.core.model.HikeTrailBreakdowns
         ): Result<Boolean> = Result.success(false)
+        override suspend fun fillHikeElevation(
+            hikeId: HikeId,
+            samples: app.openhikes.core.model.RouteHeightSamples
+        ): Result<Boolean> = Result.success(false)
         override suspend fun setAutoFollowEnabled(hikeId: HikeId, enabled: Boolean): Result<Unit> = Result.success(Unit)
         override suspend fun saveWalkInProgress(hikeId: HikeId, record: TrailWalkRecord?): Result<Unit> {
             nextPersistFailure?.let {

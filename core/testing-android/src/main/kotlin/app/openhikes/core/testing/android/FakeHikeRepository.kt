@@ -17,6 +17,7 @@ import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.GpxImportFailure
 import app.openhikes.core.model.GpxImportResult
 import app.openhikes.core.model.Hike
+import app.openhikes.core.model.HikeElevationFill
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeLocalState
 import app.openhikes.core.model.HikeMapRoute
@@ -43,6 +44,7 @@ import app.openhikes.core.model.RouteEditOutcome
 import app.openhikes.core.model.RouteEditRefusal
 import app.openhikes.core.model.RouteEditSources
 import app.openhikes.core.model.RouteElevationRevision
+import app.openhikes.core.model.RouteHeightSamples
 import app.openhikes.core.model.RouteLinePattern
 import app.openhikes.core.model.RouteProfile
 import app.openhikes.core.model.RouteStyleUpdate
@@ -96,6 +98,7 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
     var nextPhotoRemoveFailure: Throwable? = null
     var nextTotalsFailure: Throwable? = null
     var nextOrderFailure: Throwable? = null
+    var nextElevationFillFailure: Throwable? = null
     var saveOrderGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
     var validateElevationCalls: Int = 0
         private set
@@ -378,6 +381,50 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
         }
         return Result.success(updated)
     }
+
+    override suspend fun fillHikeElevation(hikeId: HikeId, samples: RouteHeightSamples): Result<Boolean> {
+        val injectedFailure = nextElevationFillFailure
+        if (injectedFailure != null) {
+            nextElevationFillFailure = null
+            return Result.failure(injectedFailure)
+        }
+        var filledRoute: List<RouteCoordinate>? = null
+        var distanceMeters = 0.0
+        hikesState.update { list ->
+            list.map { hike ->
+                if (canApplyElevationFill(hike, hikeId, samples)) {
+                    val next = samples.interpolating(hike.route)
+                    if (!HikeElevationFill.needsHeights(next)) {
+                        filledRoute = next
+                        distanceMeters = hike.distanceMeters
+                        hike.copy(route = next)
+                    } else {
+                        hike
+                    }
+                } else {
+                    hike
+                }
+            }
+        }
+        val applied = filledRoute
+        if (applied != null) {
+            val stats = HikeRouteStatistics.from(distanceMeters, applied)
+            localStateMap.update { map ->
+                val current = map[hikeId] ?: HikeLocalState(hikeId = hikeId)
+                map + (
+                    hikeId to current.copy(
+                        climbMeters = stats.elevationGainMeters,
+                        descentMeters = stats.elevationLossMeters,
+                        elevationRouteRevision = RouteElevationRevision.of(applied)
+                    )
+                    )
+            }
+        }
+        return Result.success(applied != null)
+    }
+
+    private fun canApplyElevationFill(hike: Hike, hikeId: HikeId, samples: RouteHeightSamples): Boolean =
+        hike.id == hikeId && HikeElevationFill.canFill(hike) && samples.describes(hike.route)
 
     override suspend fun loadRouteEditSources(hikeId: HikeId): RouteEditSources? {
         val hike = hikesState.value.firstOrNull { it.id == hikeId } ?: return null

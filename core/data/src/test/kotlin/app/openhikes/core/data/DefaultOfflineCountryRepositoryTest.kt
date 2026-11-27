@@ -255,6 +255,77 @@ class DefaultOfflineCountryRepositoryTest {
         harness.archives.close()
     }
 
+    @Test
+    fun downloadsAndServesOfflineElevationSquaresWithNewestBuildWinningAndTopsUpSameBuildCatalog() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val square = app.openhikes.core.model.ElevationSquare(row = 338, column = 1_542)
+        val basemapArchive = buildSampleArchive(z = 4, x = 8, y = 5, payload = "at-base")
+        val detailArchive = buildSampleArchive(z = 15, x = 17_540, y = 11_420, payload = "at-detail")
+        val olderPayload = "older-elevation".encodeToByteArray()
+        val newerPayload = "newer-elevation".encodeToByteArray()
+        val olderArchive = buildElevationArchive(square, olderPayload)
+        val newerArchive = buildElevationArchive(square, newerPayload)
+
+        val austriaBase = buildCountry("AT", "20261117", basemapArchive, detailArchive)
+        val austriaWithElevation = withElevationFile(austriaBase, olderArchive)
+        val germanyNewer =
+            withElevationFile(buildCountry("DE", "20261126", basemapArchive, detailArchive), newerArchive)
+
+        val server = InMemoryCountryServer(
+            manifest = OfflineCountryManifest(version = 1, countries = listOf(austriaBase)),
+            payloads = mapOf(
+                "AT-20261117.pmtiles" to basemapArchive,
+                "AT-detail-20261117.pmtiles" to detailArchive,
+                "AT-elevation-20261117.pmtiles" to olderArchive,
+                "DE-20261126.pmtiles" to basemapArchive,
+                "DE-detail-20261126.pmtiles" to detailArchive,
+                "DE-elevation-20261126.pmtiles" to newerArchive
+            )
+        )
+        val harness = createHarness(server, dispatcher)
+        val repo = harness.repository
+
+        repo.refreshCatalog()
+        repo.downloadCountry("AT")
+        assertThat(repo.runScheduledDownload("AT")).isEqualTo(OfflineDownloadExecutionResult.COMPLETED)
+        assertThat(harness.archives.elevationSquares(listOf(square))).isEmpty()
+
+        server.manifest = OfflineCountryManifest(version = 1, countries = listOf(austriaWithElevation, germanyNewer))
+        repo.refreshCatalog()
+        assertThat(repo.state.value.downloads["AT"]?.files?.map { it.role })
+            .containsExactly(OfflineFileRole.ELEVATION)
+        assertThat(repo.runScheduledDownload("AT")).isEqualTo(OfflineDownloadExecutionResult.COMPLETED)
+        assertThat(harness.archives.elevationSquares(listOf(square))[square]).isEqualTo(olderPayload)
+
+        repo.downloadCountry("DE")
+        assertThat(repo.runScheduledDownload("DE")).isEqualTo(OfflineDownloadExecutionResult.COMPLETED)
+        assertThat(harness.archives.elevationSquares(listOf(square))[square]).isEqualTo(newerPayload)
+        harness.archives.close()
+    }
+
+    private fun buildElevationArchive(square: app.openhikes.core.model.ElevationSquare, payload: ByteArray): ByteArray =
+        PMTilesWriter.buildArchive(
+            tiles = listOf(
+                PMTilesWriter.TileSpec(
+                    z = app.openhikes.core.model.ElevationSquareGrid.ARCHIVE_ZOOM,
+                    x = square.column,
+                    y = square.row,
+                    payload = payload
+                )
+            )
+        )
+
+    private fun withElevationFile(country: OfflineCountry, elevationArchive: ByteArray): OfflineCountry = country.copy(
+        files = country.files + OfflineCountryFile(
+            role = OfflineFileRole.ELEVATION,
+            path = "countries/${country.id}-elevation-${country.build}.pmtiles",
+            byteCount = elevationArchive.size.toLong(),
+            sha256 = OfflineCountryDigest.sha256Hex(elevationArchive),
+            minimumZoom = 12,
+            maximumZoom = 12
+        )
+    )
+
     private fun buildSampleArchive(z: Int, x: Int, y: Int, payload: String): ByteArray = PMTilesWriter.buildArchive(
         tiles = listOf(PMTilesWriter.TileSpec(z = z, x = x, y = y, payload = payload.encodeToByteArray()))
     )
@@ -343,7 +414,7 @@ class DefaultOfflineCountryRepositoryTest {
     )
 
     private class InMemoryCountryServer(
-        private val manifest: OfflineCountryManifest,
+        var manifest: OfflineCountryManifest,
         private val payloads: Map<String, ByteArray>
     ) : OfflineCountryServer {
         var nextManifestError: Throwable? = null

@@ -189,19 +189,25 @@ internal class OfflineCountryReconciler @Inject constructor(
     }
 
     /**
-     * Returns ids of healthy, up-to-date installed areas missing zoom-15 detail when Extra Detail is turned ON.
+     * Returns ids of healthy installed areas that should fetch additional files for their current
+     * build — either newly listed companion archives (such as elevation squares) or zoom-15 detail
+     * files when Extra Detail is turned ON.
      */
-    fun findInstalledMissingDetail(state: OfflineCountriesState): List<String> {
-        if (!state.includesDetail || state.holdings != OfflineHoldingsState.READY) return emptyList()
+    fun findInstalledMissingFiles(state: OfflineCountriesState): List<String> {
+        if (state.holdings != OfflineHoldingsState.READY) return emptyList()
         return state.installed.values
             .filter { record ->
                 val id = record.country.id
-                val offered = state.offered.firstOrNull { it.id == id } ?: record.country
-                !record.hasDetail &&
-                    id !in state.downloads &&
-                    !state.hasUpdate(offered) &&
-                    !state.needsRepair(id) &&
-                    offered.files.any { it.role.isDetail }
+                if (id in state.downloads || state.needsRepair(id)) return@filter false
+                val offeredMatch = state.offered.firstOrNull { it.id == id }
+                val sameBuildOffered = offeredMatch?.takeIf { it.build == record.country.build }
+                when {
+                    sameBuildOffered != null -> state.filesToFetch(sameBuildOffered).isNotEmpty()
+                    state.includesDetail && !record.hasDetail ->
+                        (offeredMatch == null || !state.hasUpdate(offeredMatch)) &&
+                            state.filesToFetch(record.country).isNotEmpty()
+                    else -> false
+                }
             }
             .map { it.country.id }
     }

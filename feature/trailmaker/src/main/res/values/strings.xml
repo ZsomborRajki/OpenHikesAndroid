@@ -10,6 +10,9 @@
     <string name="trail_mode_driving">Driving</string>
 
     <string name="trail_route_header">Route</string>
+    <string name="trail_route_measuring_climb">measuring the climb</string>
+    <string name="trail_route_spoken_climb">%1$s of climb</string>
+    <string name="trail_route_spoken_descent">%1$s of descent</string>
     <string name="trail_stop_start">Start</string>
     <string name="trail_stop_destination">Destination</string>
     <string name="trail_stop_numbered">Stop %1$d</string>

@@ -5,7 +5,9 @@ import app.openhikes.core.model.HikeTrailAnalysis
 import app.openhikes.core.model.RouteBoundary
 import app.openhikes.core.model.RouteColoring
 import app.openhikes.core.model.RouteCoordinate
+import app.openhikes.core.model.RouteHeightSamples
 import app.openhikes.core.model.RouteShadeStretch
+import app.openhikes.core.model.RouteSteepness
 import app.openhikes.core.model.TrailDraftEngine
 import app.openhikes.core.model.TrailGraphProvider
 import app.openhikes.core.model.TrailLeg
@@ -19,9 +21,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Coordinates cache-only SAC difficulty shading for [TrailMakerViewModel] so drawn hiking routes
- * reflect cached OpenStreetMap grades without issuing network downloads or racing draft edits.
+ * Coordinates cache-only SAC difficulty shading and Copernicus DEM steepness shading for
+ * [TrailMakerViewModel] so drawn hiking routes show the same map colors they will carry once saved.
  */
+@Suppress("LongParameterList")
 internal class TrailDraftShadingController(
     private val scope: CoroutineScope,
     private val engine: TrailDraftEngine,
@@ -31,20 +34,28 @@ internal class TrailDraftShadingController(
     private val onStretchesUpdated: () -> Unit
 ) {
     private var difficultyStretches: List<RouteShadeStretch> = emptyList()
-    private var shadingJob: Job? = null
+    private var steepnessStretches: List<RouteShadeStretch> = emptyList()
+    private var difficultyJob: Job? = null
+    private var steepnessJob: Job? = null
     private var shadingGeneration: Long = 0L
-    private var lastMeasuredLineSignature: List<List<GeoCoordinate>>? = null
+    private var lastMeasuredLineSignature: List<Pair<List<GeoCoordinate>, Boolean>>? = null
 
-    var hasOffered: Boolean = false
-        private set
+    private val offeredSet = LinkedHashSet<RouteColoring>()
 
-    fun activeStretches(routeColoring: RouteColoring): List<RouteShadeStretch> {
-        val effective = routeColoring.lockingElevation(locked = true)
+    val offeredColorings: Set<RouteColoring>
+        get() = offeredSet.toSet()
+
+    val hasOffered: Boolean
+        get() = offeredSet.isNotEmpty()
+
+    fun activeStretches(routeColoring: RouteColoring, elevationAvailable: Boolean = true): List<RouteShadeStretch> {
+        val effective = routeColoring.lockingElevation(locked = !elevationAvailable)
         val isReadyHiking = isReadyForHikingShading() && engine.drag == null
-        return if (isReadyHiking && effective == RouteColoring.DIFFICULTY) {
-            difficultyStretches
-        } else {
-            emptyList()
+        if (!isReadyHiking) return emptyList()
+        return when (effective) {
+            RouteColoring.DIFFICULTY -> difficultyStretches
+            RouteColoring.ELEVATION -> steepnessStretches
+            RouteColoring.OFF -> emptyList()
         }
     }
 
@@ -53,44 +64,82 @@ internal class TrailDraftShadingController(
         if (signature == null) {
             clearPending()
         } else if (signature != lastMeasuredLineSignature) {
-            startMeasurement(signature, nonWarningDraftRoute(engine.legs))
+            startDifficultyMeasurement(signature, nonWarningDraftRoute(engine.legs))
+        }
+    }
+
+    /**
+     * Shades the current hiking draft by steepness from newly landed [samples], masking out
+     * degraded (dashed/unmapped/refused) legs so placeholder geometry is never colored over.
+     */
+    fun onHeightsLanded(samples: RouteHeightSamples) {
+        if (!canMutateDraft() || !isReadyForHikingShading()) return
+        val route = engine.routeCoordinates
+        if (route.size <= 1 || !samples.describes(route)) return
+        val measured = withoutDegradedLegs(samples.interpolating(route), engine.legs)
+        val generation = shadingGeneration
+        steepnessJob?.cancel()
+        steepnessJob = scope.launch {
+            val stretches = withContext(defaultDispatcher) {
+                RouteSteepness.runs(measured)
+            }
+            if (isMeasurementStillValid(generation)) {
+                steepnessStretches = stretches
+                if (stretches.isNotEmpty()) {
+                    offeredSet.add(RouteColoring.ELEVATION)
+                }
+                onStretchesUpdated()
+            }
         }
     }
 
     fun cancel() {
         shadingGeneration += 1L
-        shadingJob?.cancel()
-        shadingJob = null
+        difficultyJob?.cancel()
+        difficultyJob = null
+        steepnessJob?.cancel()
+        steepnessJob = null
     }
 
     fun reset() {
         cancel()
         difficultyStretches = emptyList()
-        hasOffered = false
+        steepnessStretches = emptyList()
+        offeredSet.clear()
         lastMeasuredLineSignature = null
     }
 
     private fun clearPending() {
         cancel()
         difficultyStretches = emptyList()
+        steepnessStretches = emptyList()
         lastMeasuredLineSignature = null
     }
 
-    private fun currentLineSignature(): List<List<GeoCoordinate>>? {
+    private fun currentLineSignature(): List<Pair<List<GeoCoordinate>, Boolean>>? {
         if (!canMutateDraft() || !isReadyForHikingShading()) return null
         return engine.legs
-            .filterNot { it.snap.isWarning }
-            .map { it.coordinates }
-            .filter { it.size > 1 }
+            .map { it.coordinates to it.snap.isDegraded }
+            .filter { (coords, _) -> coords.size > 1 }
             .takeIf { it.isNotEmpty() }
     }
 
-    private fun startMeasurement(signature: List<List<GeoCoordinate>>, route: List<RouteCoordinate>) {
+    private fun startDifficultyMeasurement(
+        signature: List<Pair<List<GeoCoordinate>, Boolean>>,
+        route: List<RouteCoordinate>
+    ) {
         lastMeasuredLineSignature = signature
         difficultyStretches = emptyList()
+        steepnessStretches = emptyList()
         val generation = ++shadingGeneration
-        shadingJob?.cancel()
-        shadingJob = scope.launch {
+        difficultyJob?.cancel()
+        steepnessJob?.cancel()
+        steepnessJob = null
+        if (route.size <= 1) {
+            difficultyJob = null
+            return
+        }
+        difficultyJob = scope.launch {
             val stretches = withContext(defaultDispatcher) {
                 val ctx = currentCoroutineContext()
                 HikeTrailAnalysis.difficultyRuns(
@@ -111,7 +160,7 @@ internal class TrailDraftShadingController(
             if (isMeasurementStillValid(generation)) {
                 difficultyStretches = stretches
                 if (stretches.isNotEmpty()) {
-                    hasOffered = true
+                    offeredSet.add(RouteColoring.DIFFICULTY)
                 }
                 onStretchesUpdated()
             }
@@ -141,5 +190,23 @@ internal class TrailDraftShadingController(
             }
         }
         return result
+    }
+
+    internal companion object {
+        fun withoutDegradedLegs(route: List<RouteCoordinate>, legs: List<TrailLeg>): List<RouteCoordinate> {
+            val cleared = route.toMutableList()
+            var start = 0
+            for (leg in legs) {
+                val end = minOf(start + leg.coordinates.size - 1, cleared.lastIndex)
+                if (start > end) break
+                if (leg.snap.isDegraded) {
+                    for (index in start..end) {
+                        cleared[index] = cleared[index].copy(elevationMeters = null)
+                    }
+                }
+                start = end
+            }
+            return cleared
+        }
     }
 }

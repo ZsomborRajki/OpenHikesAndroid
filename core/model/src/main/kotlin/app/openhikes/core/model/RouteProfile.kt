@@ -19,7 +19,13 @@ data class RouteElevationSummary(
     val highMeters: Double?,
     val gainMeters: Double?,
     val lossMeters: Double?
-)
+) {
+    fun toRouteClimb(): RouteClimb? = if (gainMeters != null && lossMeters != null) {
+        RouteClimb(gainMeters = gainMeters, lossMeters = lossMeters)
+    } else {
+        null
+    }
+}
 
 /**
  * Per-segment summary derived from walked pieces separated by pause boundaries.

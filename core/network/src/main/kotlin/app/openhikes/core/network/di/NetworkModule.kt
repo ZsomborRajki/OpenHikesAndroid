@@ -7,6 +7,9 @@ import app.openhikes.core.model.VectorTileArchiveManifest
 import app.openhikes.core.model.WikidataPlaceSource
 import app.openhikes.core.network.AndroidTileNetworkPolicy
 import app.openhikes.core.network.DownloadOkHttpClient
+import app.openhikes.core.network.ElevationSquareDataSource
+import app.openhikes.core.network.ElevationSquaresDir
+import app.openhikes.core.network.HttpElevationSquareDataSource
 import app.openhikes.core.network.HttpOverpassPlaceDataSource
 import app.openhikes.core.network.HttpPlaceSquareDataSource
 import app.openhikes.core.network.HttpRoutingGraphSquareDataSource
@@ -76,6 +79,10 @@ abstract class NetworkBindingsModule {
 
     @Binds
     @Singleton
+    internal abstract fun bindElevationSquareDataSource(impl: HttpElevationSquareDataSource): ElevationSquareDataSource
+
+    @Binds
+    @Singleton
     internal abstract fun bindOverpassPlaceDataSource(impl: HttpOverpassPlaceDataSource): OverpassPlaceDataSource
 
     @Binds
@@ -89,6 +96,7 @@ abstract class NetworkBindingsModule {
 
 @Module
 @InstallIn(SingletonComponent::class)
+@Suppress("TooManyFunctions")
 object NetworkProvidesModule {
     private const val TILE_TIMEOUT_SECONDS = 10L
     private const val MANIFEST_TIMEOUT_SECONDS = 20L
@@ -120,6 +128,12 @@ object NetworkProvidesModule {
     @PlaceSquaresDir
     fun providePlaceSquaresDir(@ApplicationContext context: Context): File =
         File(context.noBackupFilesDir, HttpPlaceSquareDataSource.CACHE_DIR_NAME)
+
+    @Provides
+    @Singleton
+    @ElevationSquaresDir
+    fun provideElevationSquaresDir(@ApplicationContext context: Context): File =
+        File(context.noBackupFilesDir, HttpElevationSquareDataSource.CACHE_DIR_NAME)
 
     @Provides
     @Singleton

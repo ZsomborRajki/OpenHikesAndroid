@@ -2,6 +2,8 @@ package app.openhikes.core.data
 
 import app.openhikes.core.common.offline.OfflineCountryStore
 import app.openhikes.core.common.pmtiles.PMTilesArchive
+import app.openhikes.core.model.ElevationSquare
+import app.openhikes.core.model.ElevationSquareGrid
 import app.openhikes.core.model.InstalledCountryRecord
 import app.openhikes.core.model.OfflineBounds
 import app.openhikes.core.model.OfflineFileRole
@@ -23,6 +25,7 @@ import kotlinx.coroutines.flow.asStateFlow
 @Singleton
 class OfflineCountryArchives @Inject constructor() :
     OfflineTileArchiveSource,
+    DownloadedElevationSquares,
     Closeable {
     private val lock = Any()
     private val revisionCounter = AtomicLong(0L)
@@ -65,11 +68,13 @@ class OfflineCountryArchives @Inject constructor() :
                 nextOpened.add(
                     OpenedCountry(
                         id = record.country.id,
+                        build = record.country.build,
                         bounds = record.country.bounds,
                         basemap = basemap,
                         extras = archivesByRole[OfflineFileRole.EXTRAS],
                         detail = archivesByRole[OfflineFileRole.DETAIL],
-                        detailExtras = archivesByRole[OfflineFileRole.DETAIL_EXTRAS]
+                        detailExtras = archivesByRole[OfflineFileRole.DETAIL_EXTRAS],
+                        elevation = archivesByRole[OfflineFileRole.ELEVATION]
                     )
                 )
             } else {
@@ -116,6 +121,39 @@ class OfflineCountryArchives @Inject constructor() :
         }
     }
 
+    override fun elevationSquares(squares: List<ElevationSquare>): Map<ElevationSquare, ByteArray> {
+        if (squares.isEmpty()) return emptyMap()
+        return synchronized(lock) {
+            val candidates = openedCountries
+                .filter { it.elevation != null }
+                .sortedByDescending { it.build }
+            if (candidates.isEmpty()) return@synchronized emptyMap()
+            val found = LinkedHashMap<ElevationSquare, ByteArray>()
+            for (square in squares.distinct()) {
+                val bytes = readElevationSquare(square, candidates)
+                if (bytes != null) {
+                    found[square] = bytes
+                }
+            }
+            found
+        }
+    }
+
+    private fun readElevationSquare(square: ElevationSquare, candidates: List<OpenedCountry>): ByteArray? {
+        for (country in candidates) {
+            val archive = country.elevation ?: continue
+            val bytes = runCatching {
+                archive.tile(
+                    z = ElevationSquareGrid.ARCHIVE_ZOOM,
+                    x = square.column,
+                    y = square.row
+                )
+            }.getOrNull()
+            if (bytes != null) return bytes
+        }
+        return null
+    }
+
     override fun close() {
         val previous = synchronized(lock) {
             val old = openedCountries
@@ -160,19 +198,23 @@ class OfflineCountryArchives @Inject constructor() :
         return runCatching { archive.contains(address.z, address.x, address.y) }.getOrDefault(false)
     }
 
+    @Suppress("LongParameterList")
     private class OpenedCountry(
         val id: String,
+        val build: String,
         val bounds: OfflineBounds,
         val basemap: PMTilesArchive,
         val extras: PMTilesArchive?,
         val detail: PMTilesArchive?,
-        val detailExtras: PMTilesArchive?
+        val detailExtras: PMTilesArchive?,
+        val elevation: PMTilesArchive?
     ) : Closeable {
         override fun close() {
             runCatching { basemap.close() }
             runCatching { extras?.close() }
             runCatching { detail?.close() }
             runCatching { detailExtras?.close() }
+            runCatching { elevation?.close() }
         }
     }
 }

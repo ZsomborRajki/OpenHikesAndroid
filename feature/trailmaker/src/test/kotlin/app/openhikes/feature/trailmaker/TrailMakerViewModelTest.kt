@@ -12,6 +12,7 @@ import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.LocationFix
 import app.openhikes.core.model.RouteColoring
 import app.openhikes.core.model.RouteCoordinate
+import app.openhikes.core.model.RouteElevationSource
 import app.openhikes.core.model.RouteShade
 import app.openhikes.core.model.StoredTrailDraft
 import app.openhikes.core.model.TrailDraftRefusal
@@ -29,6 +30,7 @@ import app.openhikes.core.model.TrailStopRole
 import app.openhikes.core.model.TrailStopSearchResult
 import app.openhikes.core.model.TrailTravelMode
 import app.openhikes.core.model.TrailWaypoint
+import app.openhikes.core.testing.FakeRouteElevationSource
 import app.openhikes.core.testing.FakeTrailGraphProvider
 import app.openhikes.core.testing.FakeTrailLegRouter
 import app.openhikes.core.testing.MainDispatcherRule
@@ -69,6 +71,7 @@ class TrailMakerViewModelTest {
         userSettingsRepository: FakeUserSettingsRepository = FakeUserSettingsRepository(),
         router: FakeTrailLegRouter = FakeTrailLegRouter(),
         trailGraphProvider: TrailGraphProvider = FakeTrailGraphProvider(isAvailable = false),
+        routeElevationSource: RouteElevationSource = FakeRouteElevationSource(isAvailable = false),
         searchSource: FakeStopPlaceSearchSource = FakeStopPlaceSearchSource(),
         locationFeed: FakeLocationFeed = FakeLocationFeed(),
         overlayState: TrailDraftOverlayState = TrailDraftOverlayState(),
@@ -81,6 +84,7 @@ class TrailMakerViewModelTest {
         userSettingsRepository = userSettingsRepository,
         trailLegRouter = router,
         trailGraphProvider = trailGraphProvider,
+        routeElevationSource = routeElevationSource,
         stopPlaceSearchSource = searchSource,
         locationFeed = locationFeed,
         clock = TestClock(1_780_000_000_000L),

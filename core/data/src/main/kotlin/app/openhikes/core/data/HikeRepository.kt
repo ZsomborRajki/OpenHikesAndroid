@@ -20,6 +20,7 @@ import app.openhikes.core.model.PreparedRecording
 import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteEditOutcome
 import app.openhikes.core.model.RouteEditSources
+import app.openhikes.core.model.RouteHeightSamples
 import app.openhikes.core.model.RouteStyleUpdate
 import app.openhikes.core.model.TrailPlaceSymbol
 import app.openhikes.core.model.TrailPoint
@@ -82,6 +83,13 @@ interface HikeRepository {
         expectedRouteRevision: String,
         breakdowns: HikeTrailBreakdowns
     ): Result<Boolean>
+
+    /**
+     * Applies interpolated DEM heights from [samples] onto [hikeId] atomically only if the hike
+     * is not currently recording, still lacks finite elevations, and still matches [samples].
+     * Returns `true` when heights were persisted.
+     */
+    suspend fun fillHikeElevation(hikeId: HikeId, samples: RouteHeightSamples): Result<Boolean>
 
     suspend fun loadRouteEditSources(hikeId: HikeId): RouteEditSources?
 

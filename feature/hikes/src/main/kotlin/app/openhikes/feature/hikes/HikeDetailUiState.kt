@@ -82,7 +82,8 @@ data class HikeDetailUiState(
     val pendingOpenPlaceId: String? = null,
     val pendingAddPlaceCoordinate: GeoCoordinate? = null,
     val surfaceBreakdown: TrailSurfaceBreakdown? = hike?.surfaceBreakdown,
-    val difficultyBreakdown: TrailDifficultyBreakdown? = hike?.difficultyBreakdown
+    val difficultyBreakdown: TrailDifficultyBreakdown? = hike?.difficultyBreakdown,
+    val isReadingElevation: Boolean = false
 ) {
     val isWalkingThisHike: Boolean
         get() = walkSession.walkedHikeId == hikeId && walkSession.phase != null

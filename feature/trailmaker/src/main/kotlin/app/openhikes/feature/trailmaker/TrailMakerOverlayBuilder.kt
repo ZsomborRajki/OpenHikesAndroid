@@ -6,6 +6,7 @@ import app.openhikes.core.map.MapTrailDraftOverlay
 import app.openhikes.core.map.MapTrailDraftPin
 import app.openhikes.core.map.MapTrailDraftTimeBubble
 import app.openhikes.core.model.GeoCoordinate
+import app.openhikes.core.model.RouteClimb
 import app.openhikes.core.model.RouteGeometry
 import app.openhikes.core.model.RouteShadeStretch
 import app.openhikes.core.model.TrailDraftDroppedPin
@@ -27,11 +28,13 @@ internal object TrailMakerOverlayBuilder {
     fun build(
         engine: TrailDraftEngine,
         droppedPin: TrailDraftDroppedPin?,
-        shadedStretches: List<RouteShadeStretch> = emptyList()
+        shadedStretches: List<RouteShadeStretch> = emptyList(),
+        climb: RouteClimb? = null
     ): MapTrailDraftOverlay {
         val legs = engine.legs
-        val tripTimeSeconds = engine.travelTimeSeconds
-        val mapLegs = buildMapLegs(engine, legs, tripTimeSeconds)
+        val climbFactor = engine.climbFactor(climb)
+        val tripTimeSeconds = engine.travelTimeSeconds(climb)
+        val mapLegs = buildMapLegs(engine, legs, engine.travelTimeSeconds, climbFactor)
         val pins = buildMapPins(engine)
         val routeBubble = if (legs.isNotEmpty() && !engine.isRouting) {
             routeTimeAnchor(legs)?.let { anchor ->
@@ -59,7 +62,8 @@ internal object TrailMakerOverlayBuilder {
     private fun buildMapLegs(
         engine: TrailDraftEngine,
         legs: List<TrailLeg>,
-        tripTimeSeconds: Double
+        flatTripTimeSeconds: Double,
+        climbFactor: Double
     ): List<MapTrailDraftLeg> {
         val legTimes = legs.map { engine.travelTimeSecondsOf(it.path) }
         return legs.mapIndexed { legIndex, leg ->
@@ -67,7 +71,8 @@ internal object TrailMakerOverlayBuilder {
                 emptyList()
             } else {
                 leg.alternatives.mapIndexed { altIndex, alt ->
-                    val altTripSeconds = tripTimeSeconds - legTimes[legIndex] + engine.travelTimeSecondsOf(alt)
+                    val altTripSeconds =
+                        (flatTripTimeSeconds - legTimes[legIndex] + engine.travelTimeSecondsOf(alt)) * climbFactor
                     val spokenTime = HikeMetricsFormatter.formatSpokenDuration(altTripSeconds)
                     MapTrailDraftAlternative(
                         legIndex = legIndex,

@@ -167,6 +167,7 @@ private fun TrailMakerContentList(uiState: TrailMakerUiState, onAction: (TrailMa
             item(key = "on_map") {
                 TrailMapColoringCard(
                     routeColoring = uiState.routeColoring,
+                    isElevationAvailable = uiState.isElevationColoringAvailable,
                     onSelectColoring = { onAction(TrailMakerAction.SelectRouteColoring(it)) }
                 )
             }
@@ -177,6 +178,7 @@ private fun TrailMakerContentList(uiState: TrailMakerUiState, onAction: (TrailMa
 @Composable
 private fun TrailMapColoringCard(
     routeColoring: RouteColoring,
+    isElevationAvailable: Boolean,
     onSelectColoring: (RouteColoring) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -200,9 +202,11 @@ private fun TrailMapColoringCard(
             RouteColoringPicker(
                 selectedColoring = routeColoring,
                 onSelectColoring = onSelectColoring,
-                elevationUnavailableNote = stringResource(
-                    CoreUiR.string.route_coloring_trail_maker_elevation_note
-                )
+                elevationUnavailableNote = if (isElevationAvailable) {
+                    null
+                } else {
+                    stringResource(CoreUiR.string.route_coloring_trail_maker_elevation_note)
+                }
             )
         }
     }

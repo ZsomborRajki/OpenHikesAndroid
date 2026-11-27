@@ -1,6 +1,7 @@
 package app.openhikes.core.ui.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
@@ -12,7 +13,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -39,14 +43,17 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import app.openhikes.core.designsystem.icon.OpenHikesIcons
 import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.ElevationSample
 import app.openhikes.core.model.RouteProfile
@@ -60,6 +67,12 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 private val ChartPlotHeight = 184.dp
+private val PlaceholderHeight = 180.dp
+private val PlaceholderCornerRadius = 16.dp
+private val PlaceholderIconSize = 32.dp
+private val PlaceholderSpinnerSize = 28.dp
+private val PlaceholderSpinnerStroke = 2.5.dp
+private const val PLACEHOLDER_TINT_ALPHA = 0.12f
 private val AxisPaddingTop = 28.dp
 private val AxisPaddingBottom = 8.dp
 private val AxisLabelPaddingHorizontal = 4.dp
@@ -154,6 +167,61 @@ fun ElevationProfileChart(
             domainMin = domain.start,
             domainMax = domain.endInclusive
         )
+    }
+}
+
+/**
+ * Tinted Material 3 Expressive placeholder card displayed in the elevation chart slot when a route
+ * has no heights yet or while Copernicus DEM heights are being read.
+ */
+@Composable
+fun ElevationPlaceholderCard(tintHex: String, isReading: Boolean, modifier: Modifier = Modifier) {
+    val accentColor = parseHexColorOrDefault(tintHex, MaterialTheme.colorScheme.primary)
+    val message = stringResource(
+        if (isReading) R.string.elevation_placeholder_reading else R.string.elevation_placeholder_empty
+    )
+    Surface(
+        shape = RoundedCornerShape(PlaceholderCornerRadius),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(PlaceholderHeight)
+            .semantics(mergeDescendants = true) {}
+            .testTag(OpenHikesTestTags.ELEVATION_PLACEHOLDER)
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .fillMaxSize()
+                .background(accentColor.copy(alpha = PLACEHOLDER_TINT_ALPHA))
+                .padding(horizontal = 16.dp)
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (isReading) {
+                    CircularProgressIndicator(
+                        color = accentColor,
+                        strokeWidth = PlaceholderSpinnerStroke,
+                        modifier = Modifier.size(PlaceholderSpinnerSize)
+                    )
+                } else {
+                    Icon(
+                        painter = painterResource(OpenHikesIcons.TrendingUp),
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier.size(PlaceholderIconSize)
+                    )
+                }
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
     }
 }
 

@@ -55,6 +55,7 @@ import app.openhikes.core.model.RecordingTraceSnapshot
 import app.openhikes.core.model.RouteBorder
 import app.openhikes.core.model.RouteColoring
 import app.openhikes.core.model.RouteCoordinate
+import app.openhikes.core.model.RouteElevationRevision
 import app.openhikes.core.model.RouteLinePattern
 import app.openhikes.core.model.RouteShadeStretch
 import app.openhikes.core.model.RouteSteepness
@@ -270,6 +271,7 @@ class MapShellViewModel @Inject constructor(
         val hikeId: HikeId,
         val route: List<RouteCoordinate>,
         val routeRevision: String,
+        val elevationRevision: String,
         val coloring: RouteColoring,
         val hasZeroSurveyedDifficulty: Boolean
     )
@@ -277,6 +279,7 @@ class MapShellViewModel @Inject constructor(
     private data class SelectedRouteShading(
         val hikeId: HikeId? = null,
         val routeRevision: String? = null,
+        val elevationRevision: String? = null,
         val stretches: List<RouteShadeStretch> = emptyList()
     )
 
@@ -316,6 +319,7 @@ class MapShellViewModel @Inject constructor(
                             hikeId = it.id,
                             route = it.route,
                             routeRevision = TrailWalkRecord.routeRevision(it.route),
+                            elevationRevision = RouteElevationRevision.of(it.route),
                             coloring = coloring,
                             hasZeroSurveyedDifficulty = zeroSurveyed
                         )
@@ -324,6 +328,7 @@ class MapShellViewModel @Inject constructor(
                 .distinctUntilChanged { old, new ->
                     old?.hikeId == new?.hikeId &&
                         old?.routeRevision == new?.routeRevision &&
+                        old?.elevationRevision == new?.elevationRevision &&
                         old?.coloring == new?.coloring &&
                         old?.hasZeroSurveyedDifficulty == new?.hasZeroSurveyedDifficulty
                 }
@@ -340,6 +345,7 @@ class MapShellViewModel @Inject constructor(
                         SelectedRouteShading(
                             hikeId = key.hikeId,
                             routeRevision = key.routeRevision,
+                            elevationRevision = key.elevationRevision,
                             stretches = stretches
                         )
                     )
@@ -397,7 +403,8 @@ class MapShellViewModel @Inject constructor(
                 .map { route ->
                     val stretches = if (
                         shading.hikeId == route.hikeId &&
-                        shading.routeRevision == TrailWalkRecord.routeRevision(route.route)
+                        shading.routeRevision == TrailWalkRecord.routeRevision(route.route) &&
+                        shading.elevationRevision == RouteElevationRevision.of(route.route)
                     ) {
                         shading.stretches
                     } else {

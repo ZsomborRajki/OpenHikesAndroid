@@ -17,24 +17,29 @@ Supporting reference docs:
   pyramid, porting `OpenHikesUITests` fixtures/tags, static analysis wiring, and
   Phase 0–4 bootstrap roadmap.
 
-> **Repository status:** Phase 12 complete (Trail Analysis & Route Coloring:
-> pure-JVM `TrailSurface`, `TrailDifficulty` (SAC T1–T6), `TrailBreakdown`,
-> `TrailBreakdownAnalyzer`, `HikeTrailAnalysis`, `RouteColoring`, `RouteShade`,
-> `RouteShadeStretch`, `RouteSteepness`, and `RouteShadeBlend` across
-> `:core:model`; Proto DataStore `route_coloring`, Room v6 persisted hike
-> surface & difficulty breakdowns with route-revision CAS and route-edit
-> clearing, cache-only `RoutingGraphSquareDataSource.readCachedRegion`, and
-> bounded `ArchiveTrailGraphProvider` corridor completeness across
-> `:core:datastore`, `:core:database`, `:core:network`, and `:core:data`;
-> blended GeoJSON `ShadedRouteLineLayer` & `ShadedArrowheadLayers` on selected
-> hikes and Trail Maker drafts in `:core:map`; Material 3 Expressive
-> `TrailSurfaceSection`, `TrailDifficultySection`, `RouteColoringPicker`, and
-> `RouteShadeKey` in `:core:ui`; Hike Detail off-main breakdown persistence &
-> cards, Route Style *All Hikes* shared *Color By*, Trail Maker cache-only
-> difficulty shading & *On the Map* picker, and `MapShellViewModel` steepness
-> / SAC difficulty shading across `:feature:hikes`, `:feature:trailmaker`, and
-> `:app`, plus Tier 1/2, Robolectric journey & Compose screenshot tests).
-> Phases 0–12 are complete.
+> **Repository status:** Phase 13 complete (Elevation Enrichment — Copernicus
+> WorldDEM-30: pure-JVM `ElevationSquare`, `ElevationPost`, `ElevationPostPlace`,
+> `ElevationCredit`, `ElevationSquareGrid` across all 6 latitude bands,
+> `RouteElevationRequest`, `RouteHeightSamples`, `ElevationFailure`,
+> `ElevationFetchResult`, `RouteElevationSource`, `HikeElevationFill`,
+> `ElevationArchiveSource`, and `OfflineFileRole.ELEVATION` across `:core:model`;
+> `OHEL` v1 binary `ElevationSquareFile` codec and `LaunchConfig.elevationScenarioName`
+> in `:core:common`; `HttpElevationSquareDataSource` with 256-file 30-day
+> `noBackupFilesDir/elevation_squares` cache, HTTP `200`/`204`/`410`/`429`
+> handling, and `VectorTileArchiveManifest.json` elevation archive in
+> `:core:network`; `DownloadedElevationSquares`, offline country `-elevation-`
+> PMTiles opening & same-build catalog top-up, `ElevationSquareLibrary`
+> (offline-first, 64-square cap), `LaunchAwareRouteElevationSource`, and atomic
+> cascade-safe `HikeRepository.fillHikeElevation` in `:core:data`;
+> `ElevationPlaceholderCard` in `:core:ui`; Hike Detail automatic one-time DEM
+> fill & placeholder, Trail Maker 2 s debounced elevation measurement,
+> climb-adjusted travel times & alternative bubbles, steepness map shading
+> masking degraded legs, unlocked `Elevation` coloring, and height-preserving
+> save, `MapShellViewModel` elevation-revision shading refresh, and Settings
+> verbatim Copernicus WorldDEM-30 attribution across `:feature:hikes`,
+> `:feature:trailmaker`, `:feature:settings`, and `:app`, plus Tier 1/2,
+> Robolectric journey & Compose screenshot tests).
+> Phases 0–13 are complete.
 
 ---
 

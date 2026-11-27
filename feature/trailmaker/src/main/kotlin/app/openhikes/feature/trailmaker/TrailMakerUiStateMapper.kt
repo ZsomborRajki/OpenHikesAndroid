@@ -3,6 +3,7 @@ package app.openhikes.feature.trailmaker
 import app.openhikes.core.common.HikeTitle
 import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.RouteColoring
+import app.openhikes.core.model.RouteElevationSummary
 import app.openhikes.core.model.TrailDraftDroppedPin
 import app.openhikes.core.model.TrailDraftEngine
 import app.openhikes.core.model.TrailDraftRefusal
@@ -17,7 +18,10 @@ internal data class TrailMakerUiProjectionInput(
     val engine: TrailDraftEngine,
     val distanceUnit: DistanceUnit,
     val routeColoring: RouteColoring,
-    val hasOfferedDifficultyShading: Boolean,
+    val hasOfferedShading: Boolean,
+    val isElevationAvailable: Boolean,
+    val elevationSummary: RouteElevationSummary?,
+    val isMeasuringElevation: Boolean,
     val canSnapToPaths: Boolean,
     val isRestoring: Boolean,
     val isSaving: Boolean,
@@ -39,18 +43,22 @@ internal object TrailMakerUiStateMapper {
     fun map(input: TrailMakerUiProjectionInput): TrailMakerUiState {
         val engine = input.engine
         val rows = buildStopRows(engine)
+        val climb = input.elevationSummary?.toRouteClimb()
         return TrailMakerUiState(
             travelMode = engine.travelMode,
             rows = rows,
             distanceMeters = engine.distanceMeters,
-            travelTimeSeconds = if (engine.canBeSaved) engine.travelTimeSeconds else null,
+            travelTimeSeconds = if (engine.canBeSaved) engine.travelTimeSeconds(climb) else null,
+            elevationSummary = input.elevationSummary,
+            isMeasuringElevation = input.isMeasuringElevation,
             distanceUnit = input.distanceUnit,
             canBeSaved = engine.canBeSaved,
             isEmpty = engine.isEmpty,
             canSnapToPaths = input.canSnapToPaths,
             snapsToPaths = engine.snapsToPaths,
             routeColoring = input.routeColoring,
-            showsColoringSection = engine.travelMode == TrailTravelMode.HIKING && input.hasOfferedDifficultyShading,
+            showsColoringSection = engine.travelMode == TrailTravelMode.HIKING && input.hasOfferedShading,
+            isElevationColoringAvailable = input.isElevationAvailable,
             isRouting = engine.isRouting,
             hasRetryableLegs = engine.hasRetryableLegs,
             worstLegSnap = engine.worstLegSnap,
