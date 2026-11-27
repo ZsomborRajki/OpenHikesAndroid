@@ -210,6 +210,58 @@ class HikeLibraryViewModelTest {
         }
     }
 
+    @Test
+    fun selectingSortSerializesBehindInFlightMoveAndAbortsWhenResetFails() = runTest {
+        val (alpha, beta, gamma) = sampleSortTestHikes()
+        val repo = FakeHikeRepository(listOf(alpha, beta, gamma))
+        val settingsRepo = FakeUserSettingsRepository()
+        val viewModel = HikeLibraryViewModel(
+            hikeRepository = repo,
+            userSettingsRepository = settingsRepo,
+            recordingController = FakeRecordingController(),
+            trailWalkController = FakeTrailWalkController(),
+            mapClaimCoordinator = MapClaimCoordinator(),
+            routeHighlightState = RouteHighlightState()
+        )
+
+        viewModel.uiState.test {
+            advanceUntilIdle()
+            expectMostRecentItem()
+
+            // Move while save is suspended, then exit reorder and choose Longest immediately.
+            val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+            repo.saveOrderGate = gate
+            viewModel.onEnterReorderMode()
+            viewModel.onMoveHike(2, 0)
+            viewModel.onExitReorderMode()
+            viewModel.onSelectSort(HikeListSort.LONGEST)
+            advanceUntilIdle()
+
+            gate.complete(Unit)
+            repo.saveOrderGate = null
+            advanceUntilIdle()
+            val afterRace = expectMostRecentItem()
+            assertThat(afterRace.isCustomOrder).isFalse()
+            assertThat(afterRace.sort).isEqualTo(HikeListSort.LONGEST)
+            assertThat(afterRace.hikes.map { it.id }).containsExactly(alpha.id, gamma.id, beta.id).inOrder()
+
+            // Re-enter custom order, fail clearCustomHikeOrder, and verify preference is unchanged.
+            viewModel.onMoveHike(2, 0)
+            advanceUntilIdle()
+            assertThat(expectMostRecentItem().isCustomOrder).isTrue()
+
+            repo.nextOrderFailure = IOException("Disk locked")
+            viewModel.onSelectSort(HikeListSort.ALPHABETICAL)
+            advanceUntilIdle()
+            val failedReset = expectMostRecentItem()
+            assertThat(failedReset.actionError).isEqualTo(HikeLibraryViewModel.SORT_ERROR_KEY)
+            assertThat(failedReset.isCustomOrder).isTrue()
+            assertThat(failedReset.sort).isEqualTo(HikeListSort.LONGEST)
+
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
     private fun createSortViewModel(
         repo: FakeHikeRepository,
         recordingController: FakeRecordingController

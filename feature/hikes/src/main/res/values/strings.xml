@@ -37,6 +37,7 @@
     <string name="library_totals_error_body">Your library couldn’t be read just now.</string>
     <string name="library_totals_retry">Try Again</string>
     <string name="library_totals_chart_description">Monthly hiking distance comparing %1$s and %2$s</string>
+    <string name="library_totals_month_description">%1$s: %2$s %3$s, %4$s %5$s</string>
 
     <plurals name="hikes_library_count">
         <item quantity="one">%1$d saved hike</item>

@@ -45,6 +45,12 @@ interface HikeRepository {
 
     val libraryLines: Flow<List<LibraryLine>>
 
+    /**
+     * Emits a fresh revision token whenever portable hike rows, route chunks, or walk records
+     * mutate so [LibraryTotals] screens re-sum even when distance, climb, and walk count are unchanged.
+     */
+    val totalsInvalidation: Flow<Long>
+
     fun observeHike(hikeId: HikeId): Flow<Hike?>
 
     fun observeLocalState(hikeId: HikeId): Flow<HikeLocalState?>

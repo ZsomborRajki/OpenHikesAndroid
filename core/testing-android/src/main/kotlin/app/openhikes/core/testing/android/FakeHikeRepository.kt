@@ -73,6 +73,7 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
     private val localStateMap = MutableStateFlow<Map<HikeId, HikeLocalState>>(emptyMap())
     private val walksState = MutableStateFlow<List<HikeWalk>>(emptyList())
     private val openWalksByHike = MutableStateFlow<Map<HikeId, TrailWalkRecord>>(emptyMap())
+    private val totalsRevisionCounter = java.util.concurrent.atomic.AtomicLong(0L)
     private val uriPayloads = HashMap<String, Pair<String?, ByteArray>>()
     private val originalRoutesByHike = HashMap<HikeId, List<RouteCoordinate>>()
     private val routeEditsByHike = HashMap<HikeId, RouteEdit>()
@@ -94,6 +95,7 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
     var nextPhotoRemoveFailure: Throwable? = null
     var nextTotalsFailure: Throwable? = null
     var nextOrderFailure: Throwable? = null
+    var saveOrderGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
     var validateElevationCalls: Int = 0
         private set
     var simulatedPhotoStorageBytes: Long? = null
@@ -165,6 +167,10 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
                     LibraryLine(hikeId = hike.id, tintHex = hike.tintHex, runs = runs)
                 }
             }
+    }
+
+    override val totalsInvalidation: Flow<Long> = combine(hikesState, walksState) { _, _ ->
+        totalsRevisionCounter.incrementAndGet()
     }
 
     fun registerUriPayload(uriString: String, bytes: ByteArray, fileName: String? = null) {
@@ -1137,6 +1143,7 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
     override suspend fun reclaimOrphanedPhotos(): Result<Int> = Result.success(0)
 
     override suspend fun saveCustomHikeOrder(orderedIds: List<HikeId>): Result<Unit> {
+        saveOrderGate?.await()
         val failure = nextOrderFailure?.also { nextOrderFailure = null }
         if (failure != null) return Result.failure(failure)
         localStateMap.update { current ->

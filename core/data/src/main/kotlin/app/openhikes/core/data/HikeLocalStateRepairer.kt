@@ -36,6 +36,29 @@ internal class HikeLocalStateRepairer(
         false
     }
 
+    suspend fun insertIfAbsentBestEffort(entity: HikeLocalStateEntity): Boolean = try {
+        hikeLocalStateDao.insertIgnore(entity)
+        true
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Throwable) {
+        false
+    }
+
+    suspend fun upsertElevationMetricsBestEffort(
+        hikeId: String,
+        climbMeters: Double?,
+        descentMeters: Double?,
+        elevationRouteRevision: String?
+    ): Boolean = try {
+        hikeLocalStateDao.upsertElevationMetrics(hikeId, climbMeters, descentMeters, elevationRouteRevision)
+        true
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: Throwable) {
+        false
+    }
+
     suspend fun deleteBestEffort(hikeId: String) {
         try {
             hikeLocalStateDao.deleteByHikeId(hikeId)
@@ -61,8 +84,8 @@ internal class HikeLocalStateRepairer(
                     merged[entity.id] = existing
                 } else {
                     val repaired = computeDerivedState(entity)
-                    upsertBestEffort(repaired)
-                    merged[entity.id] = repaired
+                    insertIfAbsentBestEffort(repaired)
+                    merged[entity.id] = getLocalStateBestEffort(entity.id) ?: repaired
                 }
             }
             merged
@@ -75,8 +98,8 @@ internal class HikeLocalStateRepairer(
             ?: return@withLock null
         if (hikeWithRoute.hike.isRecording) return@withLock null
         val repaired = buildDerivedState(hikeWithRoute.hike, hikeWithRoute.routeChunks)
-        upsertBestEffort(repaired)
-        repaired
+        insertIfAbsentBestEffort(repaired)
+        getLocalStateBestEffort(hikeId) ?: repaired
     }
 
     private suspend fun getLocalStateBestEffort(hikeId: String): HikeLocalStateEntity? = try {

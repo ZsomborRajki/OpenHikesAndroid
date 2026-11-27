@@ -17,7 +17,6 @@ import app.openhikes.core.testing.TestClock
 import app.openhikes.core.testing.TestFixtures
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
@@ -185,20 +184,8 @@ class WalkPersistenceStoreTest {
         )
     }
 
-    private class ControllableLocalStateDao(private val delegate: HikeLocalStateDao) : HikeLocalStateDao {
+    private class ControllableLocalStateDao(private val delegate: HikeLocalStateDao) : HikeLocalStateDao by delegate {
         var failUpsert: Boolean = false
-
-        override fun observeAll(): Flow<List<HikeLocalStateEntity>> = delegate.observeAll()
-
-        override suspend fun getAll(): List<HikeLocalStateEntity> = delegate.getAll()
-
-        override fun observeByHikeId(hikeId: String): Flow<HikeLocalStateEntity?> = delegate.observeByHikeId(hikeId)
-
-        override suspend fun getByHikeId(hikeId: String): HikeLocalStateEntity? = delegate.getByHikeId(hikeId)
-
-        override suspend fun getOwnedRecordingDraftIds(): List<String> = delegate.getOwnedRecordingDraftIds()
-
-        override suspend fun getWithWalkInProgress(): List<HikeLocalStateEntity> = delegate.getWithWalkInProgress()
 
         override suspend fun upsert(entity: HikeLocalStateEntity) {
             if (failUpsert) throw SQLiteException("Simulated local DB refusal")
@@ -210,8 +197,24 @@ class WalkPersistenceStoreTest {
             delegate.upsertAll(entities)
         }
 
-        override suspend fun clearAllListOrders(): Int = delegate.clearAllListOrders()
+        override suspend fun insertIgnore(entity: HikeLocalStateEntity): Long {
+            if (failUpsert) throw SQLiteException("Simulated local DB refusal")
+            return delegate.insertIgnore(entity)
+        }
 
-        override suspend fun deleteByHikeId(hikeId: String): Int = delegate.deleteByHikeId(hikeId)
+        override suspend fun updateElevationMetrics(
+            hikeId: String,
+            climbMeters: Double?,
+            descentMeters: Double?,
+            elevationRouteRevision: String?
+        ): Int {
+            if (failUpsert) throw SQLiteException("Simulated local DB refusal")
+            return delegate.updateElevationMetrics(hikeId, climbMeters, descentMeters, elevationRouteRevision)
+        }
+
+        override suspend fun updateListOrder(hikeId: String, listOrder: Int?): Int {
+            if (failUpsert) throw SQLiteException("Simulated local DB refusal")
+            return delegate.updateListOrder(hikeId, listOrder)
+        }
     }
 }

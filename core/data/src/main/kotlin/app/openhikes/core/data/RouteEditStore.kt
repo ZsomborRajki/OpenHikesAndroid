@@ -8,7 +8,6 @@ import app.openhikes.core.database.dao.HikeDao
 import app.openhikes.core.database.dao.HikeLocalStateDao
 import app.openhikes.core.database.dao.HikeWalkDao
 import app.openhikes.core.database.entity.HikeEntity
-import app.openhikes.core.database.entity.HikeLocalStateEntity
 import app.openhikes.core.database.entity.HikeOriginalRouteChunkEntity
 import app.openhikes.core.database.entity.HikeRouteChunkEntity
 import app.openhikes.core.database.entity.HikeWalkEntity
@@ -280,25 +279,14 @@ internal class RouteEditStore(
         elevationRevision: String?
     ) {
         val existing = hikeLocalStateDao.getByHikeId(hikeId)
-        val updated = existing?.copy(
-            climbMeters = climbMeters,
-            descentMeters = descentMeters,
-            elevationRouteRevision = elevationRevision
-        ) ?: if (climbMeters != null || descentMeters != null) {
-            HikeLocalStateEntity(
+        val shouldPersist = existing != null || climbMeters != null || descentMeters != null
+        if (shouldPersist) {
+            localStateRepairer.upsertElevationMetricsBestEffort(
                 hikeId = hikeId,
-                listOrder = null,
                 climbMeters = climbMeters,
                 descentMeters = descentMeters,
-                elevationRouteRevision = elevationRevision,
-                ownsRecordingDraft = false,
-                autoSavedTileKeysJson = "[]"
+                elevationRouteRevision = elevationRevision
             )
-        } else {
-            null
-        }
-        if (updated != null) {
-            localStateRepairer.upsertBestEffort(updated)
         }
     }
 

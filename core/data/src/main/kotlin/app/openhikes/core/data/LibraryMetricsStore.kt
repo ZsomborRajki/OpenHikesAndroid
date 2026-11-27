@@ -4,12 +4,12 @@ import android.database.SQLException
 import app.openhikes.core.common.LaunchConfig
 import app.openhikes.core.common.OpenHikesClock
 import app.openhikes.core.database.RouteBlobCodec
+import app.openhikes.core.database.dao.ElevationMetricsRowUpdate
 import app.openhikes.core.database.dao.HikeDao
 import app.openhikes.core.database.dao.HikeLocalStateDao
 import app.openhikes.core.database.dao.HikeMapRouteChunkRow
 import app.openhikes.core.database.dao.HikeWalkDao
 import app.openhikes.core.database.entity.HikeEntity
-import app.openhikes.core.database.entity.HikeLocalStateEntity
 import app.openhikes.core.database.entity.HikeWalkEntity
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeId
@@ -76,17 +76,18 @@ internal class LibraryMetricsStore(
 
     /**
      * Validates cached climb and descent figures for [hikeIds] against each hike's current route,
-     * updating stale entries and clearing obsolete figures without overwriting unrelated local state.
+     * applying field-scoped updates so concurrent walk checkpoints, list positions, or offline
+     * tile claims in `hike_local_state` are never overwritten.
      */
     suspend fun validateElevationMetrics(hikeIds: List<HikeId>): Result<Boolean> = withContext(ioDispatcher) {
         if (hikeIds.isEmpty()) return@withContext Result.success(false)
         runStorageCatching {
-            val updates = ArrayList<HikeLocalStateEntity>()
+            val updates = ArrayList<ElevationMetricsRowUpdate>()
             for (hikeId in hikeIds) {
                 measureIfStale(hikeId.value)?.let(updates::add)
             }
             if (updates.isNotEmpty()) {
-                hikeLocalStateDao.upsertAll(updates)
+                hikeLocalStateDao.upsertElevationMetricsBatch(updates)
                 true
             } else {
                 false
@@ -94,7 +95,7 @@ internal class LibraryMetricsStore(
         }
     }
 
-    private suspend fun measureIfStale(hikeId: String): HikeLocalStateEntity? {
+    private suspend fun measureIfStale(hikeId: String): ElevationMetricsRowUpdate? {
         hikeDao.getHikeById(hikeId) ?: return null
         val chunks = hikeDao.getRouteChunks(hikeId)
         val existing = hikeLocalStateDao.getByHikeId(hikeId)
@@ -109,18 +110,11 @@ internal class LibraryMetricsStore(
         return if (upToDate || missingNoChange) {
             null
         } else {
-            existing?.copy(
+            ElevationMetricsRowUpdate(
+                hikeId = hikeId,
                 climbMeters = measurement.climbMeters,
                 descentMeters = measurement.descentMeters,
                 elevationRouteRevision = measurement.revision
-            ) ?: HikeLocalStateEntity(
-                hikeId = hikeId,
-                listOrder = null,
-                climbMeters = measurement.climbMeters,
-                descentMeters = measurement.descentMeters,
-                elevationRouteRevision = measurement.revision,
-                ownsRecordingDraft = false,
-                autoSavedTileKeysJson = "[]"
             )
         }
     }

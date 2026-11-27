@@ -182,6 +182,7 @@ internal fun rememberShellNavigationHost(
     openLibraryLineHikeRequest: Pair<Int, HikeId>?,
     defaultAddPlaceCoordinateProvider: (HikeId) -> GeoCoordinate,
     latestRecordingCoordinateProvider: () -> GeoCoordinate?,
+    onConsumeLibraryLineHikeRequest: (Int) -> Unit,
     onRequestAutoStartRecording: () -> Unit,
     onRequestEndWalkForRecording: () -> Unit,
     onSyncBackStack: (List<Any>) -> Unit,
@@ -211,6 +212,7 @@ internal fun rememberShellNavigationHost(
         openRecordingRequestCount = openRecordingRequestCount,
         openWalkHikeRequest = openWalkHikeRequest,
         openLibraryLineHikeRequest = openLibraryLineHikeRequest,
+        onConsumeLibraryLineHikeRequest = onConsumeLibraryLineHikeRequest,
         onSyncBackStack = onSyncBackStack,
         onDismissAttributionDialog = onDismissAttributionDialog,
         onExitSearch = actions.exitSearch
@@ -415,6 +417,7 @@ private fun CoordinateShellNavigation(
     openRecordingRequestCount: Int,
     openWalkHikeRequest: Pair<Int, HikeId>?,
     openLibraryLineHikeRequest: Pair<Int, HikeId>?,
+    onConsumeLibraryLineHikeRequest: (Int) -> Unit,
     onSyncBackStack: (List<Any>) -> Unit,
     onDismissAttributionDialog: () -> Unit,
     onExitSearch: () -> Unit
@@ -425,6 +428,7 @@ private fun CoordinateShellNavigation(
         openRecordingRequestCount = openRecordingRequestCount,
         openWalkHikeRequest = openWalkHikeRequest,
         openLibraryLineHikeRequest = openLibraryLineHikeRequest,
+        onConsumeLibraryLineHikeRequest = onConsumeLibraryLineHikeRequest,
         onExitSearch = onExitSearch
     )
     SyncShellBackStackEffect(controllers = controllers, onSyncBackStack = onSyncBackStack)

@@ -276,10 +276,12 @@ class MapShellViewModel @Inject constructor(
             libraryLines.filterNot { it.hikeId == selectedHikeId || it.hikeId == hiddenHikeId }
         }
         latestVisibleLibraryLines = visibleLibraryLines
-        latestSelectedRouteLines = if (selectedOverlays.isEmpty()) {
-            emptyList()
-        } else {
-            libraryLines.filter { it.hikeId == selectedHikeId }
+        latestSelectedRouteLines = selectedOverlays.map { overlay ->
+            LibraryLine(
+                hikeId = overlay.hikeId,
+                tintHex = overlay.tintHex,
+                runs = overlay.walkedSegments
+            )
         }
         ResolvedRouteLayers(
             selectedRoutes = selectedOverlays,
@@ -568,6 +570,12 @@ class MapShellViewModel @Inject constructor(
         val hitHikeId = hitLibraryLineOnTap(coordinate) ?: return
         val nextCount = (openHikeFromMapRequestState.value?.first ?: 0) + 1
         openHikeFromMapRequestState.value = nextCount to hitHikeId
+    }
+
+    fun onConsumeOpenHikeFromMapRequest(requestToken: Int) {
+        if (openHikeFromMapRequestState.value?.first == requestToken) {
+            openHikeFromMapRequestState.value = null
+        }
     }
 
     private fun hitLibraryLineOnTap(coordinate: GeoCoordinate): HikeId? {

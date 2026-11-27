@@ -175,6 +175,7 @@ internal class LocalFakeHikeRepository : HikeRepository {
     }
     override val mapRoutes: Flow<List<HikeMapRoute>> = MutableStateFlow(emptyList())
     override val libraryLines: Flow<List<app.openhikes.core.model.LibraryLine>> = MutableStateFlow(emptyList())
+    override val totalsInvalidation: Flow<Long> = MutableStateFlow(0L)
 
     fun setLocalStateForTest(localState: HikeLocalState) {
         localStateMap.update { it + (localState.hikeId to localState) }

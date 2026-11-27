@@ -2,9 +2,13 @@ package app.openhikes.feature.hikes
 
 import app.cash.turbine.test
 import app.openhikes.core.model.DistanceUnit
+import app.openhikes.core.model.EditedLine
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.RouteBoundary
 import app.openhikes.core.model.RouteCoordinate
+import app.openhikes.core.model.RouteProfile
+import app.openhikes.core.model.RouteTrim
 import app.openhikes.core.testing.MainDispatcherRule
 import app.openhikes.core.testing.TestClock
 import app.openhikes.core.testing.android.FakeHikeRepository
@@ -98,6 +102,67 @@ class LibraryTotalsViewModelTest {
             viewModel.onRetry()
             advanceUntilIdle()
             assertThat(expectMostRecentItem().loadState).isInstanceOf(LibraryTotalsLoadState.Loaded::class.java)
+
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun refreshesTotalsWhenTrimmingLeadingPauseMovesStartAcrossNewYear() = runTest {
+        val late2025 = Instant.parse("2025-12-31T23:55:00Z").toEpochMilli()
+        val early2026 = Instant.parse("2026-01-01T00:05:00Z").toEpochMilli()
+        val end2026 = Instant.parse("2026-01-01T01:05:00Z").toEpochMilli()
+        val fullRoute = listOf(
+            RouteCoordinate(47.70, 12.80, elevationMeters = 600.0, timestampEpochMillis = late2025),
+            RouteCoordinate(
+                47.70,
+                12.80,
+                elevationMeters = 600.0,
+                timestampEpochMillis = early2026,
+                boundary = RouteBoundary.PAUSED
+            ),
+            RouteCoordinate(47.72, 12.82, elevationMeters = 900.0, timestampEpochMillis = end2026)
+        )
+        val profile = RouteProfile.from(fullRoute)
+        val distanceMeters = profile.totalDistanceMeters
+        val hike = Hike(
+            id = HikeId("h-new-year"),
+            title = "Midnight Climb",
+            distanceMeters = distanceMeters,
+            dateEpochMillis = late2025,
+            route = fullRoute
+        )
+        val repo = FakeHikeRepository(listOf(hike))
+        val viewModel = LibraryTotalsViewModel(
+            hikeRepository = repo,
+            userSettingsRepository = FakeUserSettingsRepository(),
+            clock = TestClock(Instant.parse("2026-06-15T12:00:00Z")),
+            zoneIdProvider = { ZoneOffset.UTC }
+        )
+
+        viewModel.uiState.test {
+            advanceUntilIdle()
+            val beforeTrim = (expectMostRecentItem().loadState as LibraryTotalsLoadState.Loaded).totals
+            assertThat(beforeTrim.lastYear.outings).isEqualTo(1)
+            assertThat(beforeTrim.thisYear.outings).isEqualTo(0)
+
+            // Trimming the leading pause preserves distance, climb, and walk count
+            // while shifting the recorded start date into 2026.
+            val edited = EditedLine.build(
+                whole = fullRoute,
+                distances = profile.distances,
+                cuts = EditedLine.Cuts(range = 0.0..distanceMeters, takingOff = RouteTrim.EndPauses.START),
+                replacing = fullRoute
+            )!!
+            repo.applyRouteEdit(
+                hikeId = hike.id,
+                expectedCurrentRoute = fullRoute,
+                edited = edited
+            )
+            advanceUntilIdle()
+            val afterTrim = (expectMostRecentItem().loadState as LibraryTotalsLoadState.Loaded).totals
+            assertThat(afterTrim.lastYear.outings).isEqualTo(0)
+            assertThat(afterTrim.thisYear.outings).isEqualTo(1)
 
             cancelAndIgnoreRemainingEvents()
         }

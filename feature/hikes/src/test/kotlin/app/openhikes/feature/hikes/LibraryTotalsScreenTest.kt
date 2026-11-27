@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -71,6 +72,8 @@ class LibraryTotalsScreenTest {
 
         list.performScrollToKey("month_chart")
         composeRule.onNodeWithTag(OpenHikesTestTags.LIBRARY_MONTH_CHART).assertIsDisplayed()
+        composeRule.onNodeWithContentDescription("May: 2026 18.5 km, 2025 12.0 km").assertExists()
+        composeRule.onNodeWithContentDescription("January: 2026 4.0 km, 2025 2.0 km").assertExists()
 
         list.performScrollToKey("all_time")
         composeRule.onNodeWithText("All Time").assertIsDisplayed()

@@ -66,11 +66,11 @@ class LibraryTotalsAndOrderJourneyTest {
             putExtra(LaunchConfigReader.EXTRA_SEED_NEARBY_TRAILS, "true")
         }
 
-        ActivityScenario.launch<MainActivity>(intent).use { _ ->
+        ActivityScenario.launch<MainActivity>(intent).use { scenario ->
             val renderer = trailMapRenderer as FakeTrailMapRenderer
             verifySortingAndReordering()
             verifyTotalsAndRecordNavigation()
-            verifyMapLibraryLineTap(renderer)
+            verifyMapLibraryLineTap(renderer, scenario)
         }
     }
 
@@ -136,7 +136,7 @@ class LibraryTotalsAndOrderJourneyTest {
         composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.HIKE_LIST), timeoutMillis = 5_000)
     }
 
-    private fun verifyMapLibraryLineTap(renderer: FakeTrailMapRenderer) {
+    private fun verifyMapLibraryLineTap(renderer: FakeTrailMapRenderer, scenario: ActivityScenario<MainActivity>) {
         composeRule.waitUntil(timeoutMillis = 5_000) {
             (renderer.lastOverlayState.value?.libraryLines?.size ?: 0) >= 4
         }
@@ -157,6 +157,13 @@ class LibraryTotalsAndOrderJourneyTest {
             renderer.lastOverlayState.value?.routes?.size == 1 &&
                 renderer.lastOverlayState.value?.libraryLines?.size == 3
         }
+
+        // Navigate back to the library and recreate the activity (rotation): consumed tap must not re-open detail.
+        composeRule.onNodeWithTag(OpenHikesTestTags.HIKE_DETAIL_BACK).performClick()
+        composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.HIKE_LIST), timeoutMillis = 5_000)
+        scenario.recreate()
+        composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.HIKE_LIST), timeoutMillis = 5_000)
+        composeRule.onNodeWithTag(OpenHikesTestTags.HIKE_DETAIL_SCREEN).assertDoesNotExist()
     }
 
     private fun rowTopY(title: String): Float =
