@@ -15,6 +15,7 @@ import kotlinx.coroutines.withContext
 /**
  * Proto DataStore-backed [UserSettingsRepository] switching all disk writes onto [ioDispatcher].
  */
+@Suppress("TooManyFunctions")
 internal class OfflineFirstUserSettingsRepository @Inject constructor(
     private val preferencesDataSource: OpenHikesPreferencesDataSource,
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
@@ -59,6 +60,10 @@ internal class OfflineFirstUserSettingsRepository @Inject constructor(
 
     override suspend fun setOfflineCountriesExtraDetail(enabled: Boolean) = withContext(ioDispatcher) {
         preferencesDataSource.setOfflineCountriesExtraDetail(enabled)
+    }
+
+    override suspend fun setOfflineCountriesElevationData(enabled: Boolean) = withContext(ioDispatcher) {
+        preferencesDataSource.setOfflineCountriesElevationData(enabled)
     }
 
     override suspend fun setJunctionWarningsEnabled(enabled: Boolean) = withContext(ioDispatcher) {

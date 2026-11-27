@@ -13,6 +13,8 @@
     <string name="offline_maps_use_openhikes_map">Use the OpenHikes Map</string>
     <string name="offline_maps_extra_detail_title">Extra Detail</string>
     <string name="offline_maps_extra_detail_summary">Adds buildings and small places such as water taps, toilets, and benches. Downloads take about twice the space.</string>
+    <string name="offline_maps_elevation_data_title">Elevation Data</string>
+    <string name="offline_maps_elevation_data_summary">Gives trails in a downloaded country their elevation profile with no signal. Large or icy countries take much more space.</string>
     <string name="offline_maps_section_unfinished">Not Yet Downloaded</string>
     <string name="offline_maps_section_downloaded">Downloaded</string>
     <string name="offline_maps_section_nearby">Nearby</string>
@@ -29,8 +31,15 @@
     <string name="offline_maps_status_waiting_wifi">Waiting for Wi-Fi</string>
     <string name="offline_maps_status_downloading">%1$s of %2$s</string>
     <string name="offline_maps_status_checking">Checking…</string>
-    <string name="offline_maps_status_downloaded">Downloaded · %1$s</string>
+    <string name="offline_maps_status_downloaded_with_elevation">Downloaded with elevation · %1$s</string>
+    <string name="offline_maps_status_downloaded_without_elevation">Downloaded without elevation · %1$s</string>
     <string name="offline_maps_status_update_available">Update available · %1$s</string>
+    <string name="offline_maps_offer_add_detail">Add Extra Detail · %1$s</string>
+    <string name="offline_maps_offer_add_elevation">Add Elevation Data · %1$s</string>
+    <string name="offline_maps_offer_add_both">Add Extra Detail and Elevation Data · %1$s</string>
+    <string name="offline_maps_offer_remove_detail">Remove Extra Detail · %1$s</string>
+    <string name="offline_maps_offer_remove_elevation">Remove Elevation Data · %1$s</string>
+    <string name="offline_maps_offer_remove_both">Remove Extra Detail and Elevation Data · %1$s</string>
     <string name="offline_maps_error_connection">Couldn’t download. Try again on Wi-Fi.</string>
     <string name="offline_maps_error_space">Not enough free space.</string>
     <string name="offline_maps_error_damaged">The download was damaged. Try again.</string>

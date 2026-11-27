@@ -17,6 +17,7 @@ data class UserSettings(
     val savePhotosToLibrary: Boolean = DEFAULT_SAVE_PHOTOS_TO_LIBRARY,
     val mapStyleId: String = MapStyleId.OPENHIKES,
     val offlineCountriesExtraDetail: Boolean = DEFAULT_OFFLINE_COUNTRIES_EXTRA_DETAIL,
+    val offlineCountriesElevationData: Boolean = DEFAULT_OFFLINE_COUNTRIES_ELEVATION_DATA,
     val junctionWarningsEnabled: Boolean = DEFAULT_JUNCTION_WARNINGS_ENABLED,
     val showsPlacePins: Boolean = DEFAULT_SHOWS_PLACE_PINS,
     val hiddenPlaceSymbols: Set<TrailPlaceSymbol> = emptySet(),
@@ -35,6 +36,7 @@ data class UserSettings(
         const val DEFAULT_AUTO_SAVE_TILES_ENABLED = false
         const val DEFAULT_SAVE_PHOTOS_TO_LIBRARY = false
         const val DEFAULT_OFFLINE_COUNTRIES_EXTRA_DETAIL = true
+        const val DEFAULT_OFFLINE_COUNTRIES_ELEVATION_DATA = true
         const val DEFAULT_JUNCTION_WARNINGS_ENABLED = false
         const val DEFAULT_SHOWS_PLACE_PINS = true
     }

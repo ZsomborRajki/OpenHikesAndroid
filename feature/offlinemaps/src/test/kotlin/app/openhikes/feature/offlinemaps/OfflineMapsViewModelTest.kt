@@ -105,4 +105,86 @@ class OfflineMapsViewModelTest {
         store.clear()
         assertThat(coordinator.activeClaim.value).isNull()
     }
+
+    @Test
+    fun elevationAndDetailSwitchesSurfaceOffersAndApplyOnlyOnExtendOrTrim() = runTest {
+        val slovenia = sloveniaWithElevation()
+        val repo = FakeOfflineCountryRepository(
+            OfflineCountriesState(
+                isPrepared = true,
+                listPhase = OfflineListPhase.LOADED,
+                offered = listOf(slovenia),
+                installed = mapOf(
+                    "SI" to app.openhikes.core.model.InstalledCountryRecord(
+                        country = slovenia,
+                        installedAtEpochMillis = 1_000L,
+                        hasDetail = true,
+                        hasElevation = false
+                    )
+                )
+            )
+        )
+        val viewModel = createViewModel(overMap = false, repo = repo)
+
+        viewModel.uiState.test {
+            awaitItem()
+            advanceUntilIdle()
+            val initial = expectMostRecentItem()
+            assertThat(initial.includesElevation).isTrue()
+            assertThat(initial.additions["SI"]?.extras)
+                .containsExactly(app.openhikes.core.model.OfflineCountryExtra.ELEVATION)
+            assertThat(initial.removals).isEmpty()
+
+            viewModel.onSetIncludesDetail(false)
+            advanceUntilIdle()
+            val afterDetailOff = expectMostRecentItem()
+            assertThat(afterDetailOff.installed["SI"]?.hasDetail).isTrue()
+            assertThat(afterDetailOff.removals["SI"]?.extras)
+                .containsExactly(app.openhikes.core.model.OfflineCountryExtra.DETAIL)
+
+            viewModel.onTrim("SI")
+            advanceUntilIdle()
+            assertThat(repo.trimmedIds).containsExactly("SI")
+            assertThat(expectMostRecentItem().installed["SI"]?.hasDetail).isFalse()
+
+            viewModel.onSetIncludesElevation(false)
+            advanceUntilIdle()
+            assertThat(expectMostRecentItem().additions).isEmpty()
+
+            viewModel.onSetIncludesElevation(true)
+            viewModel.onExtend("SI")
+            advanceUntilIdle()
+            val afterExtend = expectMostRecentItem()
+            assertThat(repo.extendedIds).containsExactly("SI")
+            assertThat(afterExtend.downloads["SI"]?.roles)
+                .containsExactly(app.openhikes.core.model.OfflineFileRole.ELEVATION)
+            assertThat(afterExtend.additions).isEmpty()
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    private fun sloveniaWithElevation() = seededCountries.first { it.id == "SI" }.let { base ->
+        base.copy(
+            files = base.files + app.openhikes.core.model.OfflineCountryFile(
+                role = app.openhikes.core.model.OfflineFileRole.ELEVATION,
+                path = "countries/SI-elevation-${base.build}.pmtiles",
+                byteCount = 42_000_000L,
+                sha256 = "0".repeat(64),
+                minimumZoom = 12,
+                maximumZoom = 12
+            )
+        )
+    }
+
+    private fun createViewModel(overMap: Boolean, repo: FakeOfflineCountryRepository): OfflineMapsViewModel =
+        OfflineMapsViewModel(
+            overMap = overMap,
+            offlineCountryRepository = repo,
+            userSettingsRepository = FakeUserSettingsRepository(),
+            mapClaimCoordinator = MapClaimCoordinator(),
+            mapProviderKeys = MapProviderKeys.Empty,
+            locationFeed = FakeLocationFeed(),
+            launchConfigHolder = LaunchConfigHolder(LaunchConfig.Production),
+            defaultDispatcher = mainDispatcherRule.testDispatcher
+        )
 }

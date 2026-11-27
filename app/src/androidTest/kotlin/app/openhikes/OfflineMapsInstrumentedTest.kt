@@ -61,9 +61,11 @@ class OfflineMapsInstrumentedTest {
             composeRule.onNodeWithTag(OpenHikesTestTags.MAP_MODES_SCREEN).performScrollToKey("offline-maps")
             composeRule.onNodeWithTag(OpenHikesTestTags.MAP_MODES_OFFLINE_MAPS).performClick()
             composeRule.waitUntilAtLeastOneExists(
-                hasTestTag(OpenHikesTestTags.offlineCountry("AT")),
+                hasTestTag(OpenHikesTestTags.OFFLINE_MAPS_EXTRA_DETAIL),
                 timeoutMillis = 5_000
             )
+            composeRule.onNodeWithTag(OpenHikesTestTags.OFFLINE_MAPS_SCREEN).performScrollToKey("country-AT")
+            composeRule.onNodeWithTag(OpenHikesTestTags.offlineCountry("AT")).assertIsDisplayed()
             composeRule.onRoot().tryPerformAccessibilityChecks()
 
             composeRule.onNodeWithTag(OpenHikesTestTags.OFFLINE_MAPS_SEARCH).performTextReplacement("wa")
@@ -88,6 +90,38 @@ class OfflineMapsInstrumentedTest {
             composeRule.onNodeWithTag(OpenHikesTestTags.OFFLINE_COUNTRY_BUTTON).performClick()
             composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.OFFLINE_COUNTRY_DIALOG))
             composeRule.onNodeWithText("Download Germany", substring = true).assertIsDisplayed()
+            composeRule.onRoot().tryPerformAccessibilityChecks()
+        }
+    }
+
+    @Test
+    fun downloadedCountryRowWithOfferPassesAccessibilityChecks() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val intent = Intent(context, MainActivity::class.java).apply {
+            putExtra(LaunchConfigReader.EXTRA_UI_TESTING, "true")
+            putExtra(LaunchConfigReader.EXTRA_EXPANDED_SHEET, "true")
+            putExtra(LaunchConfigReader.EXTRA_IN_MEMORY_DB, "true")
+            putExtra(LaunchConfigReader.EXTRA_ISOLATED_DATASTORE, "true")
+            putExtra(LaunchConfigReader.EXTRA_OFFLINE, "true")
+            putExtra(LaunchConfigReader.EXTRA_OFFLINE_COUNTRIES, "downloaded")
+        }
+
+        ActivityScenario.launch<MainActivity>(intent).use { _ ->
+            composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.MAP_MODES_BUTTON))
+            composeRule.onNodeWithTag(OpenHikesTestTags.MAP_MODES_BUTTON).performClick()
+            composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.MAP_MODES_SCREEN))
+            composeRule.onNodeWithTag(OpenHikesTestTags.MAP_MODES_SCREEN).performScrollToKey("offline-maps")
+            composeRule.onNodeWithTag(OpenHikesTestTags.MAP_MODES_OFFLINE_MAPS).performClick()
+            composeRule.waitUntilAtLeastOneExists(
+                hasTestTag(OpenHikesTestTags.OFFLINE_MAPS_EXTRA_DETAIL),
+                timeoutMillis = 5_000
+            )
+            composeRule.onNodeWithTag(OpenHikesTestTags.OFFLINE_MAPS_EXTRA_DETAIL).performClick()
+            composeRule.onNodeWithTag(OpenHikesTestTags.OFFLINE_MAPS_SCREEN).performScrollToKey("downloaded-SI")
+            composeRule.waitUntilAtLeastOneExists(
+                hasTestTag(OpenHikesTestTags.offlineCountryRemoveOffer("SI")),
+                timeoutMillis = 5_000
+            )
             composeRule.onRoot().tryPerformAccessibilityChecks()
         }
     }

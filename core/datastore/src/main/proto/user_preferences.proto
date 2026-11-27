@@ -25,4 +25,5 @@ message UserPreferences {
     repeated string hidden_place_symbols = 13;
     string hike_list_sort = 14;
     string route_coloring = 15;
+    optional bool offline_countries_elevation_data = 16;
 }

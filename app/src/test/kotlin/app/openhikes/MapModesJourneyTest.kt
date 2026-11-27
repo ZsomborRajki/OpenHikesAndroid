@@ -179,7 +179,7 @@ class MapModesJourneyTest {
             composeRule.onNodeWithTag(OpenHikesTestTags.MAP_MODES_SCREEN).performScrollToKey("offline-maps")
             composeRule.onNodeWithTag(OpenHikesTestTags.MAP_MODES_OFFLINE_MAPS).performClick()
             composeRule.waitUntilAtLeastOneExists(
-                hasTestTag(OpenHikesTestTags.offlineCountry("AT")),
+                hasTestTag(OpenHikesTestTags.OFFLINE_MAPS_EXTRA_DETAIL),
                 timeoutMillis = 5_000L
             )
             composeRule.onNodeWithTag(OpenHikesTestTags.OFFLINE_MAPS_BACK).performClick()

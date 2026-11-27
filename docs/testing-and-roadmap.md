@@ -365,3 +365,27 @@ GitHub issues once created.)*
       attribution in Settings About across `:feature:hikes`,
       `:feature:trailmaker`, `:feature:settings`, and `:app`, verified with
       Tier 1/2, Robolectric journey, and Compose screenshot tests.
+15. **Phase 14 — Offline Maps Elevation Data Toggle & Per-Country Add/Remove Offers (Slice 14):**
+    - Pure-JVM optional-extra domain (`OfflineCountryExtra`,
+      `OfflineCountryOffer`, `InstalledCountryRecordSerializer` backward-safe
+      strict decoding, `OfflineFileRole.isElevation` / `isOptional`,
+      `OfflineCountry.files(withDetail, withElevation)` / `byteCount`,
+      `OfflineCountriesState.includesElevation`, `recovering`, `isSettled`,
+      `wants`, `addition`, `removal`, `filesToRetry`, and
+      `UserSettings.offlineCountriesElevationData`) across `:core:model`.
+    - Proto DataStore `offline_countries_elevation_data` (defaulting to `true`)
+      in `:core:datastore`, seeded `"downloaded"` launch scenario (`SI` with
+      *Extra Detail*) across `:core:network` and `:core:data`, and
+      non-destructive *Extra Detail* / *Elevation Data* switch handling in
+      `DefaultOfflineCountryRepository` / `OfflineCountryReconciler` (one-tap
+      `extendCountry` / `trimCountry`, mandatory-only `bringGainedFiles`,
+      recovering-country offer & start suppression, abandoning dropped staged
+      files on smaller retries, ending retries cleanly when switches turn off
+      or server moves past an installed build, and pruning already-installed
+      `pending.json` entries at launch).
+    - Material 3 Expressive *Elevation Data* toggle card beneath *Extra
+      Detail*, `"Downloaded with elevation"` / `"Downloaded without elevation"`
+      row status copy, and whole-sentence per-country Add/Remove offer buttons
+      in `:feature:offlinemaps` (plus elevation-aware Hike Detail offline
+      dialog sizing in `:feature:hikes`), verified with Tier 1/2/3, Robolectric
+      journey, and Compose screenshot tests.

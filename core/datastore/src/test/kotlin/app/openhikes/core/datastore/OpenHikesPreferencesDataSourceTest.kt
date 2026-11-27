@@ -46,6 +46,8 @@ class OpenHikesPreferencesDataSourceTest {
         assertThat(settings.mapStyleId).isEqualTo(MapStyleId.OPENHIKES)
         assertThat(settings.hikeListSort).isEqualTo(HikeListSort.NEWEST)
         assertThat(settings.routeColoring).isEqualTo(RouteColoring.ELEVATION)
+        assertThat(settings.offlineCountriesExtraDetail).isTrue()
+        assertThat(settings.offlineCountriesElevationData).isTrue()
     }
 
     @Test
@@ -66,6 +68,8 @@ class OpenHikesPreferencesDataSourceTest {
         firstSource.setMapStyleId("custom-topo")
         firstSource.setHikeListSort(HikeListSort.HILLIEST)
         firstSource.setRouteColoring(RouteColoring.DIFFICULTY)
+        firstSource.setOfflineCountriesExtraDetail(false)
+        firstSource.setOfflineCountriesElevationData(false)
         writerScope.cancel()
 
         val readerStore = createDataStore(backgroundScope, file)
@@ -83,6 +87,8 @@ class OpenHikesPreferencesDataSourceTest {
         assertThat(reloaded.mapStyleId).isEqualTo("custom-topo")
         assertThat(reloaded.hikeListSort).isEqualTo(HikeListSort.HILLIEST)
         assertThat(reloaded.routeColoring).isEqualTo(RouteColoring.DIFFICULTY)
+        assertThat(reloaded.offlineCountriesExtraDetail).isFalse()
+        assertThat(reloaded.offlineCountriesElevationData).isFalse()
     }
 
     @Test(expected = CorruptionException::class)

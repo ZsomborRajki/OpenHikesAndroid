@@ -16,8 +16,9 @@ enum class OfflineDownloadExecutionResult {
 
 /**
  * Main-safe repository owning the offline country catalog, WorkManager downloads, SHA-256
- * verification, atomic country index, and Extra Detail reconciliation.
+ * verification, atomic country index, and *Extra Detail* / *Elevation Data* offers.
  */
+@Suppress("TooManyFunctions")
 interface OfflineCountryRepository {
     val state: StateFlow<OfflineCountriesState>
 
@@ -42,6 +43,20 @@ interface OfflineCountryRepository {
     suspend fun deleteCountry(countryId: String)
 
     suspend fun setIncludesDetail(enabled: Boolean)
+
+    suspend fun setIncludesElevation(enabled: Boolean)
+
+    /**
+     * Starts downloading the optional files currently offered by [OfflineCountriesState.addition]
+     * for an already-installed country.
+     */
+    suspend fun extendCountry(countryId: String)
+
+    /**
+     * Deletes the optional files currently offered by [OfflineCountriesState.removal] from an
+     * already-installed country without deleting the country itself.
+     */
+    suspend fun trimCountry(countryId: String)
 
     suspend fun runScheduledDownload(countryId: String): OfflineDownloadExecutionResult
 }

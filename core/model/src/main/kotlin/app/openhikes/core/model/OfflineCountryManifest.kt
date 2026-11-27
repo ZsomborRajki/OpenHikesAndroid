@@ -98,9 +98,12 @@ data class OfflineCountry(
                 files.all { it.hasSafeName && it.fileName.startsWith("$id-") }
         }
 
-    fun files(withDetail: Boolean): List<OfflineCountryFile> = files.filter { withDetail || !it.role.isDetail }
+    fun files(withDetail: Boolean, withElevation: Boolean = true): List<OfflineCountryFile> = files.filter { file ->
+        (withDetail || !file.role.isDetail) && (withElevation || !file.role.isElevation)
+    }
 
-    fun byteCount(withDetail: Boolean): Long = files(withDetail).sumOf { it.byteCount }
+    fun byteCount(withDetail: Boolean, withElevation: Boolean = true): Long =
+        files(withDetail = withDetail, withElevation = withElevation).sumOf { it.byteCount }
 
     /**
      * Localized display name of this country or region itself (without parent country suffix).
@@ -145,8 +148,8 @@ data class OfflineCountry(
         return outline.any { ring -> ringContains(ring, longitude, latitude) }
     }
 
-    private companion object {
-        fun ringContains(ring: List<List<Double>>, x: Double, y: Double): Boolean {
+    companion object {
+        private fun ringContains(ring: List<List<Double>>, x: Double, y: Double): Boolean {
             if (ring.isEmpty()) return false
             var inside = false
             var previous = ring.last()
@@ -238,6 +241,16 @@ enum class OfflineFileRole(val wireName: String) {
 
     val isDetail: Boolean
         get() = this == DETAIL || this == DETAIL_EXTRAS
+
+    val isElevation: Boolean
+        get() = this == ELEVATION
+
+    /**
+     * Whether a switch in Offline Maps (*Extra Detail* or *Elevation Data*) controls inclusion of
+     * this file; all other roles are downloaded automatically for every country.
+     */
+    val isOptional: Boolean
+        get() = isDetail || isElevation
 
     companion object {
         fun fromWireNameOrNull(raw: String): OfflineFileRole? = entries.firstOrNull { it.wireName == raw }

@@ -64,15 +64,19 @@ class OfflineMapsJourneyTest {
             openOfflineMapsFromToolbar()
 
             composeRule.waitUntilAtLeastOneExists(
-                hasTestTag(OpenHikesTestTags.offlineCountry("AT")),
+                hasTestTag(OpenHikesTestTags.OFFLINE_MAPS_EXTRA_DETAIL),
                 timeoutMillis = 5_000
             )
             assertThat(renderer.lastOverlayState.value?.countryOutlines).hasSize(10)
 
-            // Extra Detail starts ON (1.47 GB); toggling OFF halves Austria's listed size (735 MB).
+            // Extra Detail and Elevation Data both start ON; toggling Extra Detail OFF halves Austria's size.
             composeRule.onNodeWithTag(OpenHikesTestTags.OFFLINE_MAPS_EXTRA_DETAIL).assertIsOn()
+            composeRule.onNodeWithTag(OpenHikesTestTags.OFFLINE_MAPS_ELEVATION_DATA).assertIsOn()
+            composeRule.onNodeWithTag(OpenHikesTestTags.OFFLINE_MAPS_SCREEN).performScrollToKey("country-AT")
             composeRule.onNodeWithText("1.47 GB").assertIsDisplayed()
+            composeRule.onNodeWithTag(OpenHikesTestTags.OFFLINE_MAPS_SCREEN).performScrollToKey("head")
             composeRule.onNodeWithTag(OpenHikesTestTags.OFFLINE_MAPS_EXTRA_DETAIL).performClick()
+            composeRule.onNodeWithTag(OpenHikesTestTags.OFFLINE_MAPS_SCREEN).performScrollToKey("country-AT")
             composeRule.waitUntilAtLeastOneExists(hasText("735 MB"), timeoutMillis = 5_000)
 
             // Selecting Austria highlights its row and frames the map camera.
@@ -100,7 +104,7 @@ class OfflineMapsJourneyTest {
             val renderer = trailMapRenderer as FakeTrailMapRenderer
             openOfflineMapsFromToolbar()
             composeRule.waitUntilAtLeastOneExists(
-                hasTestTag(OpenHikesTestTags.offlineCountry("AT")),
+                hasTestTag(OpenHikesTestTags.OFFLINE_MAPS_EXTRA_DETAIL),
                 timeoutMillis = 5_000
             )
 
@@ -177,9 +181,11 @@ class OfflineMapsJourneyTest {
             composeRule.onNodeWithTag(OpenHikesTestTags.SETTINGS_SCREEN).performScrollToKey("offline_photos")
             composeRule.onNodeWithTag(OpenHikesTestTags.SETTINGS_OFFLINE_MAPS).performScrollTo().performClick()
             composeRule.waitUntilAtLeastOneExists(
-                hasTestTag(OpenHikesTestTags.offlineCountry("AT")),
+                hasTestTag(OpenHikesTestTags.OFFLINE_MAPS_EXTRA_DETAIL),
                 timeoutMillis = 5_000
             )
+            composeRule.onNodeWithTag(OpenHikesTestTags.OFFLINE_MAPS_SCREEN).performScrollToKey("country-AT")
+            composeRule.onNodeWithTag(OpenHikesTestTags.offlineCountry("AT")).assertIsDisplayed()
         }
     }
 
@@ -205,6 +211,53 @@ class OfflineMapsJourneyTest {
             composeRule.waitUntilExactlyOneExists(hasTestTag(OpenHikesTestTags.OFFLINE_COUNTRY_DIALOG))
             composeRule.onNodeWithText("Download Germany", substring = true).assertIsDisplayed()
             composeRule.onNodeWithText("Download Austria", substring = true).assertDoesNotExist()
+        }
+    }
+
+    @Test
+    fun downloadedScenarioChangesOnlyAtOfferTapWithoutAlert() {
+        ActivityScenario.launch<MainActivity>(seededIntent(scenario = "downloaded")).use { _ ->
+            openOfflineMapsFromToolbar()
+            composeRule.waitUntilAtLeastOneExists(
+                hasTestTag(OpenHikesTestTags.OFFLINE_MAPS_EXTRA_DETAIL),
+                timeoutMillis = 5_000
+            )
+            composeRule.onNodeWithTag(OpenHikesTestTags.OFFLINE_MAPS_SCREEN).performScrollToKey("downloaded-SI")
+            composeRule.onNodeWithTag(OpenHikesTestTags.offlineCountry("SI")).assertIsDisplayed()
+            composeRule.onNodeWithText("Downloaded without elevation · 396 MB").assertIsDisplayed()
+            composeRule.onNodeWithTag(OpenHikesTestTags.offlineCountryAddOffer("SI")).assertDoesNotExist()
+            composeRule.onNodeWithTag(OpenHikesTestTags.offlineCountryRemoveOffer("SI")).assertDoesNotExist()
+
+            // Flip Extra Detail OFF: Slovenia stays 396 MB and offers Remove Extra Detail.
+            composeRule.onNodeWithTag(OpenHikesTestTags.OFFLINE_MAPS_SCREEN).performScrollToKey("head")
+            composeRule.onNodeWithTag(OpenHikesTestTags.OFFLINE_MAPS_EXTRA_DETAIL).performClick()
+            composeRule.onNodeWithTag(OpenHikesTestTags.OFFLINE_MAPS_SCREEN).performScrollToKey("downloaded-SI")
+            composeRule.waitUntilAtLeastOneExists(
+                hasTestTag(OpenHikesTestTags.offlineCountryRemoveOffer("SI")),
+                timeoutMillis = 5_000
+            )
+            composeRule.onNodeWithText("Downloaded without elevation · 396 MB").assertIsDisplayed()
+            composeRule.onNodeWithText("Remove Extra Detail · 199 MB").assertIsDisplayed()
+
+            // Tap Remove: deletes zoom 15 immediately with no dialog and shrinks size to 198 MB.
+            composeRule.onNodeWithTag(OpenHikesTestTags.offlineCountryRemoveOffer("SI")).performClick()
+            composeRule.waitUntilAtLeastOneExists(
+                hasText("Downloaded without elevation · 198 MB"),
+                timeoutMillis = 5_000
+            )
+            composeRule.onNodeWithTag(OpenHikesTestTags.offlineCountryRemoveOffer("SI")).assertDoesNotExist()
+
+            // Flip Extra Detail back ON: offers Add Extra Detail without starting a download.
+            composeRule.onNodeWithTag(OpenHikesTestTags.OFFLINE_MAPS_SCREEN).performScrollToKey("head")
+            composeRule.onNodeWithTag(OpenHikesTestTags.OFFLINE_MAPS_EXTRA_DETAIL).performClick()
+            composeRule.onNodeWithTag(OpenHikesTestTags.OFFLINE_MAPS_SCREEN).performScrollToKey("downloaded-SI")
+            composeRule.waitUntilAtLeastOneExists(
+                hasTestTag(OpenHikesTestTags.offlineCountryAddOffer("SI")),
+                timeoutMillis = 5_000
+            )
+            composeRule.onNodeWithText("Add Extra Detail · 199 MB").assertIsDisplayed()
+            composeRule.onNodeWithText("Downloaded without elevation · 198 MB").assertIsDisplayed()
+            composeRule.onNodeWithTag(OpenHikesTestTags.offlineCountryCancel("SI")).assertDoesNotExist()
         }
     }
 

@@ -152,4 +152,80 @@ class OfflineCountryStoreTest {
         assertThat(store.fileFor(file1).isFile).isTrue()
         assertThat(store.readIndex()).isEqualTo(OfflineStoreList.Holding(listOf(record)))
     }
+
+    @Test
+    fun legacyIndexWithoutHasElevationInfersPresenceFromListedElevationFileAndPreservesExplicitFalse() {
+        val store = OfflineCountryStore(File(tempFolder.root, "OfflineCountries"))
+        store.prepare()
+        store.indexFile.writeText(legacyIndexWithoutHasElevationJson())
+
+        val holding = store.readIndex() as OfflineStoreList.Holding
+        val byId = holding.items.associateBy { it.country.id }
+        assertThat(byId.getValue("AT").hasElevation).isFalse()
+        assertThat(byId.getValue("SI").hasElevation).isTrue()
+
+        // Writing back explicit hasElevation = false keeps it false on subsequent decode.
+        val strippedSi = byId.getValue("SI").copy(hasElevation = false)
+        store.writeInstalled(listOf(byId.getValue("AT"), strippedSi))
+        val reread = (store.readIndex() as OfflineStoreList.Holding).items.associateBy { it.country.id }
+        assertThat(reread.getValue("SI").hasElevation).isFalse()
+        assertThat(reread.getValue("SI").files.map { it.role }).containsExactly(OfflineFileRole.BASEMAP)
+    }
+
+    private fun legacyIndexWithoutHasElevationJson(): String = """
+        [
+          {
+            "country": {
+              "id": "AT",
+              "names": {},
+              "build": "20261117",
+              "schema": 4,
+              "bounds": { "west": 9.5, "south": 46.4, "east": 17.0, "north": 49.0 },
+              "outline": [],
+              "files": [
+                {
+                  "role": "basemap",
+                  "path": "countries/AT-20261117.pmtiles",
+                  "bytes": 100,
+                  "sha256": "${"a".repeat(64)}",
+                  "minimumZoom": 0,
+                  "maximumZoom": 14
+                }
+              ]
+            },
+            "installedAtEpochMillis": 10,
+            "hasDetail": false
+          },
+          {
+            "country": {
+              "id": "SI",
+              "names": {},
+              "build": "20261117",
+              "schema": 4,
+              "bounds": { "west": 13.6, "south": 45.45, "east": 16.6, "north": 46.85 },
+              "outline": [],
+              "files": [
+                {
+                  "role": "basemap",
+                  "path": "countries/SI-20261117.pmtiles",
+                  "bytes": 100,
+                  "sha256": "${"b".repeat(64)}",
+                  "minimumZoom": 0,
+                  "maximumZoom": 14
+                },
+                {
+                  "role": "elevation",
+                  "path": "countries/SI-elevation-20261117.pmtiles",
+                  "bytes": 50,
+                  "sha256": "${"c".repeat(64)}",
+                  "minimumZoom": 12,
+                  "maximumZoom": 12
+                }
+              ]
+            },
+            "installedAtEpochMillis": 20,
+            "hasDetail": false
+          }
+        ]
+    """.trimIndent()
 }

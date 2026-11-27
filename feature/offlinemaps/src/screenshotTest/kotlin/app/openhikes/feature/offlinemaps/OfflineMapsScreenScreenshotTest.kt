@@ -35,6 +35,13 @@ fun OfflineMapsDownloadingDarkPreview() {
 }
 
 @PreviewTest
+@Preview(name = "Offline Maps Offers Light", showBackground = true, widthDp = 411, heightDp = 760)
+@Composable
+fun OfflineMapsOffersLightPreview() {
+    OfflineMapsPreviewHost(darkTheme = false, uiState = sampleOffersUiState())
+}
+
+@PreviewTest
 @Preview(name = "Offline Maps Load Error Light", showBackground = true, widthDp = 411, heightDp = 700)
 @Composable
 fun OfflineMapsLoadErrorLightPreview() {
@@ -52,7 +59,7 @@ fun OfflineMapsLoadErrorLightPreview() {
 @Preview(name = "Offline Maps Large Font 200", showBackground = true, widthDp = 411, heightDp = 891, fontScale = 2.0f)
 @Composable
 fun OfflineMapsLargeFontPreview() {
-    OfflineMapsPreviewHost(darkTheme = false, uiState = sampleActiveDownloadsUiState())
+    OfflineMapsPreviewHost(darkTheme = false, uiState = sampleOffersUiState())
 }
 
 @Composable
@@ -68,12 +75,15 @@ private fun OfflineMapsPreviewHost(darkTheme: Boolean, uiState: OfflineMapsUiSta
                 onToggleGroup = {},
                 onSelectCountry = {},
                 onSetIncludesDetail = {},
+                onSetIncludesElevation = {},
                 onUseOpenHikesMap = {},
                 onDownload = {},
                 onRetry = {},
                 onRepair = {},
                 onCancel = {},
                 onDelete = {},
+                onExtend = {},
+                onTrim = {},
                 onRefresh = {}
             )
         }
@@ -81,10 +91,10 @@ private fun OfflineMapsPreviewHost(darkTheme: Boolean, uiState: OfflineMapsUiSta
 }
 
 private fun sampleCountries(): List<OfflineCountry> = listOf(
-    previewCountry("AT", baseBytes = 735_373_771L, detailBytes = 731_274_809L),
-    previewCountry("DE", baseBytes = 2_734_096_642L, detailBytes = 2_800_123_519L),
-    previewCountry("FR", baseBytes = 3_023_591_526L, detailBytes = 3_127_066_993L),
-    previewCountry("SI", baseBytes = 197_772_131L, detailBytes = 198_529_057L),
+    previewCountry("AT", baseBytes = 735_373_771L, detailBytes = 731_274_809L, elevationBytes = 84_000_000L),
+    previewCountry("DE", baseBytes = 2_734_096_642L, detailBytes = 2_800_123_519L, elevationBytes = 210_000_000L),
+    previewCountry("FR", baseBytes = 3_023_591_526L, detailBytes = 3_127_066_993L, elevationBytes = 260_000_000L),
+    previewCountry("SI", baseBytes = 197_772_131L, detailBytes = 198_529_057L, elevationBytes = 28_000_000L),
     previewCountry("US-CO", group = "US", name = "Colorado", baseBytes = 595_070_538L, detailBytes = 613_619_169L),
     previewCountry("US-WA", group = "US", name = "Washington", baseBytes = 695_020_779L, detailBytes = 716_318_242L)
 )
@@ -95,7 +105,8 @@ private fun sampleCatalogUiState(): OfflineMapsUiState {
         isPrepared = true,
         listPhase = OfflineListPhase.LOADED,
         offered = countries,
-        includesDetail = true
+        includesDetail = true,
+        includesElevation = true
     )
     val dir = OfflineCountryDirectoryBuilder.build(state, OfflineCountrySort.NAME, locale = Locale.US)
     return OfflineMapsUiState(
@@ -105,6 +116,7 @@ private fun sampleCatalogUiState(): OfflineMapsUiState {
         sort = OfflineCountrySort.NAME,
         availableSorts = listOf(OfflineCountrySort.NAME, OfflineCountrySort.LARGEST),
         includesDetail = true,
+        includesElevation = true,
         selectedCountryId = "AT",
         expandedGroups = setOf("US"),
         unfinished = dir.unfinished,
@@ -123,15 +135,20 @@ private fun sampleActiveDownloadsUiState(): OfflineMapsUiState {
         listPhase = OfflineListPhase.LOADED,
         offered = countries,
         installed = mapOf(
-            "DE" to InstalledCountryRecord(germany, installedAtEpochMillis = 1_000L, hasDetail = true)
+            "DE" to InstalledCountryRecord(
+                germany,
+                installedAtEpochMillis = 1_000L,
+                hasDetail = true,
+                hasElevation = true
+            )
         ),
         downloads = mapOf(
             "AT" to OfflineCountryDownload(
                 country = austria,
-                roles = listOf(OfflineFileRole.BASEMAP, OfflineFileRole.DETAIL),
+                roles = listOf(OfflineFileRole.BASEMAP, OfflineFileRole.DETAIL, OfflineFileRole.ELEVATION),
                 phase = OfflineDownloadPhase.DOWNLOADING,
                 writtenBytes = 620_000_000L,
-                totalBytes = 1_466_648_580L
+                totalBytes = 1_550_648_580L
             ),
             "FR" to OfflineCountryDownload(
                 country = france,
@@ -140,7 +157,8 @@ private fun sampleActiveDownloadsUiState(): OfflineMapsUiState {
                 failure = OfflineDownloadFailure.CONNECTION
             )
         ),
-        includesDetail = true
+        includesDetail = true,
+        includesElevation = true
     )
     val dir = OfflineCountryDirectoryBuilder.build(state, OfflineCountrySort.NAME, locale = Locale.US)
     return OfflineMapsUiState(
@@ -150,6 +168,7 @@ private fun sampleActiveDownloadsUiState(): OfflineMapsUiState {
         sort = OfflineCountrySort.NAME,
         availableSorts = listOf(OfflineCountrySort.NAME, OfflineCountrySort.LARGEST),
         includesDetail = true,
+        includesElevation = true,
         unfinished = dir.unfinished,
         downloaded = dir.downloaded,
         sections = dir.sections,
@@ -158,35 +177,90 @@ private fun sampleActiveDownloadsUiState(): OfflineMapsUiState {
     )
 }
 
+private fun sampleOffersUiState(): OfflineMapsUiState {
+    val countries = sampleCountries()
+    val slovenia = countries[3]
+    val state = OfflineCountriesState(
+        isPrepared = true,
+        listPhase = OfflineListPhase.LOADED,
+        offered = countries,
+        installed = mapOf(
+            "SI" to InstalledCountryRecord(
+                country = slovenia,
+                installedAtEpochMillis = 1_000L,
+                hasDetail = true,
+                hasElevation = false
+            )
+        ),
+        includesDetail = false,
+        includesElevation = true
+    )
+    val dir = OfflineCountryDirectoryBuilder.build(state, OfflineCountrySort.NAME, locale = Locale.US)
+    return OfflineMapsUiState(
+        isAvailable = true,
+        isPrepared = true,
+        listPhase = OfflineListPhase.LOADED,
+        sort = OfflineCountrySort.NAME,
+        availableSorts = listOf(OfflineCountrySort.NAME, OfflineCountrySort.LARGEST),
+        includesDetail = false,
+        includesElevation = true,
+        downloaded = dir.downloaded,
+        sections = dir.sections,
+        installed = state.installed,
+        additions = mapOf("SI" to requireNotNull(state.addition("SI"))),
+        removals = mapOf("SI" to requireNotNull(state.removal("SI")))
+    )
+}
+
 private fun previewCountry(
     id: String,
     baseBytes: Long,
     detailBytes: Long,
+    elevationBytes: Long? = null,
     group: String? = null,
     name: String? = null
-): OfflineCountry = OfflineCountry(
-    id = id,
-    group = group,
-    names = if (name != null) mapOf("en" to name) else emptyMap(),
-    build = "20261117",
-    schema = 4,
-    bounds = OfflineBounds(9.5, 46.4, 17.0, 49.0),
-    files = listOf(
-        OfflineCountryFile(
-            role = OfflineFileRole.BASEMAP,
-            path = "countries/$id-20261117.pmtiles",
-            byteCount = baseBytes,
-            sha256 = "0".repeat(64),
-            minimumZoom = 0,
-            maximumZoom = 14
-        ),
-        OfflineCountryFile(
-            role = OfflineFileRole.DETAIL,
-            path = "countries/$id-detail-20261117.pmtiles",
-            byteCount = detailBytes,
-            sha256 = "0".repeat(64),
-            minimumZoom = 15,
-            maximumZoom = 15
+): OfflineCountry {
+    val files = buildList {
+        add(
+            OfflineCountryFile(
+                role = OfflineFileRole.BASEMAP,
+                path = "countries/$id-20261117.pmtiles",
+                byteCount = baseBytes,
+                sha256 = "0".repeat(64),
+                minimumZoom = 0,
+                maximumZoom = 14
+            )
         )
+        add(
+            OfflineCountryFile(
+                role = OfflineFileRole.DETAIL,
+                path = "countries/$id-detail-20261117.pmtiles",
+                byteCount = detailBytes,
+                sha256 = "0".repeat(64),
+                minimumZoom = 15,
+                maximumZoom = 15
+            )
+        )
+        if (elevationBytes != null) {
+            add(
+                OfflineCountryFile(
+                    role = OfflineFileRole.ELEVATION,
+                    path = "countries/$id-elevation-20261117.pmtiles",
+                    byteCount = elevationBytes,
+                    sha256 = "0".repeat(64),
+                    minimumZoom = 12,
+                    maximumZoom = 12
+                )
+            )
+        }
+    }
+    return OfflineCountry(
+        id = id,
+        group = group,
+        names = if (name != null) mapOf("en" to name) else emptyMap(),
+        build = "20261117",
+        schema = 4,
+        bounds = OfflineBounds(9.5, 46.4, 17.0, 49.0),
+        files = files
     )
-)
+}

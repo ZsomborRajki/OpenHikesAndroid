@@ -152,6 +152,7 @@ object OpenHikesTestTags {
     const val OFFLINE_MAPS_CLEAR_SEARCH = "offline-maps-clear-search"
     const val OFFLINE_MAPS_ORDER_BUTTON = "offline-maps-order-button"
     const val OFFLINE_MAPS_EXTRA_DETAIL = "offline-maps-extra-detail"
+    const val OFFLINE_MAPS_ELEVATION_DATA = "offline-maps-elevation-data"
     const val OFFLINE_MAPS_USE_OPENHIKES_MAP = "offline-maps-use-openhikes-map"
     const val OFFLINE_MAPS_EMPTY_SEARCH = "offline-maps-empty-search"
     const val OFFLINE_MAPS_LOAD_ERROR = "offline-maps-load-error"
@@ -366,6 +367,10 @@ object OpenHikesTestTags {
     fun offlineCountryDelete(countryCode: String): String = "offline-country-delete-$countryCode"
 
     fun offlineCountryCancel(countryCode: String): String = "offline-country-cancel-$countryCode"
+
+    fun offlineCountryAddOffer(countryCode: String): String = "offline-country-$countryCode-add"
+
+    fun offlineCountryRemoveOffer(countryCode: String): String = "offline-country-$countryCode-remove"
 
     fun hikeRow(hikeId: String): String = "hike-row-$hikeId"
 

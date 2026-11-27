@@ -245,7 +245,7 @@ class ElevationSquareLibraryTest {
             outline = emptyList(),
             files = listOf(basemapFile, elevationFile)
         )
-        return store to InstalledCountryRecord(country = country, installedAtEpochMillis = 1L)
+        return store to InstalledCountryRecord(country = country, installedAtEpochMillis = 1L, hasElevation = true)
     }
 
     private class GatedOfflineCountryRepository(
@@ -270,6 +270,9 @@ class ElevationSquareLibraryTest {
         override suspend fun cancelDownload(countryId: String) = Unit
         override suspend fun deleteCountry(countryId: String) = Unit
         override suspend fun setIncludesDetail(enabled: Boolean) = Unit
+        override suspend fun setIncludesElevation(enabled: Boolean) = Unit
+        override suspend fun extendCountry(countryId: String) = Unit
+        override suspend fun trimCountry(countryId: String) = Unit
         override suspend fun runScheduledDownload(countryId: String) = OfflineDownloadExecutionResult.COMPLETED
     }
 
