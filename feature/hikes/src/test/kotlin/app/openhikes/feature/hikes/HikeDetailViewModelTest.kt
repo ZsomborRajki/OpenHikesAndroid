@@ -19,8 +19,14 @@ import app.openhikes.core.model.ElevationFailure
 import app.openhikes.core.model.ElevationFetchResult
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.InstalledCountryRecord
 import app.openhikes.core.model.MapProviderKeys
 import app.openhikes.core.model.MapStyleId
+import app.openhikes.core.model.OfflineBounds
+import app.openhikes.core.model.OfflineCountriesState
+import app.openhikes.core.model.OfflineCountry
+import app.openhikes.core.model.OfflineCountryFile
+import app.openhikes.core.model.OfflineFileRole
 import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteElevationSource
 import app.openhikes.core.model.TrailGraphProvider
@@ -506,6 +512,68 @@ class HikeDetailViewModelTest {
             assertThat(filled.profile?.samples).hasSize(2)
             assertThat(filled.statistics?.elevationGainMeters).isWithin(1e-6).of(90.0)
             assertThat(elevationSource.requestCount).isEqualTo(2)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun offlineCoverageQuotesActualRepairFilesWhenBrokenOptionalArchiveIgnoredBySwitches() = runTest {
+        val hike = sampleDetailHike()
+        val offlineRepo = FakeOfflineCountryRepository()
+        val austria = OfflineCountry(
+            id = "AT",
+            build = "20261126",
+            schema = 4,
+            bounds = OfflineBounds(9.0, 46.0, 17.0, 49.0),
+            outline = listOf(
+                listOf(listOf(9.0, 46.0), listOf(17.0, 46.0), listOf(17.0, 49.0), listOf(9.0, 49.0), listOf(9.0, 46.0))
+            ),
+            files = listOf(
+                OfflineCountryFile(
+                    OfflineFileRole.BASEMAP,
+                    "countries/AT-20261126.pmtiles",
+                    100_000_000L,
+                    "0".repeat(64),
+                    0,
+                    14
+                ),
+                OfflineCountryFile(
+                    OfflineFileRole.DETAIL,
+                    "countries/AT-detail-20261126.pmtiles",
+                    50_000_000L,
+                    "1".repeat(64),
+                    15,
+                    15
+                ),
+                OfflineCountryFile(
+                    OfflineFileRole.ELEVATION,
+                    "countries/AT-elevation-20261126.pmtiles",
+                    30_000_000L,
+                    "2".repeat(64),
+                    12,
+                    12
+                )
+            )
+        )
+        offlineRepo.setState(
+            OfflineCountriesState(
+                isPrepared = true,
+                offered = listOf(austria),
+                installed = mapOf(
+                    "AT" to InstalledCountryRecord(austria, 1_000L, hasDetail = false, hasElevation = true)
+                ),
+                unopenable = mapOf("AT" to setOf(OfflineFileRole.BASEMAP, OfflineFileRole.ELEVATION)),
+                includesDetail = true,
+                includesElevation = false
+            )
+        )
+        val viewModel = createViewModel(hike = hike, offlineCountryRepository = offlineRepo)
+
+        viewModel.uiState.test {
+            advanceUntilIdle()
+            val coverage = expectMostRecentItem().offlineCoverage
+            assertThat(coverage.missing.map { it.id }).containsExactly("AT")
+            assertThat(coverage.missingByteCounts["AT"]).isEqualTo(130_000_000L)
             cancelAndIgnoreRemainingEvents()
         }
     }

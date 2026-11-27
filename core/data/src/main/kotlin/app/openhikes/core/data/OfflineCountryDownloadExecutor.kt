@@ -15,6 +15,7 @@ import app.openhikes.core.model.TileNetworkPurpose
 import app.openhikes.core.network.OfflineCountryServer
 import app.openhikes.core.network.OfflineFileTransferStatus
 import app.openhikes.core.network.TileNetworkPolicy
+import java.io.File
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
@@ -40,11 +41,23 @@ internal class OfflineCountryDownloadExecutor @Inject constructor(
 ) {
     internal var maxAttemptBytes: Long = DEFAULT_MAX_ATTEMPT_BYTES
     internal var maxAttemptDurationMillis: Long = DEFAULT_MAX_ATTEMPT_DURATION_MILLIS
+    internal var verifyFile: suspend (OfflineCountryFile, File) -> Boolean = { file, staged ->
+        OfflineCountryDigest.isWhole(file, staged)
+    }
 
     internal interface Callbacks {
         fun currentDownload(countryId: String): OfflineCountryDownload?
-        fun updateDownload(countryId: String, transform: (OfflineCountryDownload) -> OfflineCountryDownload)
-        fun failDownload(countryId: String, failure: OfflineDownloadFailure)
+        fun updateDownload(
+            countryId: String,
+            attemptId: Long,
+            transform: (OfflineCountryDownload) -> OfflineCountryDownload
+        )
+        fun failDownload(countryId: String, attemptId: Long, failure: OfflineDownloadFailure)
+        suspend fun failVerificationDamaged(
+            countryId: String,
+            download: OfflineCountryDownload,
+            damagedFiles: List<OfflineCountryFile>
+        ): OfflineDownloadExecutionResult
         suspend fun installAndCommit(
             countryId: String,
             download: OfflineCountryDownload,
@@ -55,28 +68,32 @@ internal class OfflineCountryDownloadExecutor @Inject constructor(
 
     suspend fun execute(countryId: String, callbacks: Callbacks): OfflineDownloadExecutionResult {
         val download = callbacks.currentDownload(countryId)
-        val preflight = if (download != null) checkSpeculativePolicy(countryId, callbacks) else null
+        val preflight = if (download != null) {
+            checkSpeculativePolicy(countryId, download.attemptId, callbacks)
+        } else {
+            null
+        }
         return when {
             download == null -> OfflineDownloadExecutionResult.CANCELLED
             preflight != null -> preflight
             download.files.isEmpty() -> {
-                callbacks.failDownload(countryId, OfflineDownloadFailure.DAMAGED)
+                callbacks.failDownload(countryId, download.attemptId, OfflineDownloadFailure.DAMAGED)
                 OfflineDownloadExecutionResult.FAILED
             }
 
-            else -> executeTransfersAndInstall(countryId, download.files, callbacks)
+            else -> executeTransfersAndInstall(countryId, download, callbacks)
         }
     }
 
     private suspend fun executeTransfersAndInstall(
         countryId: String,
-        files: List<OfflineCountryFile>,
+        download: OfflineCountryDownload,
         callbacks: Callbacks
     ): OfflineDownloadExecutionResult {
-        val transferResult = downloadAllFiles(countryId, files, callbacks)
+        val transferResult = downloadAllFiles(countryId, download, callbacks)
         if (transferResult != null) return transferResult
         val latest = callbacks.currentDownload(countryId)
-        return if (latest != null) {
+        return if (latest != null && latest.attemptId == download.attemptId) {
             verifyAndInstall(countryId, latest, callbacks)
         } else {
             OfflineDownloadExecutionResult.CANCELLED
@@ -88,7 +105,7 @@ internal class OfflineCountryDownloadExecutor @Inject constructor(
         download: OfflineCountryDownload,
         callbacks: Callbacks
     ): OfflineDownloadExecutionResult {
-        callbacks.updateDownload(countryId) { current ->
+        callbacks.updateDownload(countryId, download.attemptId) { current ->
             current.copy(
                 phase = OfflineDownloadPhase.CHECKING,
                 failure = null,
@@ -98,25 +115,19 @@ internal class OfflineCountryDownloadExecutor @Inject constructor(
             )
         }
         val files = download.files
-        val allWhole = withContext(ioDispatcher) { verifyStagedFiles(files) }
+        val damagedFiles = withContext(ioDispatcher) { findDamagedStagedFiles(files) }
         val liveDownload = callbacks.currentDownload(countryId)
         val isCurrent = liveDownload != null &&
+            liveDownload.attemptId == download.attemptId &&
             liveDownload.country.build == download.country.build &&
             liveDownload.roles == download.roles
         return when {
             !isCurrent -> OfflineDownloadExecutionResult.CANCELLED
-            !allWhole -> {
-                withContext(ioDispatcher) {
-                    files.forEach { file ->
-                        val staged = store.stagedFileFor(file)
-                        if (!OfflineCountryDigest.isWhole(file, staged)) {
-                            staged.delete()
-                        }
-                    }
-                }
-                callbacks.failDownload(countryId, OfflineDownloadFailure.DAMAGED)
-                OfflineDownloadExecutionResult.FAILED
-            }
+            damagedFiles.isNotEmpty() -> callbacks.failVerificationDamaged(
+                countryId = countryId,
+                download = download,
+                damagedFiles = damagedFiles
+            )
 
             else -> callbacks.installAndCommit(
                 countryId = countryId,
@@ -127,27 +138,34 @@ internal class OfflineCountryDownloadExecutor @Inject constructor(
         }
     }
 
-    private fun checkSpeculativePolicy(countryId: String, callbacks: Callbacks): OfflineDownloadExecutionResult? {
+    private fun checkSpeculativePolicy(
+        countryId: String,
+        attemptId: Long,
+        callbacks: Callbacks
+    ): OfflineDownloadExecutionResult? {
         val decision = tileNetworkPolicy.decide(TileNetworkPurpose.SPECULATIVE)
         if (decision is TileNetworkDecision.Allowed) return null
         val reason = (decision as TileNetworkDecision.Denied).reason
         return when (reason) {
             TileNetworkDenialReason.LOW_POWER_MODE,
             TileNetworkDenialReason.THERMAL -> {
-                callbacks.failDownload(countryId, OfflineDownloadFailure.CONSERVING)
+                callbacks.failDownload(countryId, attemptId, OfflineDownloadFailure.CONSERVING)
                 OfflineDownloadExecutionResult.FAILED
             }
 
             TileNetworkDenialReason.OFFLINE,
             TileNetworkDenialReason.LOW_DATA_MODE,
             TileNetworkDenialReason.CELLULAR_SPECULATIVE -> {
-                callbacks.updateDownload(countryId) { it.copy(phase = OfflineDownloadPhase.WAITING_FOR_WIFI) }
+                callbacks.updateDownload(countryId, attemptId) {
+                    it.copy(phase = OfflineDownloadPhase.WAITING_FOR_WIFI)
+                }
                 OfflineDownloadExecutionResult.RETRY_LATER
             }
         }
     }
 
     private class TransferProgress(
+        val attemptId: Long,
         val bytesByRole: MutableMap<OfflineFileRole, Long>,
         val stagedRoles: MutableSet<OfflineFileRole>,
         val attemptStartMonotonicMillis: Long,
@@ -159,10 +177,11 @@ internal class OfflineCountryDownloadExecutor @Inject constructor(
 
     private suspend fun downloadAllFiles(
         countryId: String,
-        files: List<OfflineCountryFile>,
+        download: OfflineCountryDownload,
         callbacks: Callbacks
     ): OfflineDownloadExecutionResult? {
-        val progress = initializeTransferProgress(files)
+        val files = download.files
+        val progress = initializeTransferProgress(download.attemptId, files)
         var interruption: OfflineDownloadExecutionResult? = null
         for (file in files.filterNot { it.role in progress.stagedRoles }) {
             interruption = transferOneFile(countryId, file, progress, callbacks)
@@ -173,7 +192,7 @@ internal class OfflineCountryDownloadExecutor @Inject constructor(
         return interruption
     }
 
-    private fun initializeTransferProgress(files: List<OfflineCountryFile>): TransferProgress {
+    private fun initializeTransferProgress(attemptId: Long, files: List<OfflineCountryFile>): TransferProgress {
         val bytesByRole = LinkedHashMap<OfflineFileRole, Long>(files.size)
         val stagedRoles = LinkedHashSet<OfflineFileRole>()
         for (file in files) {
@@ -187,6 +206,7 @@ internal class OfflineCountryDownloadExecutor @Inject constructor(
             }
         }
         return TransferProgress(
+            attemptId = attemptId,
             bytesByRole = bytesByRole,
             stagedRoles = stagedRoles,
             attemptStartMonotonicMillis = clock.monotonicMillis()
@@ -199,13 +219,14 @@ internal class OfflineCountryDownloadExecutor @Inject constructor(
         progress: TransferProgress,
         callbacks: Callbacks
     ): OfflineDownloadExecutionResult? {
+        val live = callbacks.currentDownload(countryId)
         val preflight = when {
-            callbacks.currentDownload(countryId) == null -> OfflineDownloadExecutionResult.CANCELLED
+            live == null || live.attemptId != progress.attemptId -> OfflineDownloadExecutionResult.CANCELLED
             !hasAttemptBudget(progress) -> OfflineDownloadExecutionResult.CONTINUE_SLICE
-            else -> checkSpeculativePolicy(countryId, callbacks)
+            else -> checkSpeculativePolicy(countryId, progress.attemptId, callbacks)
         }
         if (preflight != null) return preflight
-        callbacks.updateDownload(countryId) { current ->
+        callbacks.updateDownload(countryId, progress.attemptId) { current ->
             current.copy(
                 phase = OfflineDownloadPhase.DOWNLOADING,
                 failure = null,
@@ -228,9 +249,13 @@ internal class OfflineCountryDownloadExecutor @Inject constructor(
     } catch (ex: CancellationException) {
         throw ex
     } catch (_: IOException) {
-        checkSpeculativePolicy(countryId, callbacks) ?: run {
-            callbacks.failDownload(countryId, OfflineDownloadFailure.CONNECTION)
-            OfflineDownloadExecutionResult.FAILED
+        if (callbacks.currentDownload(countryId)?.attemptId != progress.attemptId) {
+            OfflineDownloadExecutionResult.CANCELLED
+        } else {
+            checkSpeculativePolicy(countryId, progress.attemptId, callbacks) ?: run {
+                callbacks.failDownload(countryId, progress.attemptId, OfflineDownloadFailure.CONNECTION)
+                OfflineDownloadExecutionResult.FAILED
+            }
         }
     }
 
@@ -251,6 +276,7 @@ internal class OfflineCountryDownloadExecutor @Inject constructor(
                     maxBytesToTransfer = remainingBudget,
                     shouldContinue = {
                         !policyStopped.get() &&
+                            callbacks.currentDownload(countryId)?.attemptId == progress.attemptId &&
                             hasAttemptBudget(progress) &&
                             tileNetworkPolicy.decide(TileNetworkPurpose.SPECULATIVE).isAllowed
                     }
@@ -292,8 +318,11 @@ internal class OfflineCountryDownloadExecutor @Inject constructor(
         outcome: TransferAttemptOutcome,
         callbacks: Callbacks
     ): OfflineDownloadExecutionResult? = when {
-        outcome.policyStopped -> checkSpeculativePolicy(countryId, callbacks) ?: run {
-            callbacks.updateDownload(countryId) {
+        callbacks.currentDownload(countryId)?.attemptId != progress.attemptId ->
+            OfflineDownloadExecutionResult.CANCELLED
+
+        outcome.policyStopped -> checkSpeculativePolicy(countryId, progress.attemptId, callbacks) ?: run {
+            callbacks.updateDownload(countryId, progress.attemptId) {
                 it.copy(
                     phase = OfflineDownloadPhase.DOWNLOADING,
                     writtenBytes = progress.bytesByRole.values.sum(),
@@ -304,7 +333,7 @@ internal class OfflineCountryDownloadExecutor @Inject constructor(
         }
 
         outcome.status != OfflineFileTransferStatus.COMPLETE -> {
-            callbacks.updateDownload(countryId) {
+            callbacks.updateDownload(countryId, progress.attemptId) {
                 it.copy(
                     phase = OfflineDownloadPhase.DOWNLOADING,
                     writtenBytes = progress.bytesByRole.values.sum(),
@@ -331,7 +360,7 @@ internal class OfflineCountryDownloadExecutor @Inject constructor(
         val now = clock.nowEpochMillis()
         if (now - progress.lastEmitAt >= PROGRESS_THROTTLE_MILLIS || clamped >= file.byteCount) {
             progress.lastEmitAt = now
-            callbacks.updateDownload(countryId) { current ->
+            callbacks.updateDownload(countryId, progress.attemptId) { current ->
                 current.copy(
                     phase = OfflineDownloadPhase.DOWNLOADING,
                     writtenBytes = progress.bytesByRole.values.sum(),
@@ -347,8 +376,8 @@ internal class OfflineCountryDownloadExecutor @Inject constructor(
         return elapsedMillis < maxAttemptDurationMillis && progress.bytesTransferredInAttempt < maxAttemptBytes
     }
 
-    private fun verifyStagedFiles(files: List<OfflineCountryFile>): Boolean =
-        files.all { file -> OfflineCountryDigest.isWhole(file, store.stagedFileFor(file)) }
+    private suspend fun findDamagedStagedFiles(files: List<OfflineCountryFile>): List<OfflineCountryFile> =
+        files.filter { file -> !verifyFile(file, store.stagedFileFor(file)) }
 
     companion object {
         const val PROGRESS_THROTTLE_MILLIS = 500L

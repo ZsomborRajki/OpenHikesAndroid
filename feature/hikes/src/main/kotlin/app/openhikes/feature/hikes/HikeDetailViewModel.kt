@@ -999,10 +999,12 @@ private fun buildOfflineCoverageState(
             repoState.offered.firstOrNull { it.id == crossed.id } ?: crossed
         }
     }
+    val missingByteCounts = missing.associate { country -> country.id to repoState.byteCount(country) }
     return HikeOfflineCoverageState(
         isOpenHikesMap = isOpenHikes,
         crossed = coverage.crossed,
         missing = missing,
+        missingByteCounts = missingByteCounts,
         activeDownload = activeDownload,
         saving = saving,
         includesDetail = repoState.includesDetail,

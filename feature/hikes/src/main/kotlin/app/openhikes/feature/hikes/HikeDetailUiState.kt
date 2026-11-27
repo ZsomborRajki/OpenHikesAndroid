@@ -35,6 +35,7 @@ data class HikeOfflineCoverageState(
     val isOpenHikesMap: Boolean = true,
     val crossed: List<OfflineCountry> = emptyList(),
     val missing: List<OfflineCountry> = emptyList(),
+    val missingByteCounts: Map<String, Long> = emptyMap(),
     val activeDownload: OfflineCountryDownload? = null,
     val saving: OfflineRouteSaving = OfflineRouteSaving.UNSAVED,
     val includesDetail: Boolean = true,
