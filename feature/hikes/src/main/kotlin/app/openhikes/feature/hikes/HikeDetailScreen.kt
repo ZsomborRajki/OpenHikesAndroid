@@ -44,6 +44,8 @@ import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikePhoto
 import app.openhikes.core.ui.components.ElevationProfileChart
 import app.openhikes.core.ui.components.HikeSegmentList
+import app.openhikes.core.ui.components.TrailDifficultySection
+import app.openhikes.core.ui.components.TrailSurfaceSection
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -531,6 +533,16 @@ private fun LazyListScope.addDetailSecondaryItems(
                 distanceUnit = distanceUnit,
                 onPlaceAction = onPlaceAction
             )
+        }
+    }
+    uiState.surfaceBreakdown?.takeUnless { it.isEmpty }?.let { breakdown ->
+        item(key = "surface") {
+            TrailSurfaceSection(breakdown = breakdown, distanceUnit = distanceUnit)
+        }
+    }
+    uiState.difficultyBreakdown?.takeUnless { it.isEmpty }?.let { breakdown ->
+        item(key = "difficulty") {
+            TrailDifficultySection(breakdown = breakdown, distanceUnit = distanceUnit)
         }
     }
     if (uiState.routeSegments.size > 1) {

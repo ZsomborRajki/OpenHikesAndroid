@@ -205,25 +205,56 @@ private fun WalkedRouteLayers(route: MapRouteOverlay, opacity: Float, idPrefix: 
             join = const(LineJoin.Round),
             dasharray = plan.lineDashArray?.let(::const)
         )
+        if (route.shadedStretches.isNotEmpty()) {
+            ShadedRouteLineLayer(route = route, plan = plan, opacity = opacity, idPrefix = idPrefix)
+        }
     }
 
     plan.chevronSpec?.let { chevron ->
-        val chevronPainter = remember(chevron) { RouteChevronPainter(chevron) }
-        SymbolLayer(
-            id = "${idPrefix}route-chevrons-${route.hikeId.value}",
-            source = walkedSource,
-            placement = const(SymbolPlacement.Line),
-            spacing = const(chevron.spacingDp.dp),
-            iconImage = image(
-                value = chevronPainter,
-                size = DpSize(chevron.iconWidthDp.dp, chevron.iconHeightDp.dp)
-            ),
-            iconOpacity = const(opacity),
-            iconRotationAlignment = const(IconRotationAlignment.Map),
-            iconPitchAlignment = const(IconPitchAlignment.Map),
-            iconKeepUpright = const(false),
-            iconAllowOverlap = const(true),
-            iconIgnorePlacement = const(true)
+        RouteChevronLayers(
+            route = route,
+            plan = plan,
+            chevron = chevron,
+            walkedSource = walkedSource,
+            opacity = opacity,
+            idPrefix = idPrefix
+        )
+    }
+}
+
+@Composable
+@MaplibreComposable
+private fun RouteChevronLayers(
+    route: MapRouteOverlay,
+    plan: WalkedRouteRenderPlan,
+    chevron: RouteChevronRenderSpec,
+    walkedSource: org.maplibre.compose.sources.GeoJsonSource,
+    opacity: Float,
+    idPrefix: String
+) {
+    val chevronPainter = remember(chevron) { RouteChevronPainter(chevron) }
+    SymbolLayer(
+        id = "${idPrefix}route-chevrons-${route.hikeId.value}",
+        source = walkedSource,
+        placement = const(SymbolPlacement.Line),
+        spacing = const(chevron.spacingDp.dp),
+        iconImage = image(
+            value = chevronPainter,
+            size = DpSize(chevron.iconWidthDp.dp, chevron.iconHeightDp.dp)
+        ),
+        iconOpacity = const(opacity),
+        iconRotationAlignment = const(IconRotationAlignment.Map),
+        iconPitchAlignment = const(IconPitchAlignment.Map),
+        iconKeepUpright = const(false),
+        iconAllowOverlap = const(true),
+        iconIgnorePlacement = const(true)
+    )
+    if (!plan.drawsLine && route.shadedStretches.isNotEmpty()) {
+        ShadedArrowheadLayers(
+            route = route,
+            plan = plan,
+            opacity = (opacity * plan.lineColor.alpha).coerceIn(0f, 1f),
+            idPrefix = idPrefix
         )
     }
 }
@@ -267,7 +298,7 @@ internal fun buildWalkedRouteRenderPlan(route: MapRouteOverlay): WalkedRouteRend
     )
 }
 
-private fun buildChevronRenderSpec(
+internal fun buildChevronRenderSpec(
     pattern: RouteLinePattern,
     lineColor: Color,
     resolvedBorderColor: Color?,
@@ -312,7 +343,7 @@ internal fun mapLibreDashArray(pattern: RouteLinePattern, routeWidthDp: Float, l
     return dashLengthsDp.takeIf { it.isNotEmpty() }?.map { it / layerWidthDp.toDouble() }
 }
 
-private data class RouteChevronPainter(private val spec: RouteChevronRenderSpec) : Painter() {
+internal data class RouteChevronPainter(private val spec: RouteChevronRenderSpec) : Painter() {
     override val intrinsicSize: Size = Size.Unspecified
 
     override fun DrawScope.onDraw() {

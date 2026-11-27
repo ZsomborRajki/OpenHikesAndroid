@@ -24,10 +24,18 @@ import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.MapProviderKeys
 import app.openhikes.core.model.OfflineCountriesState
 import app.openhikes.core.model.RecordingPhase
+import app.openhikes.core.model.RouteColoring
 import app.openhikes.core.model.RouteCoordinate
+import app.openhikes.core.model.RouteShade
 import app.openhikes.core.model.RouteTint
 import app.openhikes.core.model.RouteTrimHandle
+import app.openhikes.core.model.TrailGraph
+import app.openhikes.core.model.TrailGraphEdge
+import app.openhikes.core.model.TrailGraphEdgeId
+import app.openhikes.core.model.TrailGraphNode
+import app.openhikes.core.model.TrailGraphProvider
 import app.openhikes.core.model.TrailLegEnds
+import app.openhikes.core.testing.FakeTrailGraphProvider
 import app.openhikes.core.testing.MainDispatcherRule
 import app.openhikes.core.testing.android.FakeHikeRepository
 import app.openhikes.core.testing.android.FakeOfflineCountryRepository
@@ -78,6 +86,7 @@ class MapShellViewModelTest {
             trailPlacesOverlayState = TrailPlacesOverlayState(),
             trailPhotosOverlayState = TrailPhotosOverlayState(),
             photoCaptureController = PhotoCaptureController(),
+            trailGraphProvider = FakeTrailGraphProvider(isAvailable = false),
             mapProviderKeys = MapProviderKeys.Empty,
             launchConfigHolder = LaunchConfigHolder(LaunchConfig.Production),
             defaultDispatcher = mainDispatcherRule.testDispatcher
@@ -315,6 +324,88 @@ class MapShellViewModelTest {
         chromeJob.cancel()
     }
 
+    @Test
+    fun shadesSelectedRouteByElevationOrDifficultySkipsUngradedAndClearsWhenOff() = runTest {
+        val (gradedHike, ungradedHike, graphProvider) = steepRidgeShadingFixture()
+        val settingsRepo = FakeUserSettingsRepository()
+        val claimCoordinator = MapClaimCoordinator()
+        val shellVm = createShellViewModel(
+            hikes = listOf(gradedHike, ungradedHike),
+            claimCoordinator = claimCoordinator,
+            editOverlayState = RouteEditOverlayState(),
+            userSettingsRepository = settingsRepo,
+            trailGraphProvider = graphProvider
+        )
+        val chromeJob = launch(UnconfinedTestDispatcher(testScheduler)) { shellVm.chromeUiState.collect {} }
+
+        claimCoordinator.registerClaim(
+            MapClaim(routeKey = HikeDetailRoute(gradedHike.id), depth = 1, selectedHikeId = gradedHike.id)
+        )
+        advanceUntilIdle()
+        val elevationShades = shellVm.chromeUiState.value.overlayState.routes.single().shadedStretches.map { it.shade }
+        assertThat(elevationShades).containsExactly(RouteShade.HARD)
+        assertThat(graphProvider.assembledGraphCalls).isEqualTo(0)
+
+        settingsRepo.setRouteColoring(RouteColoring.DIFFICULTY)
+        advanceUntilIdle()
+        val difficultyShades = shellVm.chromeUiState.value.overlayState.routes.single().shadedStretches.map { it.shade }
+        assertThat(difficultyShades).containsExactly(RouteShade.HARD)
+        assertThat(graphProvider.assembledGraphCalls).isEqualTo(1)
+
+        claimCoordinator.registerClaim(
+            MapClaim(routeKey = HikeDetailRoute(ungradedHike.id), depth = 2, selectedHikeId = ungradedHike.id)
+        )
+        advanceUntilIdle()
+        assertThat(shellVm.chromeUiState.value.overlayState.routes.single().shadedStretches).isEmpty()
+        assertThat(graphProvider.assembledGraphCalls).isEqualTo(1)
+
+        claimCoordinator.releaseClaim(HikeDetailRoute(ungradedHike.id))
+        settingsRepo.setRouteColoring(RouteColoring.OFF)
+        advanceUntilIdle()
+        assertThat(shellVm.chromeUiState.value.overlayState.routes.single().shadedStretches).isEmpty()
+
+        chromeJob.cancel()
+    }
+
+    private fun steepRidgeShadingFixture(): Triple<Hike, Hike, FakeTrailGraphProvider> {
+        val route = List(25) { index ->
+            RouteCoordinate(
+                latitude = 47.70 + (index * 25.0) / 111_320.0,
+                longitude = 12.83,
+                elevationMeters = 500.0 + index * 25.0 * 0.25
+            )
+        }
+        val gradedHike = Hike(
+            id = HikeId("h-shade"),
+            title = "Steep Ridge",
+            distanceMeters = 600.0,
+            dateEpochMillis = 10_000L,
+            route = route
+        )
+        val ungradedHike = gradedHike.copy(
+            id = HikeId("h-ungraded"),
+            title = "Ungraded Path",
+            difficultyMetersByGrade = mapOf("unmapped" to 600.0)
+        )
+        val graph = TrailGraph(
+            nodes = listOf(
+                TrailGraphNode(1L, route.first().latitude, route.first().longitude),
+                TrailGraphNode(2L, route.last().latitude, route.last().longitude)
+            ),
+            edges = listOf(
+                TrailGraphEdge(
+                    id = TrailGraphEdgeId(50L, 0),
+                    fromNodeId = 1L,
+                    toNodeId = 2L,
+                    lengthMeters = 600.0,
+                    highway = "path",
+                    sacScale = "alpine_hiking"
+                )
+            )
+        )
+        return Triple(gradedHike, ungradedHike, FakeTrailGraphProvider(graph = graph, cachedGraph = graph))
+    }
+
     private fun sampleHike(hikeId: HikeId, a: GeoCoordinate, b: GeoCoordinate): Hike = Hike(
         id = hikeId,
         title = "Edited Trail",
@@ -328,10 +419,13 @@ class MapShellViewModelTest {
         claimCoordinator: MapClaimCoordinator,
         editOverlayState: RouteEditOverlayState,
         draftOverlayState: TrailDraftOverlayState = TrailDraftOverlayState(),
-        recordingController: FakeRecordingController = FakeRecordingController()
+        recordingController: FakeRecordingController = FakeRecordingController(),
+        userSettingsRepository: FakeUserSettingsRepository = FakeUserSettingsRepository(),
+        hikeRepository: FakeHikeRepository = FakeHikeRepository(hikes),
+        trailGraphProvider: TrailGraphProvider = FakeTrailGraphProvider(isAvailable = false)
     ): MapShellViewModel = MapShellViewModel(
-        userSettingsRepository = FakeUserSettingsRepository(),
-        hikeRepository = FakeHikeRepository(hikes),
+        userSettingsRepository = userSettingsRepository,
+        hikeRepository = hikeRepository,
         offlineCountryRepository = FakeOfflineCountryRepository(),
         mapClaimCoordinator = claimCoordinator,
         recordingController = recordingController,
@@ -344,6 +438,7 @@ class MapShellViewModelTest {
         trailPlacesOverlayState = TrailPlacesOverlayState(),
         trailPhotosOverlayState = TrailPhotosOverlayState(),
         photoCaptureController = PhotoCaptureController(),
+        trailGraphProvider = trailGraphProvider,
         mapProviderKeys = MapProviderKeys.Empty,
         launchConfigHolder = LaunchConfigHolder(LaunchConfig.Production),
         defaultDispatcher = mainDispatcherRule.testDispatcher

@@ -26,6 +26,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
@@ -45,6 +46,12 @@ sealed interface RoutingSquareReadResult {
  */
 interface RoutingGraphSquareDataSource {
     suspend fun readRegion(region: TrailGraphRegion): RoutingSquareReadResult
+
+    /**
+     * Reads [region] from the on-disk square cache only, returning `null` when absent or expired
+     * without issuing any network request.
+     */
+    suspend fun readCachedRegion(region: TrailGraphRegion): TrailGraph? = null
 }
 
 @Singleton
@@ -83,6 +90,11 @@ internal class HttpRoutingGraphSquareDataSource @Inject constructor(
             }
         }
         return active.await()
+    }
+
+    override suspend fun readCachedRegion(region: TrailGraphRegion): TrailGraph? = withContext(ioDispatcher) {
+        if (region.zoom != TrailGraphSquareGrid.REGION_ZOOM) return@withContext null
+        readCachedGraph(TrailGraphSquareGrid.squareName(region), region)
     }
 
     private suspend fun loadOrFetch(region: TrailGraphRegion): RoutingSquareReadResult {

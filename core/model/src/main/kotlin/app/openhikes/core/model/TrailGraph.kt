@@ -346,8 +346,15 @@ object TrailGraphCorridor {
 
 /**
  * Combined routing graph covering a corridor together with any partial outage encountered.
+ *
+ * [isComplete] is `true` only when every region crossed by the request was answered without error
+ * or truncation, so whole-route trail analysis never reports undownloaded regions as unmapped.
  */
-data class AssembledTrailGraph(val graph: TrailGraph?, val outage: TrailLegOutage? = null)
+data class AssembledTrailGraph(
+    val graph: TrailGraph?,
+    val outage: TrailLegOutage? = null,
+    val isComplete: Boolean = (outage == null)
+)
 
 /**
  * Seam providing [TrailGraph] regions covering a corridor of coordinates.
@@ -357,4 +364,10 @@ interface TrailGraphProvider {
         get() = true
 
     suspend fun assembledGraph(covering: List<GeoCoordinate>): AssembledTrailGraph
+
+    /**
+     * Merges only already-cached graph regions covering [covering] without reaching the network.
+     * Used by Trail Maker shading so moving pins never triggers extra routing-square downloads.
+     */
+    suspend fun cachedGraphOnly(covering: List<GeoCoordinate>): TrailGraph? = null
 }

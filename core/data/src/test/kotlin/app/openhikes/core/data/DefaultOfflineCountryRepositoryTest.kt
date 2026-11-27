@@ -455,6 +455,8 @@ class DefaultOfflineCountryRepositoryTest {
             state.update { it.copy(savePhotosToLibrary = enabled) }
 
         override suspend fun setMapStyleId(styleId: String) = state.update { it.copy(mapStyleId = styleId) }
+        override suspend fun setRouteColoring(coloring: app.openhikes.core.model.RouteColoring) =
+            state.update { it.copy(routeColoring = coloring) }
         override suspend fun setOfflineCountriesExtraDetail(enabled: Boolean) =
             state.update { it.copy(offlineCountriesExtraDetail = enabled) }
 

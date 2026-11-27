@@ -7,7 +7,10 @@ import app.openhikes.core.model.RouteBorder
 import app.openhikes.core.model.RouteBoundary
 import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteLinePattern
+import app.openhikes.core.model.RouteShade
+import app.openhikes.core.model.RouteShadeStretch
 import com.google.common.truth.Truth.assertThat
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Test
 
 class MapRouteOverlayTest {
@@ -127,6 +130,39 @@ class MapRouteOverlayTest {
         assertThat(plan.lineWidthDp).isWithin(1e-6f).of(3.5f)
         assertThat(plan.borderWidthDp).isGreaterThan(plan.lineWidthDp)
         assertThat(plan.opacity).isWithin(1e-6f).of(0.6f)
+    }
+
+    @Test
+    fun mapRouteOverlayCarriesShadedStretchesAndBuildsBlendedGeoJsonFeatures() {
+        val a = app.openhikes.core.model.GeoCoordinate(47.700, 12.830)
+        val b = app.openhikes.core.model.GeoCoordinate(47.704, 12.830)
+        val c = app.openhikes.core.model.GeoCoordinate(47.708, 12.830)
+        val stretches = listOf(
+            RouteShadeStretch(RouteShade.EASIEST, listOf(a, b)),
+            RouteShadeStretch(RouteShade.HARD, listOf(b, c))
+        )
+        val mapRoute = HikeMapRoute(
+            hikeId = HikeId("h-shaded"),
+            route = listOf(
+                RouteCoordinate(a.latitude, a.longitude),
+                RouteCoordinate(b.latitude, b.longitude),
+                RouteCoordinate(c.latitude, c.longitude)
+            ),
+            tintHex = "#1B7F3B",
+            routeBorderHex = RouteBorder.NONE_HEX,
+            routeWidthDp = 4.0,
+            linePattern = RouteLinePattern.SOLID
+        )
+
+        val overlay = mapRoute.toMapRouteOverlay(isSelected = true, shadedStretches = stretches)
+        assertThat(overlay.shadedStretches).isEqualTo(stretches)
+
+        val collection = buildBlendedShadeFeatures(overlay.shadedStretches)
+        assertThat(collection.features).hasSize(2 + app.openhikes.core.model.RouteShadeBlend.BLEND_SUBSTEPS)
+        assertThat(collection.features.first().properties["color"]?.jsonPrimitive?.content)
+            .isEqualTo(RouteShade.EASIEST.hexColor)
+        assertThat(collection.features.last().properties["color"]?.jsonPrimitive?.content)
+            .isEqualTo(RouteShade.HARD.hexColor)
     }
 
     private fun sampleOverlay(

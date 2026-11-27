@@ -515,6 +515,11 @@ class DefaultTrailWalkControllerTest {
         override suspend fun renameHike(hikeId: HikeId, draftTitle: String) = error("Unused")
         override suspend fun updateRouteStyle(hikeId: HikeId, style: app.openhikes.core.model.RouteStyleUpdate) =
             error("Unused")
+        override suspend fun saveTrailBreakdowns(
+            hikeId: HikeId,
+            expectedRouteRevision: String,
+            breakdowns: app.openhikes.core.model.HikeTrailBreakdowns
+        ): Result<Boolean> = Result.success(false)
         override suspend fun setAutoFollowEnabled(hikeId: HikeId, enabled: Boolean): Result<Unit> = Result.success(Unit)
         override suspend fun saveWalkInProgress(hikeId: HikeId, record: TrailWalkRecord?): Result<Unit> {
             nextPersistFailure?.let {

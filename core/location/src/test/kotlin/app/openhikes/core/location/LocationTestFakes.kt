@@ -161,6 +161,10 @@ internal class LocalFakeUserSettingsRepository : UserSettingsRepository {
     override suspend fun setHikeListSort(sort: app.openhikes.core.model.HikeListSort) {
         state.update { it.copy(hikeListSort = sort) }
     }
+
+    override suspend fun setRouteColoring(coloring: app.openhikes.core.model.RouteColoring) {
+        state.update { it.copy(routeColoring = coloring) }
+    }
 }
 
 @Suppress("TooManyFunctions")
@@ -194,6 +198,11 @@ internal class LocalFakeHikeRepository : HikeRepository {
     override suspend fun exportHikeToUri(hikeId: HikeId, uriString: String): Result<Unit> = error("Unused")
     override suspend fun renameHike(hikeId: HikeId, draftTitle: String): Result<Unit> = error("Unused")
     override suspend fun updateRouteStyle(hikeId: HikeId, style: RouteStyleUpdate): Result<Unit> = error("Unused")
+    override suspend fun saveTrailBreakdowns(
+        hikeId: HikeId,
+        expectedRouteRevision: String,
+        breakdowns: app.openhikes.core.model.HikeTrailBreakdowns
+    ): Result<Boolean> = Result.success(true)
     override suspend fun setAutoFollowEnabled(hikeId: HikeId, enabled: Boolean): Result<Unit> = Result.success(Unit)
     override suspend fun saveWalkInProgress(
         hikeId: HikeId,

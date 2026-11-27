@@ -11,9 +11,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,6 +33,9 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openhikes.core.designsystem.icon.OpenHikesIcons
 import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.RouteColoring
+import app.openhikes.core.ui.R as CoreUiR
+import app.openhikes.core.ui.components.RouteColoringPicker
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 
 private val ScreenHorizontalPadding = 16.dp
@@ -38,6 +43,9 @@ private val SectionSpacing = 12.dp
 private val TopBarPaddingVertical = 6.dp
 private val BottomContentPadding = 24.dp
 private val MinTouchTarget = 48.dp
+private val ColoringCardCornerRadius = 20.dp
+private val ColoringCardPadding = 16.dp
+private val ColoringCardSpacing = 8.dp
 
 /**
  * Stateful Navigation 3 entry composable for Trail Maker.
@@ -98,44 +106,10 @@ fun TrailMakerScreen(
                 onCloseClick = onCloseRequested
             )
 
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .testTag(OpenHikesTestTags.TRAIL_MAKER_SCREEN),
-                contentPadding = PaddingValues(
-                    start = ScreenHorizontalPadding,
-                    end = ScreenHorizontalPadding,
-                    top = TopBarPaddingVertical,
-                    bottom = BottomContentPadding
-                ),
-                verticalArrangement = Arrangement.spacedBy(SectionSpacing)
-            ) {
-                item(key = "travel_mode") {
-                    TrailTravelModeBar(
-                        selectedMode = uiState.travelMode,
-                        enabled = uiState.isEditingEnabled,
-                        onSelectMode = { onAction(TrailMakerAction.SelectTravelMode(it)) }
-                    )
-                }
-
-                item(key = "route_card") {
-                    TrailRouteCard(
-                        uiState = uiState,
-                        onAction = onAction
-                    )
-                }
-
-                if (uiState.canSnapToPaths) {
-                    item(key = "follow_paths") {
-                        FollowPathsCard(
-                            snapsToPaths = uiState.snapsToPaths,
-                            travelMode = uiState.travelMode,
-                            enabled = uiState.isEditingEnabled,
-                            onToggle = { onAction(TrailMakerAction.ToggleSnapToPaths(it)) }
-                        )
-                    }
-                }
-            }
+            TrailMakerContentList(
+                uiState = uiState,
+                onAction = onAction
+            )
         }
 
         TrailMakerOverlays(
@@ -146,6 +120,91 @@ fun TrailMakerScreen(
             onSharePlace = onSharePlace,
             onAction = onAction
         )
+    }
+}
+
+@Composable
+private fun TrailMakerContentList(uiState: TrailMakerUiState, onAction: (TrailMakerAction) -> Unit) {
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag(OpenHikesTestTags.TRAIL_MAKER_SCREEN),
+        contentPadding = PaddingValues(
+            start = ScreenHorizontalPadding,
+            end = ScreenHorizontalPadding,
+            top = TopBarPaddingVertical,
+            bottom = BottomContentPadding
+        ),
+        verticalArrangement = Arrangement.spacedBy(SectionSpacing)
+    ) {
+        item(key = "travel_mode") {
+            TrailTravelModeBar(
+                selectedMode = uiState.travelMode,
+                enabled = uiState.isEditingEnabled,
+                onSelectMode = { onAction(TrailMakerAction.SelectTravelMode(it)) }
+            )
+        }
+
+        item(key = "route_card") {
+            TrailRouteCard(
+                uiState = uiState,
+                onAction = onAction
+            )
+        }
+
+        if (uiState.canSnapToPaths) {
+            item(key = "follow_paths") {
+                FollowPathsCard(
+                    snapsToPaths = uiState.snapsToPaths,
+                    travelMode = uiState.travelMode,
+                    enabled = uiState.isEditingEnabled,
+                    onToggle = { onAction(TrailMakerAction.ToggleSnapToPaths(it)) }
+                )
+            }
+        }
+
+        if (uiState.showsColoringSection) {
+            item(key = "on_map") {
+                TrailMapColoringCard(
+                    routeColoring = uiState.routeColoring,
+                    onSelectColoring = { onAction(TrailMakerAction.SelectRouteColoring(it)) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrailMapColoringCard(
+    routeColoring: RouteColoring,
+    onSelectColoring: (RouteColoring) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        shape = RoundedCornerShape(ColoringCardCornerRadius),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(ColoringCardPadding),
+            verticalArrangement = Arrangement.spacedBy(ColoringCardSpacing)
+        ) {
+            Text(
+                text = stringResource(R.string.trail_maker_on_map_title),
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier
+                    .semantics { heading() }
+                    .testTag(OpenHikesTestTags.TRAIL_DRAFT_COLORING)
+            )
+            RouteColoringPicker(
+                selectedColoring = routeColoring,
+                onSelectColoring = onSelectColoring,
+                elevationUnavailableNote = stringResource(
+                    CoreUiR.string.route_coloring_trail_maker_elevation_note
+                )
+            )
+        }
     }
 }
 

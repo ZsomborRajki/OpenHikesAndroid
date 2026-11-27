@@ -38,6 +38,7 @@ import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikePhoto
 import app.openhikes.core.model.HikePhotoSearchPlan
 import app.openhikes.core.model.HikeRouteStatistics
+import app.openhikes.core.model.HikeTrailAnalysis
 import app.openhikes.core.model.HikeWalk
 import app.openhikes.core.model.LiveTrailAnchor
 import app.openhikes.core.model.MapProviderKeys
@@ -54,10 +55,12 @@ import app.openhikes.core.model.RouteProfile
 import app.openhikes.core.model.RouteSegment
 import app.openhikes.core.model.RouteSegments
 import app.openhikes.core.model.RouteTint
+import app.openhikes.core.model.TrailGraphProvider
 import app.openhikes.core.model.TrailPlaceOrder
 import app.openhikes.core.model.TrailPlaceRow
 import app.openhikes.core.model.TrailPointSource
 import app.openhikes.core.model.TrailWalkPhase
+import app.openhikes.core.model.TrailWalkRecord
 import app.openhikes.core.model.UserSettings
 import app.openhikes.core.ui.components.PhotoPresentationFormatter
 import app.openhikes.core.ui.navigation.HikeDetailRoute
@@ -69,11 +72,14 @@ import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
@@ -82,6 +88,7 @@ import kotlinx.coroutines.flow.mapLatest
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Scoped ViewModel for [HikeDetailRoute] managing off-main route profile preparation,
@@ -104,6 +111,7 @@ class HikeDetailViewModel @AssistedInject constructor(
     private val trailPhotosOverlayState: TrailPhotosOverlayState,
     private val photoCaptureController: PhotoCaptureController,
     trailPointSource: TrailPointSource,
+    private val trailGraphProvider: TrailGraphProvider,
     mapProviderKeys: MapProviderKeys,
     private val launchConfigHolder: LaunchConfigHolder,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
@@ -340,7 +348,9 @@ class HikeDetailViewModel @AssistedInject constructor(
             showsPlacePins = settings.showsPlacePins,
             canSearchPlaces = trailPointSource.isAvailable && (hike?.route?.size ?: 0) > 1,
             pendingOpenPlaceId = bundle.placesBundle.pendingOpenPlaceId,
-            pendingAddPlaceCoordinate = bundle.placesBundle.pendingAddPlaceCoordinate
+            pendingAddPlaceCoordinate = bundle.placesBundle.pendingAddPlaceCoordinate,
+            surfaceBreakdown = hike?.surfaceBreakdown,
+            difficultyBreakdown = hike?.difficultyBreakdown
         )
     }.stateIn(
         scope = viewModelScope,
@@ -367,6 +377,7 @@ class HikeDetailViewModel @AssistedInject constructor(
             )
         )
         observePhotoPins()
+        observeTrailBreakdowns()
         viewModelScope.launch {
             val snapshot = offlineCountryRepository.state.value
             if (snapshot.listPhase == OfflineListPhase.IDLE && snapshot.listedCountries.isEmpty()) {
@@ -491,6 +502,39 @@ class HikeDetailViewModel @AssistedInject constructor(
             } else {
                 actionErrorState.value = HikeDetailError.EXPORT_FAILED
             }
+        }
+    }
+
+    private fun observeTrailBreakdowns() {
+        viewModelScope.launch {
+            val attemptedRevisions = HashSet<String>()
+            hikeRepository.observeHike(hikeId)
+                .map { hike ->
+                    hike?.takeIf { it.needsTrailBreakdowns && it.route.size > 1 }?.let {
+                        TrailWalkRecord.routeRevision(it.route) to it.route
+                    }
+                }
+                .distinctUntilChanged { old, new -> old?.first == new?.first }
+                .collectLatest { pending ->
+                    if (pending == null || !trailGraphProvider.isAvailable) return@collectLatest
+                    val (revision, route) = pending
+                    if (!attemptedRevisions.add(revision)) return@collectLatest
+                    val breakdowns = withContext(defaultDispatcher) {
+                        val ctx = currentCoroutineContext()
+                        HikeTrailAnalysis.breakdowns(
+                            route = route,
+                            provider = trailGraphProvider,
+                            checkActive = { ctx.ensureActive() }
+                        )
+                    }
+                    if (!breakdowns.isEmpty) {
+                        hikeRepository.saveTrailBreakdowns(
+                            hikeId = hikeId,
+                            expectedRouteRevision = revision,
+                            breakdowns = breakdowns
+                        )
+                    }
+                }
         }
     }
 

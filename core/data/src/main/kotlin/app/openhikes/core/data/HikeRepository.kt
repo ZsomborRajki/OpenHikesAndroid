@@ -11,6 +11,7 @@ import app.openhikes.core.model.HikeLocalState
 import app.openhikes.core.model.HikeMapRoute
 import app.openhikes.core.model.HikePhoto
 import app.openhikes.core.model.HikeSummary
+import app.openhikes.core.model.HikeTrailBreakdowns
 import app.openhikes.core.model.HikeWalk
 import app.openhikes.core.model.LibraryLine
 import app.openhikes.core.model.LibraryPhotoMatch
@@ -70,6 +71,17 @@ interface HikeRepository {
     suspend fun renameHike(hikeId: HikeId, draftTitle: String): Result<Unit>
 
     suspend fun updateRouteStyle(hikeId: HikeId, style: RouteStyleUpdate): Result<Unit>
+
+    /**
+     * Persists measured OSM surface and SAC difficulty breakdowns on [hikeId] only when its
+     * current route revision still matches [expectedRouteRevision], dropping stale answers if
+     * the route was edited while analysis ran.
+     */
+    suspend fun saveTrailBreakdowns(
+        hikeId: HikeId,
+        expectedRouteRevision: String,
+        breakdowns: HikeTrailBreakdowns
+    ): Result<Boolean>
 
     suspend fun loadRouteEditSources(hikeId: HikeId): RouteEditSources?
 

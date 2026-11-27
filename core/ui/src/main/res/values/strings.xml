@@ -39,4 +39,61 @@
     <string name="place_chip_viewpoint">Viewpoints</string>
     <string name="place_chip_water">Water</string>
     <string name="place_off_trail_distance">%1$s off trail</string>
+
+    <string name="trail_surface_section_title">Surface</string>
+    <string name="trail_surface_bar_description">Surface breakdown</string>
+    <string name="trail_surface_source">Surfaces from OpenStreetMap</string>
+    <string name="trail_surface_paved">Paved</string>
+    <string name="trail_surface_paved_summary">Asphalt, concrete, paving stones</string>
+    <string name="trail_surface_gravel">Gravel</string>
+    <string name="trail_surface_gravel_summary">Gravel and compacted hardcore</string>
+    <string name="trail_surface_ground">Ground</string>
+    <string name="trail_surface_ground_summary">Dirt, grass, sand, mud</string>
+    <string name="trail_surface_rock">Rock</string>
+    <string name="trail_surface_rock_summary">Bare rock and scree</string>
+    <string name="trail_surface_unknown">Unknown</string>
+    <string name="trail_surface_unknown_summary">Mapped trail, untagged surface</string>
+    <string name="trail_surface_unmapped">Not mapped</string>
+    <string name="trail_surface_unmapped_summary">No mapped trail nearby</string>
+
+    <string name="trail_difficulty_section_title">Difficulty</string>
+    <string name="trail_difficulty_bar_description">Difficulty breakdown</string>
+    <string name="trail_difficulty_source">Difficulty grades from OpenStreetMap (SAC scale)</string>
+    <string name="trail_difficulty_hiking">Hiking</string>
+    <string name="trail_difficulty_hiking_summary">Marked path, gentle terrain</string>
+    <string name="trail_difficulty_mountain_hiking">Mountain Hiking</string>
+    <string name="trail_difficulty_mountain_hiking_summary">Steeper path, surefootedness helpful</string>
+    <string name="trail_difficulty_demanding_mountain_hiking">Demanding Mountain Hiking</string>
+    <string name="trail_difficulty_demanding_mountain_hiking_summary">Hands occasionally needed for balance</string>
+    <string name="trail_difficulty_alpine_hiking">Alpine Hiking</string>
+    <string name="trail_difficulty_alpine_hiking_summary">Broken terrain, hands used continuously</string>
+    <string name="trail_difficulty_demanding_alpine_hiking">Demanding Alpine Hiking</string>
+    <string name="trail_difficulty_demanding_alpine_hiking_summary">Exposed, technically demanding</string>
+    <string name="trail_difficulty_difficult_alpine_hiking">Difficult Alpine Hiking</string>
+    <string name="trail_difficulty_difficult_alpine_hiking_summary">Full mountaineering equipment required</string>
+    <string name="trail_difficulty_unknown">Unknown</string>
+    <string name="trail_difficulty_unknown_summary">Mapped trail, untagged difficulty</string>
+    <string name="trail_difficulty_unmapped">Not mapped</string>
+    <string name="trail_difficulty_unmapped_summary">No mapped trail nearby</string>
+
+    <string name="trail_breakdown_footnote_full">%1$s.</string>
+    <string name="trail_breakdown_footnote_partial">%1$s, which describes %2$s of this route.</string>
+    <string name="trail_breakdown_share_spoken">%1$s %2$s</string>
+
+    <string name="route_coloring_section_all_hikes">All Hikes</string>
+    <string name="route_coloring_label">Color By</string>
+    <string name="route_coloring_difficulty">Difficulty</string>
+    <string name="route_coloring_elevation">Elevation</string>
+    <string name="route_coloring_off">None</string>
+    <string name="route_coloring_caption_difficulty">Colors the line by its OpenStreetMap difficulty grade. Applies to every hike.</string>
+    <string name="route_coloring_caption_elevation">Colors the line by how steep it is, uphill or down. Applies to every hike.</string>
+    <string name="route_coloring_caption_off">Every hike is drawn in its own route color.</string>
+    <string name="route_coloring_trail_maker_elevation_note">Drawn trails don’t carry elevation yet, so difficulty grades color the line while you draw.</string>
+    <string name="route_shade_key_easier">Easier</string>
+    <string name="route_shade_key_harder">Harder</string>
+    <string name="route_shade_key_steepness_range" formatted="false">0% – 40%+</string>
+    <string name="route_shade_key_steepness_description">Steepness colors</string>
+    <string name="route_shade_key_steepness_state">From green for level ground to black for grades of 40 percent or more</string>
+    <string name="route_shade_key_difficulty_description">Difficulty colors</string>
+    <string name="route_shade_key_difficulty_state">From green for hiking to black for difficult alpine hiking</string>
 </resources>

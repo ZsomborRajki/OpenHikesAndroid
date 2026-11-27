@@ -84,6 +84,11 @@ object OpenHikesTestTags {
     const val ROUTE_STYLE_BACK = "route-style-back"
     const val ROUTE_WIDTH_SLIDER = "route-width-slider"
     const val ROUTE_PATTERN_CAPTION = "route-pattern-caption"
+    const val ROUTE_COLORING_PICKER = "route-coloring-picker"
+    const val ROUTE_SHADE_KEY = "route-shade-key"
+    const val TRAIL_DRAFT_COLORING = "trail-draft-coloring"
+    const val SURFACE_BAR = "surface-bar"
+    const val DIFFICULTY_BAR = "difficulty-bar"
     const val HIKE_EDIT_ROUTE = "hike-edit-route"
     const val ROUTE_EDIT_SCREEN = "route-edit-screen"
     const val ROUTE_EDIT_BACK = "route-edit-back"
@@ -368,6 +373,8 @@ object OpenHikesTestTags {
     fun hikeSortOption(rawValue: String): String = "hike-sort-$rawValue"
 
     fun routePattern(patternId: String): String = "route-pattern-$patternId"
+
+    fun routeColoringOption(rawValue: String): String = "route-coloring-$rawValue"
 
     fun routeColorSwatch(hex: String): String = "route-color-${hex.trimStart('#').lowercase()}"
 

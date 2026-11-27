@@ -4,25 +4,32 @@ import androidx.compose.runtime.Immutable
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import app.openhikes.core.data.HikeRepository
+import app.openhikes.core.data.UserSettingsRepository
 import app.openhikes.core.map.MapClaim
 import app.openhikes.core.map.MapClaimCoordinator
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeSummary
 import app.openhikes.core.model.RouteBorder
+import app.openhikes.core.model.RouteColoring
 import app.openhikes.core.model.RouteLinePattern
 import app.openhikes.core.model.RouteStyleUpdate
 import app.openhikes.core.model.RouteTint
+import app.openhikes.core.model.UserSettings
 import app.openhikes.core.ui.navigation.RouteStyleRoute
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedFactory
 import dagger.assisted.AssistedInject
 import dagger.hilt.android.lifecycle.HiltViewModel
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -38,17 +45,20 @@ data class RouteStyleUiState(
     val borderHex: String = RouteBorder.NONE_HEX,
     val widthDp: Double = HikeSummary.DEFAULT_ROUTE_WIDTH_DP,
     val linePattern: RouteLinePattern = RouteLinePattern.Default,
+    val routeColoring: RouteColoring = RouteColoring.Default,
     val isLoaded: Boolean = false,
     val hasSaveError: Boolean = false
 )
 
 /**
- * Coordinates live route tint, border, line width, and pattern editing for [RouteStyleRoute].
+ * Coordinates live route tint, border, line width, pattern, and shared route-coloring editing for
+ * [RouteStyleRoute].
  */
 @HiltViewModel(assistedFactory = RouteStyleViewModel.Factory::class)
 class RouteStyleViewModel @AssistedInject constructor(
     @Assisted rawHikeId: String,
     private val hikeRepository: HikeRepository,
+    private val userSettingsRepository: UserSettingsRepository,
     private val mapClaimCoordinator: MapClaimCoordinator
 ) : ViewModel() {
     @AssistedFactory
@@ -62,6 +72,17 @@ class RouteStyleViewModel @AssistedInject constructor(
     private val styleEditState = MutableStateFlow(StyleEditState())
     private val observedStyle = AtomicReference<RouteStyleUpdate?>(null)
     private val styleMutex = Mutex()
+
+    private val routeColoringFlow = userSettingsRepository.userSettings
+        .catch { exception ->
+            if (exception is IOException) {
+                emit(UserSettings())
+            } else {
+                throw exception
+            }
+        }
+        .map { it.routeColoring }
+        .distinctUntilChanged()
 
     val uiState: StateFlow<RouteStyleUiState> = combine(
         hikeRepository.observeHike(hikeId).onEach { hike ->
@@ -78,10 +99,16 @@ class RouteStyleViewModel @AssistedInject constructor(
             }
         },
         styleEditState,
+        routeColoringFlow,
         saveErrorState
-    ) { hike, edits, hasError ->
+    ) { hike, edits, routeColoring, hasError ->
         if (hike == null) {
-            RouteStyleUiState(hikeId = hikeId, isLoaded = true, hasSaveError = hasError)
+            RouteStyleUiState(
+                hikeId = hikeId,
+                routeColoring = routeColoring,
+                isLoaded = true,
+                hasSaveError = hasError
+            )
         } else {
             val active = edits.queuedStyle ?: edits.lastSavedStyle ?: hike.toStyleUpdate()
             RouteStyleUiState(
@@ -91,6 +118,7 @@ class RouteStyleViewModel @AssistedInject constructor(
                 borderHex = active.routeBorderHex,
                 widthDp = active.clampedWidthDp,
                 linePattern = active.linePattern,
+                routeColoring = routeColoring,
                 isLoaded = true,
                 hasSaveError = hasError
             )
@@ -129,6 +157,17 @@ class RouteStyleViewModel @AssistedInject constructor(
 
     fun onPatternSelected(pattern: RouteLinePattern) {
         persistStyle { current -> current.copy(linePattern = pattern) }
+    }
+
+    fun onRouteColoringSelected(coloring: RouteColoring) {
+        viewModelScope.launch {
+            try {
+                userSettingsRepository.setRouteColoring(coloring)
+                saveErrorState.value = false
+            } catch (_: IOException) {
+                saveErrorState.value = true
+            }
+        }
     }
 
     fun onDismissError() {

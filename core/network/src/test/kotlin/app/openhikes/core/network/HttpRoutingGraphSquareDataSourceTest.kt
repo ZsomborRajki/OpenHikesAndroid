@@ -80,6 +80,26 @@ class HttpRoutingGraphSquareDataSourceTest {
     }
 
     @Test
+    fun readCachedRegionReturnsNullWhenUncachedAndGraphOnceCachedWithoutNetwork() = runTest {
+        val region = TrailGraphSquareGrid.regionContaining(GeoCoordinate(47.7185, 12.8317))
+        val uncachedRegion = TrailGraphRegion(zoom = 12, x = 200, y = 200)
+        server.enqueue(MockResponse.Builder().code(200).body(Buffer().write(sampleSquareBytes())).build())
+
+        val harness = createDataSource(allowsNetwork = true, ioDispatcher = UnconfinedTestDispatcher(testScheduler))
+        assertThat(harness.dataSource.readCachedRegion(region)).isNull()
+        assertThat(server.requestCount).isEqualTo(0)
+
+        assertThat(harness.dataSource.readRegion(region)).isInstanceOf(RoutingSquareReadResult.Graph::class.java)
+        assertThat(server.requestCount).isEqualTo(1)
+
+        val cached = harness.dataSource.readCachedRegion(region)
+        assertThat(cached?.edges).hasSize(1)
+        assertThat(harness.dataSource.readCachedRegion(uncachedRegion)).isNull()
+        assertThat(server.requestCount).isEqualTo(1)
+        harness.scope.cancel()
+    }
+
+    @Test
     fun returnsOfflineOutageWhenInteractiveNetworkBlockedAndUncached() = runTest {
         val region = TrailGraphSquareGrid.regionContaining(GeoCoordinate(47.7185, 12.8317))
         val harness = createDataSource(allowsNetwork = false, ioDispatcher = UnconfinedTestDispatcher(testScheduler))

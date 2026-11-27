@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModelStore
 import app.cash.turbine.test
 import app.openhikes.core.common.LaunchConfig
 import app.openhikes.core.common.LaunchConfigHolder
+import app.openhikes.core.common.gpx.GpxParseResult
+import app.openhikes.core.common.gpx.GpxParser
 import app.openhikes.core.location.TrailWalkEnd
 import app.openhikes.core.location.TrailWalkPermissionIssue
 import app.openhikes.core.location.TrailWalkProgressState
@@ -18,11 +20,14 @@ import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.MapProviderKeys
 import app.openhikes.core.model.MapStyleId
 import app.openhikes.core.model.RouteCoordinate
+import app.openhikes.core.model.TrailGraphProvider
 import app.openhikes.core.model.TrailPointSource
 import app.openhikes.core.model.TrailWalkPhase
 import app.openhikes.core.model.UserSettings
+import app.openhikes.core.testing.FakeTrailGraphProvider
 import app.openhikes.core.testing.FakeTrailPointSource
 import app.openhikes.core.testing.MainDispatcherRule
+import app.openhikes.core.testing.TestFixtures
 import app.openhikes.core.testing.android.FakeHikeRepository
 import app.openhikes.core.testing.android.FakeOfflineCountryRepository
 import app.openhikes.core.testing.android.FakeRecordingController
@@ -281,6 +286,38 @@ class HikeDetailViewModelTest {
         }
     }
 
+    @Test
+    fun analyzesAndPersistsSurfaceAndDifficultyBreakdownsOnceOnOpen() = runTest {
+        val parsed = GpxParser.parseSingle(TestFixtures.thumseeLoopFastGpxBytes()) as GpxParseResult.Success
+        val route = parsed.value.route
+        val hike = sampleDetailHike().copy(route = route)
+        val repo = FakeHikeRepository(listOf(hike))
+        val provider = FakeTrailGraphProvider.fromThumseeLoopFixture()
+        val viewModel = createViewModel(hike = hike, repo = repo, trailGraphProvider = provider)
+
+        viewModel.uiState.test {
+            advanceUntilIdle()
+            val state = expectMostRecentItem()
+            assertThat(state.surfaceBreakdown).isNotNull()
+            assertThat(state.difficultyBreakdown).isNotNull()
+            assertThat(state.surfaceBreakdown!!.surveyedFraction).isAtLeast(0.95)
+            assertThat(state.difficultyBreakdown!!.surveyedFraction).isAtLeast(0.95)
+            assertThat(provider.assembledGraphCalls).isEqualTo(1)
+            cancelAndIgnoreRemainingEvents()
+        }
+
+        // Re-opening after breakdowns were persisted does not ask the graph provider again.
+        val secondViewModel = createViewModel(hike = hike, repo = repo, trailGraphProvider = provider)
+        secondViewModel.uiState.test {
+            advanceUntilIdle()
+            val state = expectMostRecentItem()
+            assertThat(state.surfaceBreakdown).isNotNull()
+            assertThat(state.difficultyBreakdown).isNotNull()
+            assertThat(provider.assembledGraphCalls).isEqualTo(1)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
     private fun createViewModel(
         hike: Hike,
         repo: FakeHikeRepository = FakeHikeRepository(listOf(hike)),
@@ -293,6 +330,7 @@ class HikeDetailViewModelTest {
         trailPhotosOverlayState: TrailPhotosOverlayState = TrailPhotosOverlayState(),
         photoCaptureController: PhotoCaptureController = PhotoCaptureController(),
         trailPointSource: TrailPointSource = FakeTrailPointSource(),
+        trailGraphProvider: TrailGraphProvider = FakeTrailGraphProvider(isAvailable = false),
         launchConfigHolder: LaunchConfigHolder = LaunchConfigHolder(LaunchConfig(enableSimulatedLocation = true))
     ): HikeDetailViewModel = HikeDetailViewModel(
         rawHikeId = hike.id.value,
@@ -307,6 +345,7 @@ class HikeDetailViewModelTest {
         trailPhotosOverlayState = trailPhotosOverlayState,
         photoCaptureController = photoCaptureController,
         trailPointSource = trailPointSource,
+        trailGraphProvider = trailGraphProvider,
         mapProviderKeys = mapProviderKeys,
         launchConfigHolder = launchConfigHolder,
         defaultDispatcher = mainDispatcherRule.testDispatcher

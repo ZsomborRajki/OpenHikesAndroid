@@ -1,6 +1,7 @@
 package app.openhikes.core.data
 
 import android.content.Context
+import androidx.room.withTransaction
 import app.openhikes.core.common.DefaultDispatcher
 import app.openhikes.core.common.HikeTitleEdit
 import app.openhikes.core.common.IoDispatcher
@@ -10,6 +11,7 @@ import app.openhikes.core.common.gpx.GpxExporter
 import app.openhikes.core.common.gpx.GpxParseResult
 import app.openhikes.core.common.gpx.GpxParser
 import app.openhikes.core.database.OpenHikesDatabase
+import app.openhikes.core.database.RouteBlobCodec
 import app.openhikes.core.database.dao.HikeDao
 import app.openhikes.core.database.dao.HikeLocalStateDao
 import app.openhikes.core.database.dao.HikePhotoDao
@@ -27,6 +29,7 @@ import app.openhikes.core.model.HikeLocalState
 import app.openhikes.core.model.HikeMapRoute
 import app.openhikes.core.model.HikePhoto
 import app.openhikes.core.model.HikeSummary
+import app.openhikes.core.model.HikeTrailBreakdowns
 import app.openhikes.core.model.HikeWalk
 import app.openhikes.core.model.LibraryLine
 import app.openhikes.core.model.LibraryPhotoMatch
@@ -63,7 +66,7 @@ import kotlinx.coroutines.withContext
 @Suppress("LongParameterList", "TooManyFunctions")
 internal class OfflineFirstHikeRepository @Inject constructor(
     @ApplicationContext context: Context,
-    database: OpenHikesDatabase,
+    private val database: OpenHikesDatabase,
     private val hikeDao: HikeDao,
     private val trailPointDao: TrailPointDao,
     private val hikePhotoDao: HikePhotoDao,
@@ -297,6 +300,31 @@ internal class OfflineFirstHikeRepository @Inject constructor(
                 Result.failure(NoSuchElementException("Hike not found: ${hikeId.value}"))
             }
         }
+
+    override suspend fun saveTrailBreakdowns(
+        hikeId: HikeId,
+        expectedRouteRevision: String,
+        breakdowns: HikeTrailBreakdowns
+    ): Result<Boolean> = withContext(ioDispatcher) {
+        if (breakdowns.isEmpty) return@withContext Result.success(false)
+        runCatching {
+            database.withTransaction {
+                val existing = hikeDao.getHikeById(hikeId.value) ?: return@withTransaction false
+                val chunks = hikeDao.getRouteChunks(hikeId.value)
+                val currentRoute = RouteBlobCodec.decodeChunksOrEmpty(
+                    chunks.sortedBy { it.chunkIndex }.map { it.chunkBlob }
+                )
+                if (TrailWalkRecord.routeRevision(currentRoute) != expectedRouteRevision) {
+                    return@withTransaction false
+                }
+                val nextSurface = breakdowns.surface?.toStoredMeters()?.let(::encodeBreakdownMeters)
+                    ?: existing.surfaceMetersJson
+                val nextDifficulty = breakdowns.difficulty?.toStoredMeters()?.let(::encodeBreakdownMeters)
+                    ?: existing.difficultyMetersJson
+                hikeDao.updateTrailBreakdowns(hikeId.value, nextSurface, nextDifficulty) > 0
+            }
+        }
+    }
 
     override suspend fun loadRouteEditSources(hikeId: HikeId): RouteEditSources? =
         routeEditStore.loadRouteEditSources(hikeId)

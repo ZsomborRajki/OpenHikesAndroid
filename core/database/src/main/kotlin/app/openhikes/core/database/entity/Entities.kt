@@ -30,7 +30,9 @@ data class HikeEntity(
     val author: String?,
     val keywords: String?,
     @ColumnInfo(name = "route_point_count") val routePointCount: Int,
-    @ColumnInfo(name = "route_edit_json") val routeEditJson: String? = null
+    @ColumnInfo(name = "route_edit_json") val routeEditJson: String? = null,
+    @ColumnInfo(name = "surface_meters_json") val surfaceMetersJson: String? = null,
+    @ColumnInfo(name = "difficulty_meters_json") val difficultyMetersJson: String? = null
 )
 
 @Entity(

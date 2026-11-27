@@ -8,11 +8,13 @@ import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeSummary
 import app.openhikes.core.model.RouteBorder
+import app.openhikes.core.model.RouteColoring
 import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteLinePattern
 import app.openhikes.core.model.RouteStyleUpdate
 import app.openhikes.core.testing.MainDispatcherRule
 import app.openhikes.core.testing.android.FakeHikeRepository
+import app.openhikes.core.testing.android.FakeUserSettingsRepository
 import com.google.common.truth.Truth.assertThat
 import java.io.IOException
 import kotlinx.coroutines.CompletableDeferred
@@ -35,6 +37,7 @@ class RouteStyleViewModelTest {
         val viewModel = RouteStyleViewModel(
             rawHikeId = hike.id.value,
             hikeRepository = repo,
+            userSettingsRepository = FakeUserSettingsRepository(),
             mapClaimCoordinator = coordinator
         )
         val store = ViewModelStore().apply { put("style", viewModel) }
@@ -80,7 +83,7 @@ class RouteStyleViewModelTest {
     @Test
     fun retainsNewerQueuedEditWhenInFlightWriteFails() = runTest {
         val repo = ControllableStyleRepository(sampleHike())
-        val viewModel = RouteStyleViewModel("h1", repo, MapClaimCoordinator())
+        val viewModel = RouteStyleViewModel("h1", repo, FakeUserSettingsRepository(), MapClaimCoordinator())
 
         viewModel.uiState.test {
             advanceUntilIdle()
@@ -120,7 +123,7 @@ class RouteStyleViewModelTest {
     @Test
     fun preservesLastSavedStyleBeforeDbObservationCatchesUpAndRevertsOnlyFailedEdit() = runTest {
         val repo = ControllableStyleRepository(sampleHike())
-        val viewModel = RouteStyleViewModel("h1", repo, MapClaimCoordinator())
+        val viewModel = RouteStyleViewModel("h1", repo, FakeUserSettingsRepository(), MapClaimCoordinator())
 
         viewModel.uiState.test {
             advanceUntilIdle()
@@ -156,6 +159,34 @@ class RouteStyleViewModelTest {
             assertThat(afterFailure.widthDp).isEqualTo(7.0)
             assertThat(afterFailure.tintHex).isEqualTo("#D85A17")
             assertThat(afterFailure.linePattern).isEqualTo(RouteLinePattern.Default)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    @Test
+    fun updatesSharedRouteColoringSettingAndPersistsAcrossReopen() = runTest {
+        val repo = FakeHikeRepository(listOf(sampleHike()))
+        val settingsRepo = FakeUserSettingsRepository()
+        val first = RouteStyleViewModel("h1", repo, settingsRepo, MapClaimCoordinator())
+
+        first.uiState.test {
+            advanceUntilIdle()
+            assertThat(expectMostRecentItem().routeColoring).isEqualTo(RouteColoring.ELEVATION)
+
+            first.onRouteColoringSelected(RouteColoring.DIFFICULTY)
+            advanceUntilIdle()
+            assertThat(expectMostRecentItem().routeColoring).isEqualTo(RouteColoring.DIFFICULTY)
+
+            first.onRouteColoringSelected(RouteColoring.OFF)
+            advanceUntilIdle()
+            assertThat(expectMostRecentItem().routeColoring).isEqualTo(RouteColoring.OFF)
+            cancelAndIgnoreRemainingEvents()
+        }
+
+        val second = RouteStyleViewModel("h1", repo, settingsRepo, MapClaimCoordinator())
+        second.uiState.test {
+            advanceUntilIdle()
+            assertThat(expectMostRecentItem().routeColoring).isEqualTo(RouteColoring.OFF)
             cancelAndIgnoreRemainingEvents()
         }
     }

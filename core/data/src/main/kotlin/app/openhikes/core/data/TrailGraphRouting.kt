@@ -81,14 +81,30 @@ internal class ArchiveTrailGraphProvider @Inject constructor(
         val config = launchConfigHolder.current.value
         val fixtureName = config.trailGraphFixtureName
         return when {
-            fixtureName != null -> AssembledTrailGraph(graph = loadFixture(fixtureName), outage = null)
-            config.isUiTesting -> AssembledTrailGraph(graph = null, outage = null)
+            fixtureName != null -> AssembledTrailGraph(
+                graph = loadFixture(fixtureName),
+                outage = null,
+                isComplete = true
+            )
+            config.isUiTesting -> AssembledTrailGraph(graph = null, outage = null, isComplete = false)
             else -> assembleFromNetworkSquares(covering)
         }
     }
 
+    override suspend fun cachedGraphOnly(covering: List<GeoCoordinate>): TrailGraph? {
+        val config = launchConfigHolder.current.value
+        val fixtureName = config.trailGraphFixtureName
+        return when {
+            fixtureName != null -> loadFixture(fixtureName)
+            config.isUiTesting -> null
+            else -> assembleCachedOnly(covering)
+        }
+    }
+
     private suspend fun assembleFromNetworkSquares(covering: List<GeoCoordinate>): AssembledTrailGraph {
-        val regions = TrailGraphCorridor.regionsCovering(covering, maxRegions = MAX_CORRIDOR_REGIONS)
+        val rawRegions = TrailGraphCorridor.regionsCovering(covering, maxRegions = MAX_CORRIDOR_REGIONS + 1)
+        val exceededCap = rawRegions.size > MAX_CORRIDOR_REGIONS
+        val regions = if (exceededCap) rawRegions.take(MAX_CORRIDOR_REGIONS) else rawRegions
         var combined = TrailGraph.Empty
         var firstOutage: TrailLegOutage? = null
         for (region in regions) {
@@ -99,20 +115,36 @@ internal class ArchiveTrailGraphProvider @Inject constructor(
         }
         return AssembledTrailGraph(
             graph = if (combined.isEmpty) null else combined,
-            outage = firstOutage
+            outage = firstOutage,
+            isComplete = firstOutage == null && !exceededCap
         )
+    }
+
+    private suspend fun assembleCachedOnly(covering: List<GeoCoordinate>): TrailGraph? {
+        val regions = TrailGraphCorridor.regionsCovering(covering, maxRegions = MAX_CORRIDOR_REGIONS)
+        var combined = TrailGraph.Empty
+        for (region in regions) {
+            val cached = routingSquareDataSource.readCachedRegion(region)
+            if (cached != null) combined = combined.merging(cached)
+        }
+        return if (combined.isEmpty) null else combined
     }
 
     private suspend fun loadFixture(name: String): TrailGraph? = fixtureMutex.withLock {
         if (cachedFixtureName != name) {
-            cachedFixtureName = name
-            cachedFixtureGraph = bundledFixtureSource.loadFixture(name)
+            val loaded = bundledFixtureSource.loadFixture(name)
+            if (loaded != null) {
+                cachedFixtureName = name
+                cachedFixtureGraph = loaded
+            }
+            loaded
+        } else {
+            cachedFixtureGraph
         }
-        cachedFixtureGraph
     }
 
     private companion object {
-        const val MAX_CORRIDOR_REGIONS = 12
+        const val MAX_CORRIDOR_REGIONS = 24
     }
 }
 
