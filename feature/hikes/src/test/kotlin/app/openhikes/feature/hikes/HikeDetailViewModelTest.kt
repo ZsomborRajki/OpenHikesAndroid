@@ -452,10 +452,69 @@ class HikeDetailViewModelTest {
         }
     }
 
+    @Test
+    fun retriesElevationFillWhenOfflineCountryArchiveInstallsWhileFlatHikeIsOpen() = runTest {
+        val flatHike = sampleFlatDetailHike()
+        val repo = FakeHikeRepository(listOf(flatHike))
+        val offlineRepo = FakeOfflineCountryRepository()
+        val elevationSource = FakeRouteElevationSource(failure = ElevationFailure.UNREACHABLE)
+        val viewModel = createViewModel(
+            hike = flatHike,
+            repo = repo,
+            offlineCountryRepository = offlineRepo,
+            routeElevationSource = elevationSource
+        )
+
+        viewModel.uiState.test {
+            advanceUntilIdle()
+            assertThat(expectMostRecentItem().profile?.samples.orEmpty()).isEmpty()
+            assertThat(elevationSource.requestCount).isEqualTo(1)
+
+            // Installing an offline country with an elevation file triggers a fresh lookup on the still-flat hike.
+            elevationSource.failure = null
+            elevationSource.cannedHeights = listOf(520.0, 610.0)
+            val elevationFile = app.openhikes.core.model.OfflineCountryFile(
+                role = app.openhikes.core.model.OfflineFileRole.ELEVATION,
+                path = "countries/AT-elevation-20261126.pmtiles",
+                byteCount = 1_000L,
+                sha256 = "0".repeat(64),
+                minimumZoom = 12,
+                maximumZoom = 12
+            )
+            val country = app.openhikes.core.model.OfflineCountry(
+                id = "AT",
+                build = "20261126",
+                schema = 4,
+                bounds = app.openhikes.core.model.OfflineBounds(9.0, 46.0, 17.0, 49.0),
+                outline = emptyList(),
+                files = listOf(elevationFile)
+            )
+            offlineRepo.setState(
+                app.openhikes.core.model.OfflineCountriesState(
+                    isPrepared = true,
+                    installed = mapOf(
+                        "AT" to app.openhikes.core.model.InstalledCountryRecord(
+                            country = country,
+                            installedAtEpochMillis = 1_000L
+                        )
+                    )
+                )
+            )
+            advanceUntilIdle()
+
+            val filled = expectMostRecentItem()
+            assertThat(filled.profile?.samples).hasSize(2)
+            assertThat(filled.statistics?.elevationGainMeters).isWithin(1e-6).of(90.0)
+            assertThat(elevationSource.requestCount).isEqualTo(2)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
     private fun createViewModel(
         hike: Hike,
         repo: FakeHikeRepository = FakeHikeRepository(listOf(hike)),
         userSettingsRepository: FakeUserSettingsRepository = FakeUserSettingsRepository(),
+        offlineCountryRepository: FakeOfflineCountryRepository = FakeOfflineCountryRepository(),
         mapProviderKeys: MapProviderKeys = MapProviderKeys.Empty,
         walkController: FakeTrailWalkController = FakeTrailWalkController(),
         coordinator: MapClaimCoordinator = MapClaimCoordinator(),
@@ -471,7 +530,7 @@ class HikeDetailViewModelTest {
         rawHikeId = hike.id.value,
         hikeRepository = repo,
         userSettingsRepository = userSettingsRepository,
-        offlineCountryRepository = FakeOfflineCountryRepository(),
+        offlineCountryRepository = offlineCountryRepository,
         trailWalkController = walkController,
         recordingController = FakeRecordingController(),
         mapClaimCoordinator = coordinator,

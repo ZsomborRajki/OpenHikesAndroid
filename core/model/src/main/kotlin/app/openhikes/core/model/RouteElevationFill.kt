@@ -83,13 +83,15 @@ object RouteElevationRequest {
 
 /**
  * DEM heights sampled at specific [indexes] of a route of [routePointCount] points, carrying the
- * exact sampled [coordinates] so callers can verify the route has not moved before applying them.
+ * exact sampled [coordinates] and full [routeRevision] (all coordinates and pause boundaries) so
+ * callers can verify the route has not moved — including between sampled points — before applying.
  */
 data class RouteHeightSamples(
     val routePointCount: Int,
     val indexes: List<Int>,
     val coordinates: List<RouteCoordinate>,
-    val heights: List<Double>
+    val heights: List<Double>,
+    val routeRevision: String
 ) {
     val summary: RouteElevationSummary
         get() {
@@ -107,17 +109,21 @@ data class RouteHeightSamples(
         }
 
     /**
-     * Whether [route] still matches the exact point count and coordinates these heights were read for.
+     * Whether [route] still matches the exact point count, full geometry/pause revision, and
+     * sampled coordinates these heights were read for.
      */
-    fun describes(route: List<RouteCoordinate>): Boolean = route.size == routePointCount &&
-        indexes.size == coordinates.size &&
-        indexes.size == heights.size &&
-        indexes.indices.all { i ->
-            val index = indexes[i]
-            val point = route.getOrNull(index)
-            val sampled = coordinates[i]
-            point != null && point.latitude == sampled.latitude && point.longitude == sampled.longitude
-        }
+    fun describes(route: List<RouteCoordinate>): Boolean = hasConsistentShape(route) &&
+        TrailWalkRecord.routeRevision(route) == routeRevision &&
+        matchesSampledCoordinates(route)
+
+    private fun hasConsistentShape(route: List<RouteCoordinate>): Boolean =
+        route.size == routePointCount && indexes.size == coordinates.size && indexes.size == heights.size
+
+    private fun matchesSampledCoordinates(route: List<RouteCoordinate>): Boolean = indexes.indices.all { i ->
+        val point = route.getOrNull(indexes[i])
+        val sampled = coordinates[i]
+        point != null && point.latitude == sampled.latitude && point.longitude == sampled.longitude
+    }
 
     /**
      * Returns [route] with finite readings placed at [indexes] and intervening points interpolated
@@ -295,7 +301,8 @@ suspend fun RouteElevationSource.samplesOf(route: List<RouteCoordinate>): RouteH
                     routePointCount = route.size,
                     indexes = indexes,
                     coordinates = sampled,
-                    heights = result.heights
+                    heights = result.heights,
+                    routeRevision = TrailWalkRecord.routeRevision(route)
                 )
             } else {
                 null

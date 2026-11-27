@@ -56,6 +56,9 @@ import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
@@ -339,44 +342,105 @@ internal class OfflineFirstHikeRepository @Inject constructor(
                 return@withContext Result.failure(IOException("Simulated elevation fill save failure"))
             }
             runCatching {
-                val persisted = database.withTransaction {
-                    val existing = hikeDao.getHikeById(hikeId.value) ?: return@withTransaction null
-                    if (existing.isRecording) return@withTransaction null
-                    val chunks = hikeDao.getRouteChunks(hikeId.value)
-                    val currentRoute = RouteBlobCodec.decodeChunksOrEmpty(
-                        chunks.sortedBy { it.chunkIndex }.map { it.chunkBlob }
-                    )
-                    if (!HikeElevationFill.needsHeights(currentRoute) || !samples.describes(currentRoute)) {
-                        return@withTransaction null
-                    }
-                    val filledRoute = samples.interpolating(currentRoute)
-                    if (HikeElevationFill.needsHeights(filledRoute)) return@withTransaction null
+                val prepared = prepareElevationFill(hikeId, samples) ?: return@runCatching false
+                currentCoroutineContext().ensureActive()
+                commitElevationFill(hikeId, samples, prepared)
+            }
+        }
+
+    private suspend fun prepareElevationFill(hikeId: HikeId, samples: RouteHeightSamples): PreparedElevationFill? {
+        val existing = hikeDao.getHikeById(hikeId.value)
+        if (existing == null || existing.isRecording) return null
+        val currentRoute = RouteBlobCodec.decodeChunksOrEmpty(
+            hikeDao.getRouteChunks(hikeId.value).sortedBy { it.chunkIndex }.map { it.chunkBlob }
+        )
+        return if (!HikeElevationFill.needsHeights(currentRoute) || !samples.describes(currentRoute)) {
+            null
+        } else {
+            withContext(defaultDispatcher) {
+                val filledRoute = samples.interpolating(currentRoute)
+                if (HikeElevationFill.needsHeights(filledRoute)) {
+                    null
+                } else {
+                    val stats = HikeRouteStatistics.from(existing.distanceMeters, filledRoute)
+                    val filledElevationRevision = RouteElevationRevision.of(filledRoute)
                     val newChunks = RouteBlobCodec.encodeChunked(filledRoute).mapIndexed { index, blob ->
                         HikeRouteChunkEntity(hikeId = existing.id, chunkIndex = index, chunkBlob = blob)
                     }
-                    if (hikeDao.updateExistingHikeWithRoute(existing, newChunks)) {
-                        existing.distanceMeters to filledRoute
-                    } else {
-                        null
-                    }
-                }
-                if (persisted != null) {
-                    val (distanceMeters, filledRoute) = persisted
-                    val stats = withContext(defaultDispatcher) {
-                        HikeRouteStatistics.from(distanceMeters, filledRoute)
-                    }
-                    localStateRepairer.upsertElevationMetricsBestEffort(
-                        hikeId = hikeId.value,
-                        climbMeters = stats.elevationGainMeters,
-                        descentMeters = stats.elevationLossMeters,
-                        elevationRouteRevision = RouteElevationRevision.of(filledRoute)
+                    PreparedElevationFill(
+                        expectedRouteRevision = samples.routeRevision,
+                        stats = stats,
+                        filledElevationRevision = filledElevationRevision,
+                        newChunks = newChunks
                     )
-                    true
-                } else {
-                    false
                 }
             }
         }
+    }
+
+    private suspend fun commitElevationFill(
+        hikeId: HikeId,
+        samples: RouteHeightSamples,
+        prepared: PreparedElevationFill
+    ): Boolean = withContext(NonCancellable + ioDispatcher) {
+        val committed = database.withTransaction {
+            val existing = hikeDao.getHikeById(hikeId.value) ?: return@withTransaction false
+            if (existing.isRecording) return@withTransaction false
+            val currentRoute = RouteBlobCodec.decodeChunksOrEmpty(
+                hikeDao.getRouteChunks(hikeId.value).sortedBy { it.chunkIndex }.map { it.chunkBlob }
+            )
+            val matches = HikeElevationFill.needsHeights(currentRoute) &&
+                TrailWalkRecord.routeRevision(currentRoute) == prepared.expectedRouteRevision &&
+                samples.describes(currentRoute)
+            if (matches) {
+                hikeDao.updateExistingHikeWithRoute(existing, prepared.newChunks)
+            } else {
+                false
+            }
+        }
+        if (committed) {
+            totalsRevisionCounter.incrementAndGet()
+            syncFilledElevationCacheIfUnchanged(hikeId, prepared)
+        }
+        committed
+    }
+
+    private suspend fun syncFilledElevationCacheIfUnchanged(hikeId: HikeId, prepared: PreparedElevationFill) {
+        val latest = hikeDao.getHikeById(hikeId.value) ?: return
+        val latestChunks = hikeDao.getRouteChunks(latest.id)
+        val latestElevationRevision = withContext(NonCancellable + defaultDispatcher) {
+            val latestRoute = RouteBlobCodec.decodeChunksOrEmpty(
+                latestChunks.sortedBy { it.chunkIndex }.map { it.chunkBlob }
+            )
+            RouteElevationRevision.of(latestRoute)
+        }
+        val currentChunks = hikeDao.getRouteChunks(latest.id)
+        val stillMatches = latestElevationRevision == prepared.filledElevationRevision &&
+            hikeDao.getHikeById(latest.id) != null &&
+            sameRouteChunks(latestChunks, currentChunks)
+        if (stillMatches) {
+            localStateRepairer.upsertElevationMetricsBestEffort(
+                hikeId = hikeId.value,
+                climbMeters = prepared.stats.elevationGainMeters,
+                descentMeters = prepared.stats.elevationLossMeters,
+                elevationRouteRevision = prepared.filledElevationRevision
+            )
+        }
+    }
+
+    private fun sameRouteChunks(first: List<HikeRouteChunkEntity>, second: List<HikeRouteChunkEntity>): Boolean =
+        first.size == second.size &&
+            first.indices.all { index ->
+                first[index].chunkIndex == second[index].chunkIndex &&
+                    first[index].chunkBlob.contentEquals(second[index].chunkBlob)
+            }
+
+    private data class PreparedElevationFill(
+        val expectedRouteRevision: String,
+        val stats: HikeRouteStatistics,
+        val filledElevationRevision: String,
+        val newChunks: List<HikeRouteChunkEntity>
+    )
 
     override suspend fun loadRouteEditSources(hikeId: HikeId): RouteEditSources? =
         routeEditStore.loadRouteEditSources(hikeId)

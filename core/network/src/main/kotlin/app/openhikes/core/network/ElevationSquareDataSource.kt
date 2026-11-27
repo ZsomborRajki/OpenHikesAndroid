@@ -69,6 +69,7 @@ internal class HttpElevationSquareDataSource @Inject constructor(
 ) : ElevationSquareDataSource {
     private val inFlight = ConcurrentHashMap<SquareFetchKey, Deferred<SquareHttpAnswer>>()
     private val rateLimitedUntilEpochMillis = AtomicLong(0L)
+    private val requestGate = Semaphore(CONCURRENT_REQUESTS)
 
     override suspend fun readSquares(squares: List<ElevationSquare>): ElevationSquaresBatchAnswer {
         val unique = squares.distinct()
@@ -80,8 +81,7 @@ internal class HttpElevationSquareDataSource @Inject constructor(
         return when {
             missing.isEmpty() -> ElevationSquaresBatchAnswer.Loaded(cached)
             archive == null -> ElevationSquaresBatchAnswer.Uncovered
-            !tileNetworkPolicy.decide(TileNetworkPurpose.INTERACTIVE).isAllowed || isRateLimited() ->
-                ElevationSquaresBatchAnswer.Unreachable
+            !canIssueNetworkRequest() -> ElevationSquaresBatchAnswer.Unreachable
             else -> fetchBatchWithRetirementRetry(
                 cached = cached,
                 missing = missing,
@@ -105,7 +105,7 @@ internal class HttpElevationSquareDataSource @Inject constructor(
         val refreshed = if (moved) archivesManager.activeSource.value?.elevation else null
         return when {
             refreshed == null -> ElevationSquaresBatchAnswer.Uncovered
-            isRateLimited() -> ElevationSquaresBatchAnswer.Unreachable
+            !canIssueNetworkRequest() -> ElevationSquaresBatchAnswer.Unreachable
             else -> finalizeBatch(cached, missing, fetchMissingFromArchive(missing, refreshed))
         }
     }
@@ -114,12 +114,9 @@ internal class HttpElevationSquareDataSource @Inject constructor(
         missing: List<ElevationSquare>,
         archive: ElevationArchiveSource
     ): Map<ElevationSquare, SquareHttpAnswer> = coroutineScope {
-        val gate = Semaphore(CONCURRENT_REQUESTS)
         missing.map { square ->
             async {
-                square to gate.withPermit {
-                    fetchSquareCoalesced(square, archive)
-                }
+                square to fetchSquareCoalesced(square, archive)
             }
         }.awaitAll().toMap()
     }
@@ -128,13 +125,20 @@ internal class HttpElevationSquareDataSource @Inject constructor(
         square: ElevationSquare,
         archive: ElevationArchiveSource
     ): SquareHttpAnswer {
+        if (!canIssueNetworkRequest()) return SquareHttpAnswer.Error
         val key = SquareFetchKey(archiveName = archive.archiveName, square = square)
         val existing = inFlight[key]
         val active = if (existing != null) {
             existing
         } else {
             val created = applicationScope.async(ioDispatcher, start = CoroutineStart.LAZY) {
-                fetchSquareHttp(archive.squareTileUrl(square))
+                requestGate.withPermit {
+                    if (!canIssueNetworkRequest()) {
+                        SquareHttpAnswer.Error
+                    } else {
+                        fetchSquareHttp(archive.squareTileUrl(square))
+                    }
+                }
             }
             val winner = inFlight.putIfAbsent(key, created)
             if (winner != null) {
@@ -249,24 +253,29 @@ internal class HttpElevationSquareDataSource @Inject constructor(
 
     private fun writeCachedFile(squareName: String, bytes: ByteArray) {
         val target = safeSquareFile(squareName) ?: return
+        var tempFile: File? = null
         runCatching {
             if (!cacheDir.exists()) cacheDir.mkdirs()
-            val tmp = File(cacheDir, "${target.name}.tmp")
-            FileOutputStream(tmp).use { out ->
+            val uniqueTmp = Files.createTempFile(cacheDir.toPath(), "${target.name}.", ".tmp").toFile()
+            tempFile = uniqueTmp
+            FileOutputStream(uniqueTmp).use { out ->
                 out.write(bytes)
                 out.flush()
             }
+            uniqueTmp.setLastModified(clock.nowEpochMillis())
             try {
                 Files.move(
-                    tmp.toPath(),
+                    uniqueTmp.toPath(),
                     target.toPath(),
                     StandardCopyOption.REPLACE_EXISTING,
                     StandardCopyOption.ATOMIC_MOVE
                 )
             } catch (_: AtomicMoveNotSupportedException) {
-                Files.move(tmp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                Files.move(uniqueTmp.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
             }
-            target.setLastModified(clock.nowEpochMillis())
+            tempFile = null
+        }.onFailure {
+            tempFile?.delete()
         }
     }
 
@@ -282,6 +291,9 @@ internal class HttpElevationSquareDataSource @Inject constructor(
         if (ElevationSquareGrid.squareNamed(squareName) == null) return null
         return File(cacheDir, "$squareName$FILE_EXTENSION")
     }
+
+    private fun canIssueNetworkRequest(): Boolean =
+        tileNetworkPolicy.decide(TileNetworkPurpose.INTERACTIVE).isAllowed && !isRateLimited()
 
     private fun isRateLimited(): Boolean = clock.nowEpochMillis() < rateLimitedUntilEpochMillis.get()
 

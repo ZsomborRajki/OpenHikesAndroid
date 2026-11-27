@@ -11,6 +11,7 @@ import app.openhikes.core.database.RouteBlobCodec
 import app.openhikes.core.database.entity.HikeRouteChunkEntity
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.RouteBoundary
 import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteElevationRevision
 import app.openhikes.core.model.RouteHeightSamples
@@ -19,11 +20,19 @@ import app.openhikes.core.model.TrailPoint
 import app.openhikes.core.model.TrailWalkCoverage
 import app.openhikes.core.model.TrailWalkEndReason
 import app.openhikes.core.model.TrailWalkRecord
+import app.openhikes.core.model.samplesOf
+import app.openhikes.core.testing.FakeRouteElevationSource
 import app.openhikes.core.testing.TestClock
 import com.google.common.truth.Truth.assertThat
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.CoroutineContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.Runnable
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -71,7 +80,6 @@ class HikeElevationFillPersistenceTest {
             madeOnEpochMillis = 10_000L
         ).getOrThrow()
 
-        // Attach a walk and a place to verify in-place chunk replacement does not CASCADE-delete children.
         val walkRecord = TrailWalkRecord(
             hikeId = saved.id.value,
             startedAtEpochMillis = 20_000L,
@@ -96,10 +104,10 @@ class HikeElevationFillPersistenceTest {
             routePointCount = flatRoute.size,
             indexes = listOf(0, 2),
             coordinates = listOf(flatRoute[0], flatRoute[2]),
-            heights = listOf(500.0, 700.0)
+            heights = listOf(500.0, 700.0),
+            routeRevision = TrailWalkRecord.routeRevision(flatRoute)
         )
-        val filled = repo.fillHikeElevation(saved.id, samples).getOrThrow()
-        assertThat(filled).isTrue()
+        assertThat(repo.fillHikeElevation(saved.id, samples).getOrThrow()).isTrue()
 
         val reloaded = requireNotNull(repo.observeHike(saved.id).first())
         assertThat(reloaded.displayTitle).isEqualTo("Sunny Ridge")
@@ -119,56 +127,173 @@ class HikeElevationFillPersistenceTest {
     }
 
     @Test
-    fun rejectsStaleSamplesRecordingHikesAndHonorsFailsFirstSave() = runTest {
+    fun rejectsStaleUnsampledPointOrPauseChangeRecordingHikesAndHonorsFailsFirstSave() = runTest {
         val dispatcher = UnconfinedTestDispatcher(testScheduler)
         val holder = LaunchConfigHolder(LaunchConfig.Production)
         val repo = createRepository(holder, dispatcher)
-        val flatRoute = listOf(
-            RouteCoordinate(47.7100, 12.8300),
-            RouteCoordinate(47.7120, 12.8300)
-        )
+        val longRoute = List(201) { i -> RouteCoordinate(47.7000 + i * 0.0001, 12.8300) }
         val saved = repo.saveDrawnTrail(
-            title = "Flat Loop",
-            distanceMeters = 222.0,
-            route = flatRoute,
+            title = "Long Flat Loop",
+            distanceMeters = 2_220.0,
+            route = longRoute,
             madeOnEpochMillis = 10_000L
         ).getOrThrow()
 
+        val elevationSource = FakeRouteElevationSource(cannedHeights = listOf(500.0, 560.0))
+        val samples = requireNotNull(elevationSource.samplesOf(longRoute))
+        val unsampledIndex = (0 until longRoute.size).first { it !in samples.indexes }
+
+        // Moving a single unsampled interior point changes the full route revision and blocks the stale fill.
+        val movedInterior = longRoute.mapIndexed { idx, pt ->
+            if (idx == unsampledIndex) pt.copy(longitude = 12.8399) else pt
+        }
+        replaceRouteChunks(saved.id, movedInterior)
+        assertThat(repo.fillHikeElevation(saved.id, samples).getOrThrow()).isFalse()
+        assertThat(repo.observeHike(saved.id).first()?.route?.all { it.elevationMeters == null }).isTrue()
+
+        // Adding a pause boundary on an unsampled interior point also blocks the stale fill.
+        val pausedInterior = longRoute.mapIndexed { idx, pt ->
+            if (idx == unsampledIndex) pt.copy(boundary = RouteBoundary.PAUSED) else pt
+        }
+        replaceRouteChunks(saved.id, pausedInterior)
+        assertThat(repo.fillHikeElevation(saved.id, samples).getOrThrow()).isFalse()
+
+        // Restoring the original route and enabling failsFirstSave surfaces a failure once without mutating.
+        replaceRouteChunks(saved.id, longRoute)
         holder.mergeWith { it.copy(failsFirstSave = true) }
+        assertThat(repo.fillHikeElevation(saved.id, samples).isFailure).isTrue()
+        assertThat(repo.observeHike(saved.id).first()?.route?.all { it.elevationMeters == null }).isTrue()
+
+        // Active recording hikes are never filled.
+        val recordingId = HikeId("recording-1")
+        repo.createOrClaimRecordingDraft(recordingId, startedAtEpochMillis = 10_000L, title = "Live Recording")
+            .getOrThrow()
+        replaceRouteChunks(recordingId, longRoute)
+        assertThat(repo.fillHikeElevation(recordingId, samples).getOrThrow()).isFalse()
+    }
+
+    @Test
+    fun finishesLocalElevationCacheUpdateWhenCallerCancelsRightAfterPortableCommit() = runTest {
+        val baseDispatcher = UnconfinedTestDispatcher(testScheduler)
+        var fillJob: Job? = null
+        val dispatches = AtomicInteger(0)
+        // Cancel the caller right at the post-commit defaultDispatcher switch (2nd dispatch onto defaultDispatcher).
+        val cancelingDefaultDispatcher = object : CoroutineDispatcher() {
+            override fun dispatch(context: CoroutineContext, block: Runnable) {
+                if (dispatches.incrementAndGet() == 2) {
+                    fillJob?.cancel(CancellationException("Simulated Hike Detail collectLatest cancellation"))
+                }
+                block.run()
+            }
+        }
+        val repo = createRepository(
+            launchConfigHolder = LaunchConfigHolder(LaunchConfig.Production),
+            ioDispatcher = baseDispatcher,
+            defaultDispatcher = cancelingDefaultDispatcher
+        )
+        val flatRoute = listOf(
+            RouteCoordinate(47.7100, 12.8300),
+            RouteCoordinate(47.7140, 12.8300)
+        )
+        val saved = repo.saveDrawnTrail(
+            title = "Cancel Race Trail",
+            distanceMeters = 445.0,
+            route = flatRoute,
+            madeOnEpochMillis = 10_000L
+        ).getOrThrow()
         val samples = RouteHeightSamples(
             routePointCount = flatRoute.size,
             indexes = listOf(0, 1),
             coordinates = flatRoute,
-            heights = listOf(500.0, 560.0)
+            heights = listOf(500.0, 700.0),
+            routeRevision = TrailWalkRecord.routeRevision(flatRoute)
         )
-        assertThat(repo.fillHikeElevation(saved.id, samples).isFailure).isTrue()
-        assertThat(repo.observeHike(saved.id).first()?.route?.all { it.elevationMeters == null }).isTrue()
 
-        val staleSamples = samples.copy(
-            coordinates = listOf(flatRoute[0], flatRoute[1].copy(latitude = 47.9999))
+        dispatches.set(0)
+        fillJob = launch { repo.fillHikeElevation(saved.id, samples) }
+        fillJob.join()
+
+        val reloaded = requireNotNull(repo.observeHike(saved.id).first())
+        val localState = requireNotNull(repo.observeLocalState(saved.id).first())
+        assertThat(reloaded.route.map { it.elevationMeters }).containsExactly(500.0, 700.0).inOrder()
+        assertThat(localState.climbMeters).isWithin(1e-6).of(200.0)
+        assertThat(localState.descentMeters).isWithin(1e-6).of(0.0)
+        assertThat(localState.elevationRouteRevision).isEqualTo(RouteElevationRevision.of(reloaded.route))
+    }
+
+    @Test
+    fun skipsLocalElevationCacheUpdateWhenSubsequentRouteEditChangesRevisionFirst() = runTest {
+        val baseDispatcher = UnconfinedTestDispatcher(testScheduler)
+        val flatRoute = listOf(
+            RouteCoordinate(47.7100, 12.8300),
+            RouteCoordinate(47.7140, 12.8300)
         )
-        assertThat(repo.fillHikeElevation(saved.id, staleSamples).getOrThrow()).isFalse()
-
-        val recordingId = HikeId("recording-1")
-        repo.createOrClaimRecordingDraft(
-            hikeId = recordingId,
-            startedAtEpochMillis = 10_000L,
-            title = "Live Recording"
-        ).getOrThrow()
-        val recordingEntity = requireNotNull(portableDb.hikeDao().getHikeById(recordingId.value))
-        val chunks = RouteBlobCodec.encodeChunked(flatRoute).mapIndexed { idx, blob ->
-            HikeRouteChunkEntity(hikeId = recordingEntity.id, chunkIndex = idx, chunkBlob = blob)
+        val editedRoute = listOf(
+            RouteCoordinate(47.7100, 12.8300, elevationMeters = 900.0),
+            RouteCoordinate(47.7140, 12.8300, elevationMeters = 950.0)
+        )
+        var targetHikeId: HikeId? = null
+        val dispatches = AtomicInteger(0)
+        val racingDefaultDispatcher = object : CoroutineDispatcher() {
+            override fun dispatch(context: CoroutineContext, block: Runnable) {
+                if (dispatches.incrementAndGet() == 2 && targetHikeId != null) {
+                    val id = requireNotNull(targetHikeId)
+                    kotlinx.coroutines.runBlocking {
+                        replaceRouteChunks(id, editedRoute)
+                        localDb.hikeLocalStateDao().upsertElevationMetrics(
+                            hikeId = id.value,
+                            climbMeters = 50.0,
+                            descentMeters = 0.0,
+                            elevationRouteRevision = RouteElevationRevision.of(editedRoute)
+                        )
+                    }
+                }
+                block.run()
+            }
         }
-        portableDb.hikeDao().updateExistingHikeWithRoute(recordingEntity, chunks)
-        assertThat(repo.fillHikeElevation(recordingId, samples).getOrThrow()).isFalse()
+        val repo = createRepository(
+            launchConfigHolder = LaunchConfigHolder(LaunchConfig.Production),
+            ioDispatcher = baseDispatcher,
+            defaultDispatcher = racingDefaultDispatcher
+        )
+        val saved = repo.saveDrawnTrail(
+            title = "Edited Mid-Sync",
+            distanceMeters = 445.0,
+            route = flatRoute,
+            madeOnEpochMillis = 10_000L
+        ).getOrThrow()
+        targetHikeId = saved.id
+        val samples = RouteHeightSamples(
+            routePointCount = flatRoute.size,
+            indexes = listOf(0, 1),
+            coordinates = flatRoute,
+            heights = listOf(500.0, 700.0),
+            routeRevision = TrailWalkRecord.routeRevision(flatRoute)
+        )
+
+        dispatches.set(0)
+        assertThat(repo.fillHikeElevation(saved.id, samples).getOrThrow()).isTrue()
+
+        val localState = requireNotNull(repo.observeLocalState(saved.id).first())
+        assertThat(localState.climbMeters).isWithin(1e-6).of(50.0)
+        assertThat(localState.elevationRouteRevision).isEqualTo(RouteElevationRevision.of(editedRoute))
+    }
+
+    private suspend fun replaceRouteChunks(hikeId: HikeId, route: List<RouteCoordinate>) {
+        val entity = requireNotNull(portableDb.hikeDao().getHikeById(hikeId.value))
+        val chunks = RouteBlobCodec.encodeChunked(route).mapIndexed { idx, blob ->
+            HikeRouteChunkEntity(hikeId = entity.id, chunkIndex = idx, chunkBlob = blob)
+        }
+        portableDb.hikeDao().updateExistingHikeWithRoute(entity, chunks)
     }
 
     private fun createRepository(
         launchConfigHolder: LaunchConfigHolder,
-        dispatcher: CoroutineDispatcher
+        ioDispatcher: CoroutineDispatcher,
+        defaultDispatcher: CoroutineDispatcher = ioDispatcher
     ): OfflineFirstHikeRepository {
         val context = ApplicationProvider.getApplicationContext<Context>()
-        val (_, photoStore) = createTestPhotoStore(dispatcher, context)
+        val (_, photoStore) = createTestPhotoStore(ioDispatcher, context)
         return OfflineFirstHikeRepository(
             context = context,
             database = portableDb,
@@ -191,8 +316,8 @@ class HikeElevationFillPersistenceTest {
             },
             launchConfigHolder = launchConfigHolder,
             clock = TestClock(),
-            ioDispatcher = dispatcher,
-            defaultDispatcher = dispatcher
+            ioDispatcher = ioDispatcher,
+            defaultDispatcher = defaultDispatcher
         )
     }
 }
