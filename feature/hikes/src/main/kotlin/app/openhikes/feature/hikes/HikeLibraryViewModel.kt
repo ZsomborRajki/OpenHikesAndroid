@@ -19,6 +19,7 @@ import app.openhikes.core.model.UserSettings
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.IOException
 import javax.inject.Inject
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -26,6 +27,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -49,6 +51,7 @@ class HikeLibraryViewModel @Inject constructor(
     private val actionErrorState = MutableStateFlow<String?>(null)
     private val pendingDeleteHikeState = MutableStateFlow<HikeSummary?>(null)
     private val isReorderingState = MutableStateFlow(false)
+    private val orderActions = Channel<OrderAction>(Channel.UNLIMITED)
 
     private val settingsFlow = userSettingsRepository.userSettings.catch { exception ->
         if (exception is IOException) {
@@ -127,6 +130,48 @@ class HikeLibraryViewModel @Inject constructor(
 
     init {
         observeElevationValidation()
+        observeOrderActions()
+    }
+
+    private fun observeOrderActions() {
+        viewModelScope.launch {
+            var hasSavedCustomOrder = false
+            for (action in orderActions) {
+                when (action) {
+                    is OrderAction.Move -> {
+                        val result = hikeRepository.saveCustomHikeOrder(action.orderedIds)
+                        if (result.isSuccess) {
+                            hasSavedCustomOrder = true
+                            actionErrorState.value = null
+                        } else {
+                            actionErrorState.value = SORT_ERROR_KEY
+                        }
+                    }
+                    is OrderAction.SelectSort -> {
+                        hasSavedCustomOrder = applyBuiltInSort(action.sort, hasSavedCustomOrder)
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun applyBuiltInSort(sort: HikeListSort, hasSavedCustomOrder: Boolean): Boolean {
+        val needsClear = hasSavedCustomOrder || HikeListOrder.isCustom(hikeRepository.hikes.first())
+        if (needsClear) {
+            val clearResult = hikeRepository.clearCustomHikeOrder()
+            if (clearResult.isFailure) {
+                actionErrorState.value = SORT_ERROR_KEY
+                return hasSavedCustomOrder
+            }
+        }
+        return try {
+            userSettingsRepository.setHikeListSort(sort)
+            actionErrorState.value = null
+            false
+        } catch (_: IOException) {
+            actionErrorState.value = SORT_ERROR_KEY
+            false
+        }
     }
 
     private fun observeElevationValidation() {
@@ -150,16 +195,7 @@ class HikeLibraryViewModel @Inject constructor(
 
     fun onSelectSort(sort: HikeListSort) {
         isReorderingState.value = false
-        viewModelScope.launch {
-            if (uiState.value.isCustomOrder) {
-                hikeRepository.clearCustomHikeOrder()
-            }
-            try {
-                userSettingsRepository.setHikeListSort(sort)
-            } catch (_: IOException) {
-                actionErrorState.value = SORT_ERROR_KEY
-            }
-        }
+        orderActions.trySend(OrderAction.SelectSort(sort))
     }
 
     fun onEnterReorderMode() {
@@ -184,12 +220,7 @@ class HikeLibraryViewModel @Inject constructor(
             toIndex = toIndex,
             activeHikeId = current.activeHikeId
         ) ?: return
-        viewModelScope.launch {
-            val result = hikeRepository.saveCustomHikeOrder(nextIds)
-            if (result.isFailure) {
-                actionErrorState.value = SORT_ERROR_KEY
-            }
-        }
+        orderActions.trySend(OrderAction.Move(nextIds))
     }
 
     fun onImportGpxUri(uriString: String) {
@@ -235,6 +266,12 @@ class HikeLibraryViewModel @Inject constructor(
                 actionErrorState.value = DELETE_ERROR_KEY
             }
         }
+    }
+
+    private sealed interface OrderAction {
+        data class Move(val orderedIds: List<HikeId>) : OrderAction
+
+        data class SelectSort(val sort: HikeListSort) : OrderAction
     }
 
     private data class ActivityProjection(

@@ -33,6 +33,9 @@ interface HikeDao {
     @Query("SELECT COUNT(*) FROM hikes")
     suspend fun getHikeCount(): Int
 
+    @Query("SELECT COUNT(*) FROM hike_route_chunks")
+    fun observeRouteChunkCount(): Flow<Int>
+
     @Query(
         """
         SELECT h.id AS hike_id,

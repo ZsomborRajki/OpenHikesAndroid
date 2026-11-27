@@ -9,6 +9,7 @@ import app.openhikes.core.database.entity.HikeLocalStateEntity
 import kotlinx.coroutines.flow.Flow
 
 @Dao
+@Suppress("TooManyFunctions")
 interface HikeLocalStateDao {
     @Query("SELECT * FROM hike_local_state")
     fun observeAll(): Flow<List<HikeLocalStateEntity>>
@@ -34,25 +35,94 @@ interface HikeLocalStateDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(entities: List<HikeLocalStateEntity>)
 
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertIgnore(entity: HikeLocalStateEntity): Long
+
+    @Query(
+        """
+        UPDATE hike_local_state
+        SET climb_meters = :climbMeters,
+            descent_meters = :descentMeters,
+            elevation_route_revision = :elevationRouteRevision
+        WHERE hike_id = :hikeId
+        """
+    )
+    suspend fun updateElevationMetrics(
+        hikeId: String,
+        climbMeters: Double?,
+        descentMeters: Double?,
+        elevationRouteRevision: String?
+    ): Int
+
+    @Query("UPDATE hike_local_state SET list_order = :listOrder WHERE hike_id = :hikeId")
+    suspend fun updateListOrder(hikeId: String, listOrder: Int?): Int
+
     @Query("UPDATE hike_local_state SET list_order = NULL WHERE list_order IS NOT NULL")
     suspend fun clearAllListOrders(): Int
 
+    /**
+     * Updates only the elevation cache columns for [hikeId] without overwriting concurrent
+     * `walk_in_progress_json`, `list_order`, `owns_recording_draft`, or offline tile claims.
+     */
     @Transaction
-    suspend fun replaceListOrders(orderedIds: List<String>) {
-        if (orderedIds.isEmpty()) return
-        val existingById = getAll().associateBy { it.hikeId }
-        val updates = orderedIds.mapIndexed { index, hikeId ->
-            existingById[hikeId]?.copy(listOrder = index) ?: HikeLocalStateEntity(
-                hikeId = hikeId,
-                listOrder = index,
-                climbMeters = null,
-                descentMeters = null,
-                elevationRouteRevision = null,
-                ownsRecordingDraft = false,
-                autoSavedTileKeysJson = "[]"
+    suspend fun upsertElevationMetrics(
+        hikeId: String,
+        climbMeters: Double?,
+        descentMeters: Double?,
+        elevationRouteRevision: String?
+    ) {
+        val updated = updateElevationMetrics(hikeId, climbMeters, descentMeters, elevationRouteRevision)
+        if (updated == 0) {
+            val inserted = insertIgnore(
+                HikeLocalStateEntity(
+                    hikeId = hikeId,
+                    listOrder = null,
+                    climbMeters = climbMeters,
+                    descentMeters = descentMeters,
+                    elevationRouteRevision = elevationRouteRevision,
+                    ownsRecordingDraft = false,
+                    autoSavedTileKeysJson = "[]"
+                )
+            )
+            if (inserted == -1L) {
+                updateElevationMetrics(hikeId, climbMeters, descentMeters, elevationRouteRevision)
+            }
+        }
+    }
+
+    @Transaction
+    suspend fun upsertElevationMetricsBatch(updates: List<ElevationMetricsRowUpdate>) {
+        for (update in updates) {
+            upsertElevationMetrics(
+                hikeId = update.hikeId,
+                climbMeters = update.climbMeters,
+                descentMeters = update.descentMeters,
+                elevationRouteRevision = update.elevationRouteRevision
             )
         }
-        upsertAll(updates)
+    }
+
+    @Transaction
+    suspend fun replaceListOrders(orderedIds: List<String>) {
+        orderedIds.forEachIndexed { index, hikeId ->
+            val updated = updateListOrder(hikeId, index)
+            if (updated == 0) {
+                val inserted = insertIgnore(
+                    HikeLocalStateEntity(
+                        hikeId = hikeId,
+                        listOrder = index,
+                        climbMeters = null,
+                        descentMeters = null,
+                        elevationRouteRevision = null,
+                        ownsRecordingDraft = false,
+                        autoSavedTileKeysJson = "[]"
+                    )
+                )
+                if (inserted == -1L) {
+                    updateListOrder(hikeId, index)
+                }
+            }
+        }
     }
 
     @Query("DELETE FROM hike_local_state WHERE hike_id = :hikeId")

@@ -15,7 +15,8 @@ internal fun HandleExternalNavigationRequests(
     controllers: ShellNavControllers,
     openRecordingRequestCount: Int,
     openWalkHikeRequest: Pair<Int, HikeId>?,
-    openLibraryLineHikeRequest: Pair<Int, HikeId>? = null,
+    openLibraryLineHikeRequest: Pair<Int, HikeId>?,
+    onConsumeLibraryLineHikeRequest: (Int) -> Unit,
     onExitSearch: () -> Unit
 ) {
     LaunchedEffect(openRecordingRequestCount) {
@@ -32,8 +33,9 @@ internal fun HandleExternalNavigationRequests(
         openHikeFromExternalRequest(controllers, targetHikeId, onExitSearch)
     }
     LaunchedEffect(openLibraryLineHikeRequest) {
-        val targetHikeId = openLibraryLineHikeRequest?.second ?: return@LaunchedEffect
+        val (requestToken, targetHikeId) = openLibraryLineHikeRequest ?: return@LaunchedEffect
         openHikeFromExternalRequest(controllers, targetHikeId, onExitSearch)
+        onConsumeLibraryLineHikeRequest(requestToken)
     }
 }
 

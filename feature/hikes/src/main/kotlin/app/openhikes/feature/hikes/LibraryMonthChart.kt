@@ -32,8 +32,8 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import app.openhikes.core.model.DistanceUnit
@@ -96,7 +96,6 @@ internal fun LibraryMonthChart(totals: LibraryTotals, distanceUnit: DistanceUnit
         shape = RoundedCornerShape(ChartCardCornerRadius),
         modifier = modifier
             .fillMaxWidth()
-            .semantics(mergeDescendants = true) { contentDescription = chartDescription }
             .testTag(OpenHikesTestTags.LIBRARY_MONTH_CHART)
     ) {
         Column(modifier = Modifier.padding(ChartCardPadding)) {
@@ -105,7 +104,8 @@ internal fun LibraryMonthChart(totals: LibraryTotals, distanceUnit: DistanceUnit
                 currentYear = totals.year,
                 previousYearColor = lastYearColor,
                 currentYearColor = thisYearColor,
-                ceilingLabel = "${chartData.ceiling.roundToInt()} ${chartData.unitLabel}"
+                ceilingLabel = "${chartData.ceiling.roundToInt()} ${chartData.unitLabel}",
+                summaryDescription = chartDescription
             )
             Spacer(modifier = Modifier.height(12.dp))
             MonthBarsCanvas(
@@ -116,37 +116,55 @@ internal fun LibraryMonthChart(totals: LibraryTotals, distanceUnit: DistanceUnit
                 gridColor = gridColor
             )
             Spacer(modifier = Modifier.height(6.dp))
-            MonthAxisLabelsRow(values = chartData.values)
-        }
-    }
-}
-
-@Composable
-private fun MonthAxisLabelsRow(values: List<MonthBarValues>) {
-    Row(modifier = Modifier.fillMaxWidth()) {
-        values.forEach { entry ->
-            Text(
-                text = entry.label,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                modifier = Modifier.weight(1f)
+            MonthAxisLabelsRow(
+                values = chartData.values,
+                currentYear = totals.year.toString(),
+                previousYear = totals.previousYear.toString()
             )
         }
     }
 }
 
 @Composable
+private fun MonthAxisLabelsRow(values: List<MonthBarValues>, currentYear: String, previousYear: String) {
+    Row(modifier = Modifier.fillMaxWidth()) {
+        values.forEach { entry ->
+            val monthDescription = stringResource(
+                R.string.library_totals_month_description,
+                entry.fullName,
+                currentYear,
+                entry.thisYearFormatted,
+                previousYear,
+                entry.lastYearFormatted
+            )
+            Text(
+                text = entry.label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                modifier = Modifier
+                    .weight(1f)
+                    .clearAndSetSemantics { contentDescription = monthDescription }
+            )
+        }
+    }
+}
+
+@Suppress("LongParameterList")
+@Composable
 private fun MonthChartLegendRow(
     previousYear: Int,
     currentYear: Int,
     previousYearColor: Color,
     currentYearColor: Color,
-    ceilingLabel: String
+    ceilingLabel: String,
+    summaryDescription: String
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clearAndSetSemantics { contentDescription = summaryDescription },
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween
     ) {
@@ -255,12 +273,16 @@ private fun DrawScope.drawTopRoundedBar(geometry: BarGeometry, value: Double, ce
 
 private fun buildMonthChartData(totals: LibraryTotals, distanceUnit: DistanceUnit, locale: Locale): MonthChartData {
     val values = totals.monthColumns.map { column ->
+        val month = Month.of(column.monthNumber)
+        val lastMeters = column.lastYear?.distanceMeters ?: 0.0
+        val thisMeters = column.thisYear?.distanceMeters ?: 0.0
         MonthBarValues(
-            label = Month.of(column.monthNumber).getDisplayName(TextStyle.NARROW, locale),
-            lastYear = column.lastYear?.distanceMeters
-                ?.let { HikeMetricsFormatter.distanceInMajorUnit(it, distanceUnit) } ?: 0.0,
-            thisYear = column.thisYear?.distanceMeters
-                ?.let { HikeMetricsFormatter.distanceInMajorUnit(it, distanceUnit) } ?: 0.0
+            label = month.getDisplayName(TextStyle.NARROW, locale),
+            fullName = month.getDisplayName(TextStyle.FULL, locale),
+            lastYear = HikeMetricsFormatter.distanceInMajorUnit(lastMeters, distanceUnit),
+            thisYear = HikeMetricsFormatter.distanceInMajorUnit(thisMeters, distanceUnit),
+            lastYearFormatted = HikeMetricsFormatter.formatDistance(lastMeters, distanceUnit, locale),
+            thisYearFormatted = HikeMetricsFormatter.formatDistance(thisMeters, distanceUnit, locale)
         )
     }
     val peak = values.maxOfOrNull { max(it.thisYear, it.lastYear) } ?: 0.0
@@ -294,6 +316,13 @@ private data class MonthChartData(
     val lastYearSummary: String
 )
 
-private data class MonthBarValues(val label: String, val lastYear: Double, val thisYear: Double)
+private data class MonthBarValues(
+    val label: String,
+    val fullName: String,
+    val lastYear: Double,
+    val thisYear: Double,
+    val lastYearFormatted: String,
+    val thisYearFormatted: String
+)
 
 private data class BarGeometry(val left: Float, val width: Float, val chartHeight: Float, val cornerPx: Float)

@@ -253,6 +253,65 @@ class MapShellViewModelTest {
         assertThat(shellVm.chromeUiState.value.overlayState.routes).isEmpty()
         assertThat(shellVm.chromeUiState.value.overlayState.libraryLines).isEmpty()
 
+        // Consuming a map open request clears only the matching token.
+        val token = shellVm.openHikeFromMapRequest.value!!.first
+        shellVm.onConsumeOpenHikeFromMapRequest(token - 1)
+        assertThat(shellVm.openHikeFromMapRequest.value?.first).isEqualTo(token)
+        shellVm.onConsumeOpenHikeFromMapRequest(token)
+        assertThat(shellVm.openHikeFromMapRequest.value).isNull()
+
+        chromeJob.cancel()
+    }
+
+    @Test
+    fun selectedRouteGuardUsesFullResolutionGeometryOnThinnedBendVertices() = runTest {
+        val selectedId = HikeId("h-selected-dense")
+        val crossingId = HikeId("h-crossing-faint")
+        // Build 320-point route with 260 sharp oscillations followed by a smaller bend that thinning drops.
+        val selectedRoute = buildList {
+            for (step in 0 until 280) {
+                val lat = 47.600 + step * 0.0001
+                val lon = 12.900 + if (step % 2 == 0) 0.0004 else -0.0004
+                add(RouteCoordinate(lat, lon))
+            }
+            add(RouteCoordinate(47.6285, 12.9000))
+            add(RouteCoordinate(47.6290, 12.90025)) // Dropped bend (~18 m east of chord, > zoom-20 tolerance)
+            add(RouteCoordinate(47.6295, 12.9000))
+        }
+        val droppedBend = GeoCoordinate(47.6290, 12.90025)
+        val crossingHike = sampleHike(
+            crossingId,
+            GeoCoordinate(47.6290, 12.8998),
+            GeoCoordinate(47.6290, 12.9008)
+        )
+        val claimCoordinator = MapClaimCoordinator()
+        val shellVm = createShellViewModel(
+            hikes = listOf(
+                Hike(
+                    id = selectedId,
+                    title = "Dense Trail",
+                    distanceMeters = 5_000.0,
+                    dateEpochMillis = 20_000L,
+                    route = selectedRoute
+                ),
+                crossingHike
+            ),
+            claimCoordinator = claimCoordinator,
+            editOverlayState = RouteEditOverlayState()
+        )
+        val chromeJob = backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) {
+            shellVm.chromeUiState.collect {}
+        }
+
+        val detailRoute = HikeDetailRoute(selectedId)
+        shellVm.syncBackStack(listOf(MapHomeRoute, detailRoute))
+        claimCoordinator.registerClaim(MapClaim(routeKey = detailRoute, depth = 1, selectedHikeId = selectedId))
+        advanceUntilIdle()
+
+        shellVm.onCameraChanged(MapCameraState(center = droppedBend, zoom = 20.0))
+        shellVm.onMapTap(droppedBend)
+        assertThat(shellVm.openHikeFromMapRequest.value).isNull()
+
         chromeJob.cancel()
     }
 

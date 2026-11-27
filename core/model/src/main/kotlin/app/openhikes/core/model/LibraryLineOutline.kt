@@ -17,11 +17,95 @@ data class LibraryLine(
     val tintHex: String,
     val runs: List<List<GeoCoordinate>>,
     val bounds: GeoBoundingBox? = GeoBoundingBox.from(runs.flatten())
-)
+) {
+    internal val hitBounds: LibraryLineHitBounds? = LibraryLineHitBounds.fromRuns(runs)
+}
 
 /**
- * Two-pass route thinning producing compact map outlines (`<= 256` points) split at up to
- * [PAUSE_BUDGET] longest pause breaks so a whole library renders and hit-tests cleanly.
+ * Antimeridian-safe geographic bounds precomputed for [LibraryLineHitTest].
+ */
+internal data class LibraryLineHitBounds(
+    val southLat: Double,
+    val northLat: Double,
+    val westLonDegrees: Double,
+    val lonSpanDegrees: Double
+) {
+    companion object {
+        private const val HALF_TURN_DEGREES = 180.0
+        private const val FULL_TURN_DEGREES = 360.0
+
+        fun fromRuns(runs: List<List<GeoCoordinate>>): LibraryLineHitBounds? {
+            var south = Double.POSITIVE_INFINITY
+            var north = Double.NEGATIVE_INFINITY
+            var mergedWest: Double? = null
+            var mergedSpan = 0.0
+            for (run in runs) {
+                if (run.isEmpty()) continue
+                var runMinLon = run[0].longitude
+                var runMaxLon = run[0].longitude
+                var unwrapped = run[0].longitude
+                south = min(south, run[0].latitude)
+                north = max(north, run[0].latitude)
+                for (index in 1 until run.size) {
+                    val coord = run[index]
+                    south = min(south, coord.latitude)
+                    north = max(north, coord.latitude)
+                    unwrapped += wrapDeltaDegrees(coord.longitude - run[index - 1].longitude)
+                    if (unwrapped < runMinLon) runMinLon = unwrapped
+                    if (unwrapped > runMaxLon) runMaxLon = unwrapped
+                }
+                val runWest = normalizeAngle(runMinLon)
+                val runSpan = min(FULL_TURN_DEGREES, runMaxLon - runMinLon)
+                val currentWest = mergedWest
+                if (currentWest == null) {
+                    mergedWest = runWest
+                    mergedSpan = runSpan
+                } else {
+                    val (nextWest, nextSpan) = mergeArcs(currentWest, mergedSpan, runWest, runSpan)
+                    mergedWest = nextWest
+                    mergedSpan = nextSpan
+                }
+            }
+            val finalWest = mergedWest ?: return null
+            return LibraryLineHitBounds(
+                southLat = south,
+                northLat = north,
+                westLonDegrees = finalWest,
+                lonSpanDegrees = mergedSpan
+            )
+        }
+
+        internal fun normalizeAngle(degrees: Double): Double {
+            val wrapped = degrees % FULL_TURN_DEGREES
+            return if (wrapped < 0.0) wrapped + FULL_TURN_DEGREES else wrapped
+        }
+
+        private fun wrapDeltaDegrees(delta: Double): Double {
+            var d = delta % FULL_TURN_DEGREES
+            if (d > HALF_TURN_DEGREES) d -= FULL_TURN_DEGREES
+            if (d < -HALF_TURN_DEGREES) d += FULL_TURN_DEGREES
+            return d
+        }
+
+        private fun mergeArcs(westA: Double, spanA: Double, westB: Double, spanB: Double): Pair<Double, Double> {
+            val distAB = normalizeAngle(westB - westA)
+            val distBA = normalizeAngle(westA - westB)
+            return when {
+                spanA >= FULL_TURN_DEGREES || spanB >= FULL_TURN_DEGREES -> 0.0 to FULL_TURN_DEGREES
+                distAB + spanB <= spanA -> westA to spanA
+                distBA + spanA <= spanB -> westB to spanB
+                distAB + spanB <= distBA + spanA -> westA to min(FULL_TURN_DEGREES, distAB + spanB)
+                else -> westB to min(FULL_TURN_DEGREES, distBA + spanA)
+            }
+        }
+    }
+}
+
+/**
+ * Two-pass route thinning producing compact map outlines (`<= 256` points) split at pause
+ * boundaries without ever bridging across a pause or GPX `<trkseg>` break. When a route has
+ * more walked pieces than can fit under [pauseBudget] or [maximumPoints], the longest walked
+ * pieces are retained in route order and shorter pieces are omitted.
  */
 object LibraryLineOutline {
     const val MAXIMUM_POINTS = 256
@@ -47,29 +131,32 @@ object LibraryLineOutline {
         return fitted(spaced, maximumPoints)
     }
 
+    /**
+     * Returns at most `pauseBudget + 1` contiguous walked pieces from [route] without ever
+     * bridging across a pause boundary. Excess shorter pieces are omitted rather than merged.
+     */
     fun keptRuns(route: List<RouteCoordinate>, pauseBudget: Int): List<IntRange> {
-        val trailRuns = route.toTrailRuns()
-        val pausedLegs = trailRuns.pausedLegs
-        val limit = max(0, pauseBudget)
-        return when {
-            pausedLegs.size <= pauseBudget -> trailRuns.walkedRuns
-            limit == 0 -> TrailRuns(pointCount = route.size, pauseIndices = emptyList()).walkedRuns
-            else -> {
-                val gaps = DoubleArray(pausedLegs.size) { index ->
-                    val leg = pausedLegs[index]
-                    val gap = RouteGeometry.distanceMeters(route[leg].coordinate, route[leg + 1].coordinate)
-                    if (gap.isFinite()) gap else 0.0
-                }
-                val keptPauseIndices = pausedLegs.indices
-                    .sortedWith { left, right ->
-                        val gapOrder = gaps[right].compareTo(gaps[left])
-                        if (gapOrder != 0) gapOrder else left.compareTo(right)
-                    }
-                    .take(limit)
-                    .map { pausedLegs[it] + 1 }
-                TrailRuns(pointCount = route.size, pauseIndices = keptPauseIndices).walkedRuns
+        val walkedRuns = route.toTrailRuns().walkedRuns
+        val maxPieces = max(0, pauseBudget) + 1
+        if (walkedRuns.size <= maxPieces) return walkedRuns
+        val lengths = DoubleArray(walkedRuns.size) { index -> runLengthMeters(route, walkedRuns[index]) }
+        val keptIndices = walkedRuns.indices
+            .sortedWith { left, right ->
+                val lengthOrder = lengths[right].compareTo(lengths[left])
+                if (lengthOrder != 0) lengthOrder else left.compareTo(right)
             }
+            .take(maxPieces)
+            .sorted()
+        return keptIndices.map { walkedRuns[it] }
+    }
+
+    private fun runLengthMeters(route: List<RouteCoordinate>, range: IntRange): Double {
+        var total = 0.0
+        for (index in range.first until range.last) {
+            val leg = RouteGeometry.distanceMeters(route[index].coordinate, route[index + 1].coordinate)
+            if (leg.isFinite()) total += leg
         }
+        return total
     }
 
     fun spacedOut(points: List<RouteCoordinate>): List<GeoCoordinate> {
@@ -184,6 +271,7 @@ object LibraryLineHitTest {
     const val DEFAULT_TAP_TOLERANCE_DP = 22.0
     private const val EQUATOR_METERS_PER_DP_ZOOM_0 = 156_543.03392
     private const val HALF_TURN_DEGREES = 180.0
+    private const val FULL_TURN_DEGREES = 360.0
     private const val MIN_COSINE = 0.01
     private const val ZOOM_BASE = 2.0
 
@@ -212,8 +300,8 @@ object LibraryLineHitTest {
         var bestHikeId: HikeId? = null
         var bestDistance = maxDistanceMeters
         for (line in lines) {
-            val bounds = line.bounds
-            if (bounds != null && !containsPadded(bounds, tap, latPad, lonPad)) continue
+            val hitBounds = line.hitBounds
+            if (hitBounds != null && !containsPadded(hitBounds, tap, latPad, lonPad)) continue
             val distance = distanceToRuns(tap, line.runs)
             if (distance < bestDistance) {
                 bestDistance = distance
@@ -223,11 +311,23 @@ object LibraryLineHitTest {
         return bestHikeId
     }
 
-    private fun containsPadded(bounds: GeoBoundingBox, tap: GeoCoordinate, latPad: Double, lonPad: Double): Boolean =
-        tap.latitude >= bounds.southLat - latPad &&
-            tap.latitude <= bounds.northLat + latPad &&
-            tap.longitude >= bounds.westLon - lonPad &&
-            tap.longitude <= bounds.eastLon + lonPad
+    private fun containsPadded(
+        bounds: LibraryLineHitBounds,
+        tap: GeoCoordinate,
+        latPad: Double,
+        lonPad: Double
+    ): Boolean {
+        val inLat = tap.latitude >= bounds.southLat - latPad && tap.latitude <= bounds.northLat + latPad
+        val paddedSpan = bounds.lonSpanDegrees + 2.0 * lonPad
+        return when {
+            !inLat -> false
+            paddedSpan >= FULL_TURN_DEGREES -> true
+            else -> {
+                val paddedStart = LibraryLineHitBounds.normalizeAngle(bounds.westLonDegrees - lonPad)
+                LibraryLineHitBounds.normalizeAngle(tap.longitude - paddedStart) <= paddedSpan
+            }
+        }
+    }
 
     private fun distanceToRuns(tap: GeoCoordinate, runs: List<List<GeoCoordinate>>): Double {
         var best = Double.POSITIVE_INFINITY

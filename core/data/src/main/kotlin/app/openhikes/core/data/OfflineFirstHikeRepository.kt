@@ -44,6 +44,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.IOException
 import java.time.ZoneId
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineDispatcher
@@ -81,6 +82,7 @@ internal class OfflineFirstHikeRepository @Inject constructor(
 ) : HikeRepository {
     private val hasSeededFixture = AtomicBoolean(false)
     private val hasConsumedFirstSaveFailure = AtomicBoolean(false)
+    private val totalsRevisionCounter = AtomicLong(0L)
     private val localStateRepairer = HikeLocalStateRepairer(
         hikeDao = hikeDao,
         hikeLocalStateDao = hikeLocalStateDao,
@@ -199,6 +201,14 @@ internal class OfflineFirstHikeRepository @Inject constructor(
     override val libraryLines: Flow<List<LibraryLine>> = hikeDao.observeAllMapRouteChunks()
         .map { rows -> libraryMetricsStore.toLibraryLines(rows) }
         .flowOn(defaultDispatcher)
+
+    override val totalsInvalidation: Flow<Long> = combine(
+        hikeDao.observeAllHikes(),
+        hikeDao.observeRouteChunkCount(),
+        hikeWalkDao.observeTotalWalkCount()
+    ) { _, _, _ ->
+        totalsRevisionCounter.incrementAndGet()
+    }
 
     override fun observeHike(hikeId: HikeId): Flow<Hike?> = combine(
         hikeDao.observeHikeWithRoute(hikeId.value),

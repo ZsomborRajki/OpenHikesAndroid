@@ -136,6 +136,59 @@ class LibraryMetricsStoreTest {
     }
 
     @Test
+    fun validateElevationMetricsPreservesConcurrentWalkCheckpointsAndTileClaims() = runTest {
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        val baseDao = localDb.hikeLocalStateDao()
+        val setupRepo = createRepository(LaunchConfig.Production, dispatcher)
+        val climbed = setupRepo.saveDrawnTrail("Mountain", 4_000.0, climbingRoute(), 1_760_000_000_000L).getOrThrow()
+        val missingRow = setupRepo.saveDrawnTrail("Peak", 4_000.0, climbingRoute(), 1_760_100_000_000L).getOrThrow()
+
+        baseDao.upsert(staleLocalRow(climbed.id.value, listOrder = 1))
+        baseDao.deleteByHikeId(missingRow.id.value)
+
+        val interleavedDao = InterleavingLocalStateDao(baseDao) { readId ->
+            when (readId) {
+                climbed.id.value -> baseDao.upsert(
+                    staleLocalRow(climbed.id.value, 4, """["z12/1/2"]""", """{"walk":"live-checkpoint"}""")
+                )
+                missingRow.id.value -> baseDao.upsert(
+                    staleLocalRow(missingRow.id.value, 0, """["z12/3/4"]""", """{"walk":"concurrent-new-row"}""")
+                )
+            }
+        }
+        val racingRepo = createRepository(LaunchConfig.Production, dispatcher, localStateDao = interleavedDao)
+        assertThat(racingRepo.validateElevationMetrics(listOf(climbed.id, missingRow.id)).getOrThrow()).isTrue()
+
+        val updatedExisting = baseDao.getByHikeId(climbed.id.value)!!
+        assertThat(updatedExisting.climbMeters).isWithin(1.0).of(400.0)
+        assertThat(updatedExisting.listOrder).isEqualTo(4)
+        assertThat(updatedExisting.autoSavedTileKeysJson).isEqualTo("""["z12/1/2"]""")
+        assertThat(updatedExisting.walkInProgressJson).isEqualTo("""{"walk":"live-checkpoint"}""")
+
+        val updatedNew = baseDao.getByHikeId(missingRow.id.value)!!
+        assertThat(updatedNew.climbMeters).isWithin(1.0).of(400.0)
+        assertThat(updatedNew.listOrder).isEqualTo(0)
+        assertThat(updatedNew.autoSavedTileKeysJson).isEqualTo("""["z12/3/4"]""")
+        assertThat(updatedNew.walkInProgressJson).isEqualTo("""{"walk":"concurrent-new-row"}""")
+    }
+
+    private fun staleLocalRow(
+        hikeId: String,
+        listOrder: Int?,
+        tilesJson: String = "[]",
+        walkJson: String? = null
+    ): HikeLocalStateEntity = HikeLocalStateEntity(
+        hikeId = hikeId,
+        listOrder = listOrder,
+        climbMeters = 5.0,
+        descentMeters = 5.0,
+        elevationRouteRevision = "stale",
+        ownsRecordingDraft = false,
+        autoSavedTileKeysJson = tilesJson,
+        walkInProgressJson = walkJson
+    )
+
+    @Test
     fun computeLibraryTotalsAppliesDirectedWalkClimbSameGroundOverlapAndRedrawnTrailRules() = runTest {
         val dispatcher = UnconfinedTestDispatcher(testScheduler)
         val repo = createRepository(LaunchConfig.Production, dispatcher)
@@ -278,7 +331,11 @@ class LibraryMetricsStoreTest {
         )
     }
 
-    private fun createRepository(config: LaunchConfig, dispatcher: CoroutineDispatcher): OfflineFirstHikeRepository {
+    private fun createRepository(
+        config: LaunchConfig,
+        dispatcher: CoroutineDispatcher,
+        localStateDao: app.openhikes.core.database.dao.HikeLocalStateDao = localDb.hikeLocalStateDao()
+    ): OfflineFirstHikeRepository {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val (_, photoStore) = createTestPhotoStore(dispatcher, context)
         return OfflineFirstHikeRepository(
@@ -288,7 +345,7 @@ class LibraryMetricsStoreTest {
             trailPointDao = portableDb.trailPointDao(),
             hikePhotoDao = portableDb.hikePhotoDao(),
             hikeWalkDao = portableDb.hikeWalkDao(),
-            hikeLocalStateDao = localDb.hikeLocalStateDao(),
+            hikeLocalStateDao = localStateDao,
             photoStore = photoStore,
             photoLibraryMirror = TestPhotoLibraryMirror(),
             photoFileIo = TestPhotoFileIo(),
@@ -313,5 +370,20 @@ class LibraryMetricsStoreTest {
             ioDispatcher = dispatcher,
             defaultDispatcher = dispatcher
         )
+    }
+
+    private class InterleavingLocalStateDao(
+        private val delegate: app.openhikes.core.database.dao.HikeLocalStateDao,
+        private val afterRead: suspend (String) -> Unit
+    ) : app.openhikes.core.database.dao.HikeLocalStateDao by delegate {
+        private val triggered = HashSet<String>()
+
+        override suspend fun getByHikeId(hikeId: String): HikeLocalStateEntity? {
+            val snapshot = delegate.getByHikeId(hikeId)
+            if (triggered.add(hikeId)) {
+                afterRead(hikeId)
+            }
+            return snapshot
+        }
     }
 }

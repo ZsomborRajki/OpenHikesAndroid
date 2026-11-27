@@ -186,6 +186,7 @@ fun OpenHikesApp(
         openRecordingRequestCount = openRecordingRequestCount,
         openWalkHikeRequest = openWalkHikeRequest,
         openLibraryLineHikeRequest = openLibraryLineHikeRequest,
+        onConsumeLibraryLineHikeRequest = shellViewModel::onConsumeOpenHikeFromMapRequest,
         onRequestAutoStartRecording = onRequestAutoStartRecording,
         onSyncBackStack = shellViewModel::syncBackStack,
         onSearchQueryChange = shellViewModel::onSearchQueryChange,
@@ -240,6 +241,7 @@ internal fun OpenHikesShellContent(
     openRecordingRequestCount: Int = 0,
     openWalkHikeRequest: Pair<Int, HikeId>? = null,
     openLibraryLineHikeRequest: Pair<Int, HikeId>? = null,
+    onConsumeLibraryLineHikeRequest: (Int) -> Unit = {},
     onRequestAutoStartRecording: () -> Unit = {},
     homeContent: @Composable (ShellHomeScope) -> Unit
 ) {
@@ -258,6 +260,7 @@ internal fun OpenHikesShellContent(
         openLibraryLineHikeRequest = openLibraryLineHikeRequest,
         defaultAddPlaceCoordinateProvider = placesRuntime.defaultAddPlaceCoordinateProvider,
         latestRecordingCoordinateProvider = placesRuntime.latestRecordingCoordinateProvider,
+        onConsumeLibraryLineHikeRequest = onConsumeLibraryLineHikeRequest,
         onRequestAutoStartRecording = onRequestAutoStartRecording,
         onRequestEndWalkForRecording = walkDialogs.onRequestEndWalkForRecording,
         onSyncBackStack = onSyncBackStack,

@@ -30,19 +30,45 @@ class LibraryLineOutlineTest {
     }
 
     @Test
-    fun foldsExcessPausesKeepingOnlyLongestBreaks() {
+    fun omitsExcessShortPiecesWithoutBridgingPauseBoundaries() {
         val route = buildList {
-            for (segment in 0 until 40) {
-                val baseLat = 47.0 + segment * 0.01
-                val gapBonus = if (segment == 5 || segment == 20) 0.2 else 0.0
+            for (segment in 0 until 34) {
+                val baseLat = 47.0 + segment * 0.002
+                val pieceSpan = if (segment == 33) 0.0001 else 0.001
                 val boundary = if (segment == 0) null else RouteBoundary.PAUSED
-                add(RouteCoordinate(baseLat + gapBonus, 12.0, boundary = boundary))
-                add(RouteCoordinate(baseLat + gapBonus + 0.001, 12.0))
+                add(RouteCoordinate(baseLat, 12.0, boundary = boundary))
+                add(RouteCoordinate(baseLat + pieceSpan, 12.0))
             }
         }
-        val runs = LibraryLineOutline.runs(route, maximumPoints = 256, pauseBudget = 2)
-        assertThat(runs).hasSize(3)
+        val runs = LibraryLineOutline.runs(route, maximumPoints = 256, pauseBudget = 32)
+        assertThat(runs).hasSize(33)
         assertThat(runs.sumOf { it.size }).isAtMost(256)
+
+        // Midpoint of the 33rd (~111 m) pause gap must NOT be hittable.
+        val line = LibraryLine(HikeId("gpx-33-pauses"), RouteTint.DEFAULT_HEX, runs)
+        val droppedGapMidpoint = GeoCoordinate(47.0 + 32 * 0.002 + 0.0015, 12.0)
+        assertThat(LibraryLineHitTest.nearestHikeId(droppedGapMidpoint, zoom = 16.0, lines = listOf(line))).isNull()
+
+        // Even with pauseBudget = 0, a pause is never bridged (only the single longest piece is kept).
+        val singlePiece = LibraryLineOutline.runs(route, maximumPoints = 256, pauseBudget = 0)
+        assertThat(singlePiece).hasSize(1)
+        assertThat(singlePiece.single()).hasSize(2)
+    }
+
+    @Test
+    fun hitTestMatchesAntimeridianCrossingSegmentAtZoom16() {
+        val seamLine = LibraryLine(
+            hikeId = HikeId("seam"),
+            tintHex = RouteTint.DEFAULT_HEX,
+            runs = listOf(listOf(GeoCoordinate(0.0, 179.999), GeoCoordinate(0.0, -179.999)))
+        )
+
+        assertThat(LibraryLineHitTest.nearestHikeId(GeoCoordinate(0.0, 180.0), zoom = 16.0, lines = listOf(seamLine)))
+            .isEqualTo(HikeId("seam"))
+        assertThat(LibraryLineHitTest.nearestHikeId(GeoCoordinate(0.0, -180.0), zoom = 16.0, lines = listOf(seamLine)))
+            .isEqualTo(HikeId("seam"))
+        assertThat(LibraryLineHitTest.nearestHikeId(GeoCoordinate(0.0, 0.0), zoom = 16.0, lines = listOf(seamLine)))
+            .isNull()
     }
 
     @Test

@@ -491,6 +491,8 @@ class DefaultTrailWalkControllerTest {
             kotlinx.coroutines.flow.MutableStateFlow(emptyList())
         override val libraryLines: kotlinx.coroutines.flow.Flow<List<app.openhikes.core.model.LibraryLine>> =
             kotlinx.coroutines.flow.MutableStateFlow(emptyList())
+        override val totalsInvalidation: kotlinx.coroutines.flow.Flow<Long> =
+            kotlinx.coroutines.flow.MutableStateFlow(0L)
 
         override fun observeHike(hikeId: HikeId) = kotlinx.coroutines.flow.flowOf(
             hikesFlow.value.firstOrNull { it.id == hikeId }

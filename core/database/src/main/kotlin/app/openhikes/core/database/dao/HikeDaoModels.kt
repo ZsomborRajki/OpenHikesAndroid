@@ -11,6 +11,13 @@ data class HikeWalkCountRow(
     @ColumnInfo(name = "walk_count") val walkCount: Int
 )
 
+data class ElevationMetricsRowUpdate(
+    val hikeId: String,
+    val climbMeters: Double?,
+    val descentMeters: Double?,
+    val elevationRouteRevision: String?
+)
+
 data class HikeWithRouteRow(
     @Embedded val hike: HikeEntity,
     @Relation(parentColumn = "id", entityColumn = "hike_id")
