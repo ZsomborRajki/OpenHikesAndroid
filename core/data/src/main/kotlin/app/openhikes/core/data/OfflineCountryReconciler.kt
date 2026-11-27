@@ -33,12 +33,12 @@ internal class OfflineCountryReconciler @Inject constructor(
 ) {
     data class RecoverySnapshot(
         val holdings: OfflineHoldingsState,
-        val installed: Map<String, InstalledCountryRecord>,
-        val unopenable: Map<String, Set<OfflineFileRole>>,
-        val cachedOffered: List<OfflineCountry>,
-        val pending: List<PendingCountryDownload>,
-        val recoveredDownloads: Map<String, OfflineCountryDownload>,
-        val readyToFinishIds: List<String>
+        val installed: Map<String, InstalledCountryRecord> = emptyMap(),
+        val unopenable: Map<String, Set<OfflineFileRole>> = emptyMap(),
+        val cachedOffered: List<OfflineCountry> = emptyList(),
+        val pending: List<PendingCountryDownload> = emptyList(),
+        val recoveredDownloads: Map<String, OfflineCountryDownload> = emptyMap(),
+        val readyToFinishIds: List<String> = emptyList()
     )
 
     sealed interface InstallOutcome {
@@ -143,6 +143,15 @@ internal class OfflineCountryReconciler @Inject constructor(
         }
     }
 
+    suspend fun pendingFilesFor(countryId: String): List<OfflineCountryFile> = withContext(ioDispatcher) {
+        val pending = store.readPending()
+        if (pending is OfflineStoreList.Holding) {
+            pending.items.filter { it.country.id == countryId }.flatMap { it.files }
+        } else {
+            emptyList()
+        }
+    }
+
     suspend fun availableBytes(): Long? = withContext(ioDispatcher) { store.availableBytes() }
 
     /**
@@ -167,7 +176,7 @@ internal class OfflineCountryReconciler @Inject constructor(
         val indexList = store.readIndex()
         val pendingList = store.readPending()
         if (indexList is OfflineStoreList.Unreadable || pendingList is OfflineStoreList.Unreadable) {
-            return unreadableSnapshot()
+            return RecoverySnapshot(holdings = OfflineHoldingsState.UNREADABLE)
         }
         val records = (indexList as OfflineStoreList.Holding).items
         val rawPending = (pendingList as OfflineStoreList.Holding).items
@@ -261,16 +270,6 @@ internal class OfflineCountryReconciler @Inject constructor(
                     !store.partialFileFor(file).exists()
             }
     }
-
-    private fun unreadableSnapshot(): RecoverySnapshot = RecoverySnapshot(
-        holdings = OfflineHoldingsState.UNREADABLE,
-        installed = emptyMap(),
-        unopenable = emptyMap(),
-        cachedOffered = emptyList(),
-        pending = emptyList(),
-        recoveredDownloads = emptyMap(),
-        readyToFinishIds = emptyList()
-    )
 
     private fun recoverPendingItem(item: PendingCountryDownload): Pair<OfflineCountryDownload, Boolean> {
         val files = item.files

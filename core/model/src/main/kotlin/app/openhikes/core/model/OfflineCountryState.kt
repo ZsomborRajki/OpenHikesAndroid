@@ -59,7 +59,8 @@ data class OfflineCountryDownload(
     val writtenBytes: Long = 0L,
     val totalBytes: Long = country.files.filter { it.role in roles }.sumOf { it.byteCount },
     val stagedRoles: Set<OfflineFileRole> = emptySet(),
-    val inFlightRoles: Set<OfflineFileRole> = emptySet()
+    val inFlightRoles: Set<OfflineFileRole> = emptySet(),
+    val attemptId: Long = 0L
 ) {
     val files: List<OfflineCountryFile>
         get() = country.files.filter { it.role in roles }

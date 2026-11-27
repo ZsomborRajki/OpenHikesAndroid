@@ -215,6 +215,67 @@ class HikeDetailScreenTest {
         ).assertIsDisplayed()
     }
 
+    @Test
+    fun offlineDialogDisplaysQuotedMissingByteCountOverSwitchFallback() {
+        val basemap = app.openhikes.core.model.OfflineCountryFile(
+            role = app.openhikes.core.model.OfflineFileRole.BASEMAP,
+            path = "countries/AT-20261126.pmtiles",
+            byteCount = 10_000_000L,
+            sha256 = "0".repeat(64),
+            minimumZoom = 0,
+            maximumZoom = 14
+        )
+        val elevation = app.openhikes.core.model.OfflineCountryFile(
+            role = app.openhikes.core.model.OfflineFileRole.ELEVATION,
+            path = "countries/AT-elevation-20261126.pmtiles",
+            byteCount = 5_000_000L,
+            sha256 = "1".repeat(64),
+            minimumZoom = 12,
+            maximumZoom = 12
+        )
+        val austria = app.openhikes.core.model.OfflineCountry(
+            id = "AT",
+            build = "20261126",
+            schema = 4,
+            bounds = app.openhikes.core.model.OfflineBounds(9.0, 46.0, 17.0, 49.0),
+            files = listOf(basemap, elevation)
+        )
+        val uiState = sampleDetailUiState().copy(
+            offlineCoverage = HikeOfflineCoverageState(
+                crossed = listOf(austria),
+                missing = listOf(austria),
+                missingByteCounts = mapOf("AT" to 15_000_000L),
+                includesDetail = false,
+                includesElevation = false,
+                showDialog = true
+            )
+        )
+
+        composeRule.setContent {
+            OpenHikesTheme(dynamicColor = false) {
+                HikeDetailScreen(
+                    uiState = uiState,
+                    scrubDistanceProvider = { 0.0 },
+                    onScrubDistance = {},
+                    onBack = {},
+                    onZoomToRoute = {},
+                    onExportGpx = {},
+                    onOpenRouteStyle = {},
+                    onStartRename = {},
+                    onTitleDraftChange = {},
+                    onCommitRename = {},
+                    onCancelRename = {},
+                    onRequestDelete = {},
+                    onConfirmDelete = {},
+                    onCancelDelete = {}
+                )
+            }
+        }
+
+        val expectedSize = app.openhikes.core.ui.format.StorageSizeFormatter.formatBytes(15_000_000L)
+        composeRule.onNodeWithText("Download ${austria.fullName()} · $expectedSize").assertIsDisplayed()
+    }
+
     private fun samplePausedWalkUiState(): HikeDetailUiState {
         val walk = HikeWalk(
             id = "w1",
