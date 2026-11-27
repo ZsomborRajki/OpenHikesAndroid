@@ -17,29 +17,26 @@ Supporting reference docs:
   pyramid, porting `OpenHikesUITests` fixtures/tags, static analysis wiring, and
   Phase 0–4 bootstrap roadmap.
 
-> **Repository status:** Phase 13 complete (Elevation Enrichment — Copernicus
-> WorldDEM-30: pure-JVM `ElevationSquare`, `ElevationPost`, `ElevationPostPlace`,
-> `ElevationCredit`, `ElevationSquareGrid` across all 6 latitude bands,
-> `RouteElevationRequest`, `RouteHeightSamples`, `ElevationFailure`,
-> `ElevationFetchResult`, `RouteElevationSource`, `HikeElevationFill`,
-> `ElevationArchiveSource`, and `OfflineFileRole.ELEVATION` across `:core:model`;
-> `OHEL` v1 binary `ElevationSquareFile` codec and `LaunchConfig.elevationScenarioName`
-> in `:core:common`; `HttpElevationSquareDataSource` with 256-file 30-day
-> `noBackupFilesDir/elevation_squares` cache, HTTP `200`/`204`/`410`/`429`
-> handling, and `VectorTileArchiveManifest.json` elevation archive in
-> `:core:network`; `DownloadedElevationSquares`, offline country `-elevation-`
-> PMTiles opening & same-build catalog top-up, `ElevationSquareLibrary`
-> (offline-first, 64-square cap), `LaunchAwareRouteElevationSource`, and atomic
-> cascade-safe `HikeRepository.fillHikeElevation` in `:core:data`;
-> `ElevationPlaceholderCard` in `:core:ui`; Hike Detail automatic one-time DEM
-> fill & placeholder, Trail Maker 2 s debounced elevation measurement,
-> climb-adjusted travel times & alternative bubbles, steepness map shading
-> masking degraded legs, unlocked `Elevation` coloring, and height-preserving
-> save, `MapShellViewModel` elevation-revision shading refresh, and Settings
-> verbatim Copernicus WorldDEM-30 attribution across `:feature:hikes`,
-> `:feature:trailmaker`, `:feature:settings`, and `:app`, plus Tier 1/2,
-> Robolectric journey & Compose screenshot tests).
-> Phases 0–13 are complete.
+> **Repository status:** Phase 14 complete (Offline Maps Elevation Data Toggle &
+> Per-Country Add/Remove Offers: pure-JVM `OfflineCountryExtra`,
+> `OfflineCountryOffer`, backward-compatible strict
+> `InstalledCountryRecordSerializer` inferring `hasElevation` on pre-switch
+> indexes, `OfflineFileRole.isElevation`/`isOptional`, switch-aware
+> `OfflineCountry.files`/`byteCount`, `OfflineCountriesState.includesElevation`,
+> `recovering`, `isSettled`, `wants`, `addition`, `removal`, `filesToRetry`, and
+> `UserSettings.offlineCountriesElevationData` across `:core:model`; Proto
+> DataStore `offline_countries_elevation_data` in `:core:datastore`; seeded
+> `"downloaded"` UI scenario in `:core:network` and `:core:data`;
+> non-destructive *Extra Detail* / *Elevation Data* switches, one-tap
+> `extendCountry` / `trimCountry`, recovering-country offer suppression,
+> smaller-retry staged cleanup, and already-installed pending pruning in
+> `DefaultOfflineCountryRepository` / `OfflineCountryReconciler`; Material 3
+> Expressive *Elevation Data* toggle card, downloaded elevation status lines,
+> and whole-sentence per-country Add/Remove offer buttons in
+> `:feature:offlinemaps`; elevation-aware Hike Detail offline dialog sizes in
+> `:feature:hikes`; plus Tier 1/2/3, Robolectric journey, and Compose screenshot
+> tests).
+> Phases 0–14 are complete.
 
 ---
 

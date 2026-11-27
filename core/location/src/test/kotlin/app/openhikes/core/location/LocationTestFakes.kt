@@ -143,6 +143,7 @@ internal class LocalFakeUserSettingsRepository : UserSettingsRepository {
     override suspend fun setSavePhotosToLibrary(enabled: Boolean) = Unit
     override suspend fun setMapStyleId(styleId: String) = Unit
     override suspend fun setOfflineCountriesExtraDetail(enabled: Boolean) = Unit
+    override suspend fun setOfflineCountriesElevationData(enabled: Boolean) = Unit
     override suspend fun setJunctionWarningsEnabled(enabled: Boolean) {
         state.update { it.copy(junctionWarningsEnabled = enabled) }
     }

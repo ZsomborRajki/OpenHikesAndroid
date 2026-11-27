@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -20,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -34,6 +37,8 @@ import app.openhikes.core.designsystem.icon.OpenHikesIcons
 import app.openhikes.core.model.InstalledCountryRecord
 import app.openhikes.core.model.OfflineCountryDownload
 import app.openhikes.core.model.OfflineCountryEntry
+import app.openhikes.core.model.OfflineCountryExtra
+import app.openhikes.core.model.OfflineCountryOffer
 import app.openhikes.core.model.OfflineDownloadFailure
 import app.openhikes.core.model.OfflineDownloadPhase
 import app.openhikes.core.ui.format.StorageSizeFormatter
@@ -43,17 +48,20 @@ import kotlin.math.roundToInt
 private val RowMinHeight = 60.dp
 private val RowCornerRadius = 18.dp
 private val RowHorizontalPadding = 16.dp
-private val RowVerticalPadding = 10.dp
+private val RowContentPadding = PaddingValues(start = 16.dp, end = 6.dp, top = 10.dp, bottom = 10.dp)
 private val TouchTargetMinSize = 48.dp
 private val ProgressSize = 32.dp
 private val ProgressStrokeWidth = 3.dp
 private val StopIconSize = 14.dp
 private val CheckIconSize = 20.dp
+private val OfferIconSize = 20.dp
+private const val OFFER_DIVIDER_ALPHA = 0.5f
 private const val PERCENT_MULTIPLIER = 100
 
 /**
- * Interactive row for a single offline country or split-country region, showing size/progress/status
- * and accessible 48dp trailing controls for download, cancel, retry, update, repair, and delete.
+ * Interactive row for a single offline country or split-country region, showing size/progress/status,
+ * accessible 48dp trailing controls, and per-country Add/Remove offers when *Extra Detail* or
+ * *Elevation Data* differs from what is stored on disk.
  */
 @Composable
 internal fun OfflineCountryRow(
@@ -70,63 +78,144 @@ internal fun OfflineCountryRow(
     onCancel: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
+    additionOffer: OfflineCountryOffer? = null,
+    removalOffer: OfflineCountryOffer? = null,
+    onExtend: () -> Unit = {},
+    onTrim: () -> Unit = {},
     rowTestTag: String = OpenHikesTestTags.offlineCountry(entry.country.id)
 ) {
     val label = if (namesCountry) entry.fullName else entry.displayName
     val hasUpdate = installedRecord != null && entry.country.build > installedRecord.country.build
-    val status = resolveRowStatus(
-        entry = entry,
-        installedRecord = installedRecord,
-        download = download,
-        needsRepair = needsRepair,
-        hasUpdate = hasUpdate
-    )
+    val status = resolveRowStatus(entry, installedRecord, download, needsRepair, hasUpdate)
     val containerColor = if (isSelected) {
         MaterialTheme.colorScheme.secondaryContainer
     } else {
         MaterialTheme.colorScheme.surfaceContainerHigh
     }
 
-    Surface(
-        color = containerColor,
-        shape = RoundedCornerShape(RowCornerRadius),
-        modifier = modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .defaultMinSize(minHeight = RowMinHeight)
-                .padding(
-                    start = RowHorizontalPadding,
-                    end = 6.dp,
-                    top = RowVerticalPadding,
-                    bottom = RowVerticalPadding
-                ),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            CountryRowTextBlock(
-                label = label,
-                status = status,
-                isSelected = isSelected,
-                onSelect = onSelect,
-                rowTestTag = rowTestTag,
-                modifier = Modifier.weight(1f)
-            )
-            CountryRowTrailingActions(
-                countryId = entry.country.id,
-                countryLabel = label,
-                installedRecord = installedRecord,
-                download = download,
-                needsRepair = needsRepair,
-                hasUpdate = hasUpdate,
-                onDownload = onDownload,
-                onRetry = onRetry,
-                onRepair = onRepair,
-                onCancel = onCancel,
-                onDelete = onDelete
+    Surface(color = containerColor, shape = RoundedCornerShape(RowCornerRadius), modifier = modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = RowMinHeight)
+                    .padding(RowContentPadding),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                CountryRowTextBlock(
+                    label = label,
+                    status = status,
+                    isSelected = isSelected,
+                    onSelect = onSelect,
+                    rowTestTag = rowTestTag,
+                    modifier = Modifier.weight(1f)
+                )
+                CountryRowTrailingActions(
+                    countryId = entry.country.id,
+                    countryLabel = label,
+                    installedRecord = installedRecord,
+                    download = download,
+                    needsRepair = needsRepair,
+                    hasUpdate = hasUpdate,
+                    onDownload = onDownload,
+                    onRetry = onRetry,
+                    onRepair = onRepair,
+                    onCancel = onCancel,
+                    onDelete = onDelete
+                )
+            }
+            if (additionOffer != null || removalOffer != null) {
+                CountryRowOffers(entry.country.id, additionOffer, removalOffer, onExtend, onTrim)
+            }
+        }
+    }
+}
+
+@Composable
+private fun CountryRowOffers(
+    countryId: String,
+    additionOffer: OfflineCountryOffer?,
+    removalOffer: OfflineCountryOffer?,
+    onExtend: () -> Unit,
+    onTrim: () -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        HorizontalDivider(
+            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = OFFER_DIVIDER_ALPHA),
+            modifier = Modifier.padding(horizontal = RowHorizontalPadding)
+        )
+        if (additionOffer != null) {
+            CountryRowOfferButton(
+                title = additionOfferTitle(additionOffer),
+                iconRes = OpenHikesIcons.Download,
+                tint = MaterialTheme.colorScheme.primary,
+                testTag = OpenHikesTestTags.offlineCountryAddOffer(countryId),
+                onClick = onExtend
             )
         }
+        if (removalOffer != null) {
+            CountryRowOfferButton(
+                title = removalOfferTitle(removalOffer),
+                iconRes = OpenHikesIcons.Remove,
+                tint = MaterialTheme.colorScheme.error,
+                testTag = OpenHikesTestTags.offlineCountryRemoveOffer(countryId),
+                onClick = onTrim
+            )
+        }
+    }
+}
+
+@Composable
+private fun CountryRowOfferButton(title: String, iconRes: Int, tint: Color, testTag: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = TouchTargetMinSize)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics(mergeDescendants = true) {}
+            .padding(horizontal = RowHorizontalPadding, vertical = 10.dp)
+            .testTag(testTag),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(OfferIconSize)
+        )
+        Text(
+            text = title,
+            style = MaterialTheme.typography.labelLarge,
+            color = tint,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+@Composable
+internal fun additionOfferTitle(offer: OfflineCountryOffer): String {
+    val sizeText = StorageSizeFormatter.formatBytes(offer.byteCount)
+    val hasDetail = OfflineCountryExtra.DETAIL in offer.extras
+    val hasElevation = OfflineCountryExtra.ELEVATION in offer.extras
+    return when {
+        hasDetail && hasElevation -> stringResource(R.string.offline_maps_offer_add_both, sizeText)
+        hasElevation -> stringResource(R.string.offline_maps_offer_add_elevation, sizeText)
+        else -> stringResource(R.string.offline_maps_offer_add_detail, sizeText)
+    }
+}
+
+@Composable
+internal fun removalOfferTitle(offer: OfflineCountryOffer): String {
+    val sizeText = StorageSizeFormatter.formatBytes(offer.byteCount)
+    val hasDetail = OfflineCountryExtra.DETAIL in offer.extras
+    val hasElevation = OfflineCountryExtra.ELEVATION in offer.extras
+    return when {
+        hasDetail && hasElevation -> stringResource(R.string.offline_maps_offer_remove_both, sizeText)
+        hasElevation -> stringResource(R.string.offline_maps_offer_remove_elevation, sizeText)
+        else -> stringResource(R.string.offline_maps_offer_remove_detail, sizeText)
     }
 }
 
@@ -213,7 +302,11 @@ private fun resolveRowStatus(
 
         installedRecord != null -> CountryRowStatus(
             text = stringResource(
-                R.string.offline_maps_status_downloaded,
+                if (installedRecord.hasElevation) {
+                    R.string.offline_maps_status_downloaded_with_elevation
+                } else {
+                    R.string.offline_maps_status_downloaded_without_elevation
+                },
                 StorageSizeFormatter.formatBytes(installedRecord.byteCount)
             ),
             isError = false

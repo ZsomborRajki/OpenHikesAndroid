@@ -88,6 +88,11 @@ class FakeUserSettingsRepository(
         settingsState.update { it.copy(offlineCountriesExtraDetail = enabled) }
     }
 
+    override suspend fun setOfflineCountriesElevationData(enabled: Boolean) {
+        consumeWriteFailureIfPresent()
+        settingsState.update { it.copy(offlineCountriesElevationData = enabled) }
+    }
+
     override suspend fun setJunctionWarningsEnabled(enabled: Boolean) {
         consumeWriteFailureIfPresent()
         settingsState.update { it.copy(junctionWarningsEnabled = enabled) }

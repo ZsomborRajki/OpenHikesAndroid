@@ -73,17 +73,26 @@ class DefaultOfflineCountryRepositoryTest {
         assertThat(harness.archives.readBasemapTile(TileAddress(14, 8_770, 5_710))).isEqualTo(basemapTile)
         assertThat(harness.archives.readBasemapTile(TileAddress(15, 17_540, 11_420))).isEqualTo(detailTile)
 
-        // Turning Extra Detail OFF strips z15: exact z14 still serves, z15 children return null (no raw z14 shift).
+        // Turning Extra Detail OFF leaves Austria intact and offers removal; tapping trim strips z15.
         repo.setIncludesDetail(false)
+        assertThat(repo.state.value.installed["AT"]?.hasDetail).isTrue()
+        assertThat(repo.state.value.removal("AT")?.extras)
+            .containsExactly(app.openhikes.core.model.OfflineCountryExtra.DETAIL)
+        repo.trimCountry("AT")
         assertThat(repo.state.value.installed["AT"]?.hasDetail).isFalse()
+        assertThat(repo.state.value.removal("AT")).isNull()
         assertThat(harness.archives.maximumBasemapZoom.value).isEqualTo(14)
         assertThat(harness.archives.readBasemapTile(TileAddress(14, 8_770, 5_710))).isEqualTo(basemapTile)
         assertThat(harness.archives.readBasemapTile(TileAddress(15, 17_540, 11_420))).isNull()
         assertThat(harness.archives.readBasemapTile(TileAddress(15, 17_541, 11_420))).isNull()
 
-        // Turning Extra Detail back ON queues detail-only download; deleting removes all state and disk files.
+        // Turning Extra Detail back ON starts nothing unasked; extend queues detail-only; deleting clears everything.
         repo.setIncludesDetail(true)
-        assertThat(repo.state.value.downloads["AT"]?.isDetailOnly).isTrue()
+        assertThat(repo.state.value.downloads).isEmpty()
+        assertThat(repo.state.value.addition("AT")?.extras)
+            .containsExactly(app.openhikes.core.model.OfflineCountryExtra.DETAIL)
+        repo.extendCountry("AT")
+        assertThat(repo.state.value.downloads["AT"]?.roles).containsExactly(OfflineFileRole.DETAIL)
         repo.deleteCountry("AT")
         assertThat(repo.state.value.installed).isEmpty()
         assertThat(repo.state.value.downloads).isEmpty()
@@ -292,13 +301,20 @@ class DefaultOfflineCountryRepositoryTest {
 
         server.manifest = OfflineCountryManifest(version = 1, countries = listOf(austriaWithElevation, germanyNewer))
         repo.refreshCatalog()
+        // Newly listed optional elevation waits for the hiker's tap on the Add offer instead of auto-downloading.
+        assertThat(repo.state.value.downloads["AT"]).isNull()
+        assertThat(repo.state.value.addition("AT")?.extras)
+            .containsExactly(app.openhikes.core.model.OfflineCountryExtra.ELEVATION)
+        repo.extendCountry("AT")
         assertThat(repo.state.value.downloads["AT"]?.files?.map { it.role })
             .containsExactly(OfflineFileRole.ELEVATION)
         assertThat(repo.runScheduledDownload("AT")).isEqualTo(OfflineDownloadExecutionResult.COMPLETED)
+        assertThat(repo.state.value.installed["AT"]?.hasElevation).isTrue()
         assertThat(harness.archives.elevationSquares(listOf(square))[square]).isEqualTo(olderPayload)
 
         repo.downloadCountry("DE")
         assertThat(repo.runScheduledDownload("DE")).isEqualTo(OfflineDownloadExecutionResult.COMPLETED)
+        assertThat(repo.state.value.installed["DE"]?.hasElevation).isTrue()
         assertThat(harness.archives.elevationSquares(listOf(square))[square]).isEqualTo(newerPayload)
         harness.archives.close()
     }
@@ -346,7 +362,14 @@ class DefaultOfflineCountryRepositoryTest {
         fun newRepository(): DefaultOfflineCountryRepository {
             val exec = OfflineCountryDownloadExecutor(store, server, networkPolicy, clock, dispatcher)
             executor = exec
-            val reconciler = OfflineCountryReconciler(store, archives, dispatcher)
+            val reconciler = OfflineCountryReconciler(
+                store = store,
+                archives = archives,
+                launchConfigHolder = app.openhikes.core.common.LaunchConfigHolder(
+                    app.openhikes.core.common.LaunchConfig.Production
+                ),
+                ioDispatcher = dispatcher
+            )
             return DefaultOfflineCountryRepository(
                 store = store,
                 server = server,
@@ -530,6 +553,9 @@ class DefaultOfflineCountryRepositoryTest {
             state.update { it.copy(routeColoring = coloring) }
         override suspend fun setOfflineCountriesExtraDetail(enabled: Boolean) =
             state.update { it.copy(offlineCountriesExtraDetail = enabled) }
+
+        override suspend fun setOfflineCountriesElevationData(enabled: Boolean) =
+            state.update { it.copy(offlineCountriesElevationData = enabled) }
 
         override suspend fun setJunctionWarningsEnabled(enabled: Boolean) =
             state.update { it.copy(junctionWarningsEnabled = enabled) }

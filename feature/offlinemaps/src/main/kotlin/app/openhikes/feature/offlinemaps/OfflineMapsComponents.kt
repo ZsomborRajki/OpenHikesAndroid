@@ -255,9 +255,11 @@ internal fun sortLabel(sort: OfflineCountrySort): String = when (sort) {
 @Composable
 internal fun OfflineMapsHeadCard(
     includesDetail: Boolean,
+    includesElevation: Boolean,
     showUseOpenHikesBanner: Boolean,
     activeMapStyleId: String,
     onSetIncludesDetail: (Boolean) -> Unit,
+    onSetIncludesElevation: (Boolean) -> Unit,
     onUseOpenHikesMap: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -276,39 +278,63 @@ internal fun OfflineMapsHeadCard(
                 onClick = onUseOpenHikesMap
             )
         }
-        Surface(
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            shape = RoundedCornerShape(CardCornerRadius),
-            modifier = Modifier.fillMaxWidth()
+        OfflineMapsToggleCard(
+            title = stringResource(R.string.offline_maps_extra_detail_title),
+            summary = stringResource(R.string.offline_maps_extra_detail_summary),
+            checked = includesDetail,
+            testTag = OpenHikesTestTags.OFFLINE_MAPS_EXTRA_DETAIL,
+            onCheckedChange = onSetIncludesDetail
+        )
+        OfflineMapsToggleCard(
+            title = stringResource(R.string.offline_maps_elevation_data_title),
+            summary = stringResource(R.string.offline_maps_elevation_data_summary),
+            checked = includesElevation,
+            testTag = OpenHikesTestTags.OFFLINE_MAPS_ELEVATION_DATA,
+            onCheckedChange = onSetIncludesElevation
+        )
+    }
+}
+
+@Composable
+private fun OfflineMapsToggleCard(
+    title: String,
+    summary: String,
+    checked: Boolean,
+    testTag: String,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        shape = RoundedCornerShape(CardCornerRadius),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = GroupRowMinHeight)
+                .toggleable(
+                    value = checked,
+                    role = Role.Switch,
+                    onValueChange = onCheckedChange
+                )
+                .padding(horizontal = CardPadding, vertical = 12.dp)
+                .testTag(testTag),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .defaultMinSize(minHeight = GroupRowMinHeight)
-                    .toggleable(
-                        value = includesDetail,
-                        role = Role.Switch,
-                        onValueChange = onSetIncludesDetail
-                    )
-                    .padding(horizontal = CardPadding, vertical = 12.dp)
-                    .testTag(OpenHikesTestTags.OFFLINE_MAPS_EXTRA_DETAIL),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = stringResource(R.string.offline_maps_extra_detail_title),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        text = stringResource(R.string.offline_maps_extra_detail_summary),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Spacer(modifier = Modifier.width(12.dp))
-                Switch(checked = includesDetail, onCheckedChange = null)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
+            Spacer(modifier = Modifier.width(12.dp))
+            Switch(checked = checked, onCheckedChange = null)
         }
     }
 }

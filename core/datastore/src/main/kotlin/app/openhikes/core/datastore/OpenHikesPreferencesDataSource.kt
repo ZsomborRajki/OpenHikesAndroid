@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.map
 /**
  * Typed Proto DataStore backing for OpenHikes user settings.
  */
+@Suppress("TooManyFunctions")
 class OpenHikesPreferencesDataSource @Inject constructor(private val userPreferences: DataStore<UserPreferences>) {
     val userSettings: Flow<UserSettings> = userPreferences.data
         .catch { exception ->
@@ -89,6 +90,12 @@ class OpenHikesPreferencesDataSource @Inject constructor(private val userPrefere
     suspend fun setOfflineCountriesExtraDetail(enabled: Boolean) {
         userPreferences.updateData { prefs ->
             prefs.copy { offlineCountriesExtraDetail = enabled }
+        }
+    }
+
+    suspend fun setOfflineCountriesElevationData(enabled: Boolean) {
+        userPreferences.updateData { prefs ->
+            prefs.copy { offlineCountriesElevationData = enabled }
         }
     }
 
@@ -173,6 +180,11 @@ private fun UserPreferences.toUserSettings(): UserSettings {
             offlineCountriesExtraDetail
         } else {
             UserSettings.DEFAULT_OFFLINE_COUNTRIES_EXTRA_DETAIL
+        },
+        offlineCountriesElevationData = if (hasOfflineCountriesElevationData()) {
+            offlineCountriesElevationData
+        } else {
+            UserSettings.DEFAULT_OFFLINE_COUNTRIES_ELEVATION_DATA
         },
         junctionWarningsEnabled = junctionWarningsEnabled,
         showsPlacePins = if (hasShowsPlacePins()) {

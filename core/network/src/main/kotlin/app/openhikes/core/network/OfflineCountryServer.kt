@@ -245,7 +245,7 @@ internal class HttpOfflineCountryServer @Inject constructor(
 
 /**
  * Delegates offline country requests to deterministic bundled fixtures when a debug launch
- * specifies `offlineCountriesScenarioName` (`"seeded"` or `"refused"`), and to
+ * specifies `offlineCountriesScenarioName` (`"seeded"`, `"downloaded"`, or `"refused"`), and to
  * [HttpOfflineCountryServer] in production.
  */
 @Singleton
@@ -255,7 +255,7 @@ internal class LaunchAwareOfflineCountryServer @Inject constructor(
     @IoDispatcher private val ioDispatcher: CoroutineDispatcher
 ) : OfflineCountryServer {
     override suspend fun fetchManifest(): OfflineCountryManifest = when (currentScenario()) {
-        SCENARIO_SEEDED -> withContext(ioDispatcher) { loadSeededManifest() }
+        SCENARIO_SEEDED, SCENARIO_DOWNLOADED -> withContext(ioDispatcher) { loadSeededManifest() }
         SCENARIO_REFUSED -> throw IOException("Simulated refused offline country catalog")
         else -> httpServer.fetchManifest()
     }
@@ -302,6 +302,7 @@ internal class LaunchAwareOfflineCountryServer @Inject constructor(
 
     companion object {
         const val SCENARIO_SEEDED = "seeded"
+        const val SCENARIO_DOWNLOADED = "downloaded"
         const val SCENARIO_REFUSED = "refused"
         private const val SEEDED_MANIFEST_RESOURCE = "/manifests/OfflineCountriesSeed.json"
     }

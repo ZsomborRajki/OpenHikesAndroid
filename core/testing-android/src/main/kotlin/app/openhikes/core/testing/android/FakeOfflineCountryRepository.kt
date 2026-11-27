@@ -27,6 +27,8 @@ class FakeOfflineCountryRepository(initialState: OfflineCountriesState = Offline
     val repairedIds = mutableListOf<String>()
     val cancelledIds = mutableListOf<String>()
     val deletedIds = mutableListOf<String>()
+    val extendedIds = mutableListOf<String>()
+    val trimmedIds = mutableListOf<String>()
     var refreshCount: Int = 0
         private set
 
@@ -118,23 +120,63 @@ class FakeOfflineCountryRepository(initialState: OfflineCountriesState = Offline
     }
 
     override suspend fun setIncludesDetail(enabled: Boolean) {
-        stateFlow.update { current ->
-            val updatedInstalled = if (!enabled) {
-                current.installed.mapValues { (_, record) -> record.copy(hasDetail = false) }
-            } else {
-                current.installed
-            }
-            current.copy(includesDetail = enabled, installed = updatedInstalled)
+        stateFlow.update { it.copy(includesDetail = enabled) }
+    }
+
+    override suspend fun setIncludesElevation(enabled: Boolean) {
+        stateFlow.update { it.copy(includesElevation = enabled) }
+    }
+
+    override suspend fun extendCountry(countryId: String) {
+        extendedIds.add(countryId)
+        val current = stateFlow.value
+        val listed = current.installed[countryId]?.let { current.offeredBuild(it) }
+        val offer = if (listed != null) current.addition(countryId) else null
+        if (listed != null && offer != null) {
+            val download = OfflineCountryDownload(
+                country = listed,
+                roles = offer.files.map { it.role },
+                phase = OfflineDownloadPhase.DOWNLOADING,
+                writtenBytes = 0L,
+                totalBytes = offer.byteCount
+            )
+            stateFlow.update { it.copy(downloads = it.downloads + (countryId to download)) }
+        }
+    }
+
+    override suspend fun trimCountry(countryId: String) {
+        trimmedIds.add(countryId)
+        val current = stateFlow.value
+        val record = current.installed[countryId] ?: return
+        val offer = current.removal(countryId) ?: return
+        val stripped = record.copy(
+            hasDetail = if (offer.files.any { it.role.isDetail }) false else record.hasDetail,
+            hasElevation = if (offer.files.any { it.role.isElevation }) false else record.hasElevation
+        )
+        val removedRoles = offer.files.map { it.role }.toSet()
+        val nextUnopenable = current.unopenable[countryId]?.minus(removedRoles)?.takeIf { it.isNotEmpty() }
+        stateFlow.update {
+            it.copy(
+                installed = it.installed + (countryId to stripped),
+                unopenable = if (nextUnopenable != null) {
+                    it.unopenable + (countryId to nextUnopenable)
+                } else {
+                    it.unopenable - countryId
+                }
+            )
         }
     }
 
     override suspend fun runScheduledDownload(countryId: String): OfflineDownloadExecutionResult {
         val current = stateFlow.value
         val download = current.downloads[countryId] ?: return OfflineDownloadExecutionResult.CANCELLED
+        val previous = current.installed[countryId]
+        val sameBuild = previous != null && previous.country.build == download.country.build
         val record = InstalledCountryRecord(
             country = download.country,
             installedAtEpochMillis = 1_000L,
-            hasDetail = download.hasDetail
+            hasDetail = download.hasDetail || (sameBuild && previous.hasDetail),
+            hasElevation = download.hasElevation || (sameBuild && previous.hasElevation)
         )
         stateFlow.update {
             it.copy(

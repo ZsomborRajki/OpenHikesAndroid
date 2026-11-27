@@ -1006,6 +1006,7 @@ private fun buildOfflineCoverageState(
         activeDownload = activeDownload,
         saving = saving,
         includesDetail = repoState.includesDetail,
+        includesElevation = repoState.includesElevation,
         showDialog = showDialog
     )
 }

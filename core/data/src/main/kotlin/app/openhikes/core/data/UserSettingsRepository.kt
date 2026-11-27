@@ -34,6 +34,8 @@ interface UserSettingsRepository {
 
     suspend fun setOfflineCountriesExtraDetail(enabled: Boolean)
 
+    suspend fun setOfflineCountriesElevationData(enabled: Boolean)
+
     suspend fun setJunctionWarningsEnabled(enabled: Boolean)
 
     suspend fun setShowsPlacePins(enabled: Boolean)

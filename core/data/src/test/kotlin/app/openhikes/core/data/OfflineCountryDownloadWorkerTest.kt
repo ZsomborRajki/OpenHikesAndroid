@@ -86,6 +86,9 @@ class OfflineCountryDownloadWorkerTest {
         override suspend fun cancelDownload(countryId: String) = Unit
         override suspend fun deleteCountry(countryId: String) = Unit
         override suspend fun setIncludesDetail(enabled: Boolean) = Unit
+        override suspend fun setIncludesElevation(enabled: Boolean) = Unit
+        override suspend fun extendCountry(countryId: String) = Unit
+        override suspend fun trimCountry(countryId: String) = Unit
         override suspend fun runScheduledDownload(countryId: String): OfflineDownloadExecutionResult {
             executedIds.add(countryId)
             return nextResult

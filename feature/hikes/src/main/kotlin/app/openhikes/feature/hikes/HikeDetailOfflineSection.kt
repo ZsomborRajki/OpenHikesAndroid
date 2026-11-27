@@ -190,7 +190,9 @@ private fun MissingCountriesDialogActions(
     onDismiss: () -> Unit
 ) {
     coverage.missing.forEach { country ->
-        val sizeText = StorageSizeFormatter.formatBytes(country.byteCount(coverage.includesDetail))
+        val sizeText = StorageSizeFormatter.formatBytes(
+            country.byteCount(withDetail = coverage.includesDetail, withElevation = coverage.includesElevation)
+        )
         FilledTonalButton(
             onClick = {
                 onDownloadCountry(country.id)

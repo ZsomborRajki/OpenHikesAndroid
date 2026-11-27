@@ -38,6 +38,7 @@ data class HikeOfflineCoverageState(
     val activeDownload: OfflineCountryDownload? = null,
     val saving: OfflineRouteSaving = OfflineRouteSaving.UNSAVED,
     val includesDetail: Boolean = true,
+    val includesElevation: Boolean = true,
     val showDialog: Boolean = false
 ) {
     val canOpenDialog: Boolean

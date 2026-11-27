@@ -71,12 +71,15 @@ fun OfflineMapsRoute(
             viewModel.onSelectCountry(countryId)
         },
         onSetIncludesDetail = viewModel::onSetIncludesDetail,
+        onSetIncludesElevation = viewModel::onSetIncludesElevation,
         onUseOpenHikesMap = viewModel::onUseOpenHikesMap,
         onDownload = viewModel::onDownload,
         onRetry = viewModel::onRetry,
         onRepair = viewModel::onRepair,
         onCancel = viewModel::onCancel,
         onDelete = viewModel::onDelete,
+        onExtend = viewModel::onExtend,
+        onTrim = viewModel::onTrim,
         onRefresh = viewModel::onRefresh,
         modifier = modifier
     )
@@ -95,12 +98,15 @@ fun OfflineMapsScreen(
     onToggleGroup: (String) -> Unit,
     onSelectCountry: (String) -> Unit,
     onSetIncludesDetail: (Boolean) -> Unit,
+    onSetIncludesElevation: (Boolean) -> Unit,
     onUseOpenHikesMap: () -> Unit,
     onDownload: (String) -> Unit,
     onRetry: (String) -> Unit,
     onRepair: (String) -> Unit,
     onCancel: (String) -> Unit,
     onDelete: (String) -> Unit,
+    onExtend: (String) -> Unit,
+    onTrim: (String) -> Unit,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
     onSearchFocusChanged: (Boolean) -> Unit = {}
@@ -127,12 +133,15 @@ fun OfflineMapsScreen(
             onToggleGroup = onToggleGroup,
             onSelectCountry = onSelectCountry,
             onSetIncludesDetail = onSetIncludesDetail,
+            onSetIncludesElevation = onSetIncludesElevation,
             onUseOpenHikesMap = onUseOpenHikesMap,
             onDownload = onDownload,
             onRetry = onRetry,
             onRepair = onRepair,
             onCancel = onCancel,
             onDelete = onDelete,
+            onExtend = onExtend,
+            onTrim = onTrim,
             onRefresh = onRefresh,
             modifier = Modifier.weight(1f)
         )
@@ -145,12 +154,15 @@ private fun OfflineMapsBody(
     onToggleGroup: (String) -> Unit,
     onSelectCountry: (String) -> Unit,
     onSetIncludesDetail: (Boolean) -> Unit,
+    onSetIncludesElevation: (Boolean) -> Unit,
     onUseOpenHikesMap: () -> Unit,
     onDownload: (String) -> Unit,
     onRetry: (String) -> Unit,
     onRepair: (String) -> Unit,
     onCancel: (String) -> Unit,
     onDelete: (String) -> Unit,
+    onExtend: (String) -> Unit,
+    onTrim: (String) -> Unit,
     onRefresh: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -201,12 +213,15 @@ private fun OfflineMapsBody(
             onToggleGroup = onToggleGroup,
             onSelectCountry = onSelectCountry,
             onSetIncludesDetail = onSetIncludesDetail,
+            onSetIncludesElevation = onSetIncludesElevation,
             onUseOpenHikesMap = onUseOpenHikesMap,
             onDownload = onDownload,
             onRetry = onRetry,
             onRepair = onRepair,
             onCancel = onCancel,
             onDelete = onDelete,
+            onExtend = onExtend,
+            onTrim = onTrim,
             modifier = modifier
         )
     }
@@ -218,12 +233,15 @@ private fun OfflineCountriesLazyList(
     onToggleGroup: (String) -> Unit,
     onSelectCountry: (String) -> Unit,
     onSetIncludesDetail: (Boolean) -> Unit,
+    onSetIncludesElevation: (Boolean) -> Unit,
     onUseOpenHikesMap: () -> Unit,
     onDownload: (String) -> Unit,
     onRetry: (String) -> Unit,
     onRepair: (String) -> Unit,
     onCancel: (String) -> Unit,
     onDelete: (String) -> Unit,
+    onExtend: (String) -> Unit,
+    onTrim: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
@@ -233,7 +251,9 @@ private fun OfflineCountriesLazyList(
         onRetry = onRetry,
         onRepair = onRepair,
         onCancel = onCancel,
-        onDelete = onDelete
+        onDelete = onDelete,
+        onExtend = onExtend,
+        onTrim = onTrim
     )
 
     LaunchedEffect(uiState.sort) {
@@ -265,6 +285,7 @@ private fun OfflineCountriesLazyList(
                 uiState = uiState,
                 onToggleGroup = onToggleGroup,
                 onSetIncludesDetail = onSetIncludesDetail,
+                onSetIncludesElevation = onSetIncludesElevation,
                 onUseOpenHikesMap = onUseOpenHikesMap,
                 actions = actions
             )
@@ -276,15 +297,18 @@ private fun LazyListScope.addBrowseContent(
     uiState: OfflineMapsUiState,
     onToggleGroup: (String) -> Unit,
     onSetIncludesDetail: (Boolean) -> Unit,
+    onSetIncludesElevation: (Boolean) -> Unit,
     onUseOpenHikesMap: () -> Unit,
     actions: CountryRowCallbacks
 ) {
     item(key = "head") {
         OfflineMapsHeadCard(
             includesDetail = uiState.includesDetail,
+            includesElevation = uiState.includesElevation,
             showUseOpenHikesBanner = uiState.showUseOpenHikesBanner,
             activeMapStyleId = uiState.activeMapStyleId,
             onSetIncludesDetail = onSetIncludesDetail,
+            onSetIncludesElevation = onSetIncludesElevation,
             onUseOpenHikesMap = onUseOpenHikesMap
         )
     }
@@ -313,7 +337,9 @@ private data class CountryRowCallbacks(
     val onRetry: (String) -> Unit,
     val onRepair: (String) -> Unit,
     val onCancel: (String) -> Unit,
-    val onDelete: (String) -> Unit
+    val onDelete: (String) -> Unit,
+    val onExtend: (String) -> Unit,
+    val onTrim: (String) -> Unit
 )
 
 private fun LazyListScope.addSearchItems(uiState: OfflineMapsUiState, actions: CountryRowCallbacks) {
@@ -427,6 +453,10 @@ private fun BindCountryRow(
         onRepair = { actions.onRepair(id) },
         onCancel = { actions.onCancel(id) },
         onDelete = { actions.onDelete(id) },
+        additionOffer = uiState.additions[id],
+        removalOffer = uiState.removals[id],
+        onExtend = { actions.onExtend(id) },
+        onTrim = { actions.onTrim(id) },
         modifier = modifier
     )
 }

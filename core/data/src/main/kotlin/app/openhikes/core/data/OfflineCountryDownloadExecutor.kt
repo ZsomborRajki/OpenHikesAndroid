@@ -99,24 +99,32 @@ internal class OfflineCountryDownloadExecutor @Inject constructor(
         }
         val files = download.files
         val allWhole = withContext(ioDispatcher) { verifyStagedFiles(files) }
-        if (!allWhole) {
-            withContext(ioDispatcher) {
-                files.forEach { file ->
-                    val staged = store.stagedFileFor(file)
-                    if (!OfflineCountryDigest.isWhole(file, staged)) {
-                        staged.delete()
+        val liveDownload = callbacks.currentDownload(countryId)
+        val isCurrent = liveDownload != null &&
+            liveDownload.country.build == download.country.build &&
+            liveDownload.roles == download.roles
+        return when {
+            !isCurrent -> OfflineDownloadExecutionResult.CANCELLED
+            !allWhole -> {
+                withContext(ioDispatcher) {
+                    files.forEach { file ->
+                        val staged = store.stagedFileFor(file)
+                        if (!OfflineCountryDigest.isWhole(file, staged)) {
+                            staged.delete()
+                        }
                     }
                 }
+                callbacks.failDownload(countryId, OfflineDownloadFailure.DAMAGED)
+                OfflineDownloadExecutionResult.FAILED
             }
-            callbacks.failDownload(countryId, OfflineDownloadFailure.DAMAGED)
-            return OfflineDownloadExecutionResult.FAILED
+
+            else -> callbacks.installAndCommit(
+                countryId = countryId,
+                download = download,
+                files = files,
+                installedAtEpochMillis = clock.nowEpochMillis()
+            )
         }
-        return callbacks.installAndCommit(
-            countryId = countryId,
-            download = download,
-            files = files,
-            installedAtEpochMillis = clock.nowEpochMillis()
-        )
     }
 
     private fun checkSpeculativePolicy(countryId: String, callbacks: Callbacks): OfflineDownloadExecutionResult? {

@@ -39,9 +39,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * Coordinates Offline Maps catalog listing, search, sorting, Extra Detail toggle, map country
- * outlines, map tap selection, and download actions.
+ * Coordinates Offline Maps catalog listing, search, sorting, *Extra Detail* / *Elevation Data*
+ * toggles, per-country offers, map country outlines, map tap selection, and download actions.
  */
+@Suppress("TooManyFunctions")
 @HiltViewModel(assistedFactory = OfflineMapsViewModel.Factory::class)
 class OfflineMapsViewModel @AssistedInject constructor(
     @Assisted private val overMap: Boolean,
@@ -173,6 +174,24 @@ class OfflineMapsViewModel @AssistedInject constructor(
         }
     }
 
+    fun onSetIncludesElevation(enabled: Boolean) {
+        viewModelScope.launch {
+            offlineCountryRepository.setIncludesElevation(enabled)
+        }
+    }
+
+    fun onExtend(countryId: String) {
+        viewModelScope.launch {
+            offlineCountryRepository.extendCountry(countryId)
+        }
+    }
+
+    fun onTrim(countryId: String) {
+        viewModelScope.launch {
+            offlineCountryRepository.trimCountry(countryId)
+        }
+    }
+
     fun onUseOpenHikesMap() {
         viewModelScope.launch {
             runCatching { userSettingsRepository.setMapStyleId(MapStyleId.OPENHIKES) }
@@ -294,6 +313,16 @@ private fun buildOfflineMapsUiState(
         emptyList()
     }
     val activeStyleId = MapStyleCatalog.renderable(settings.mapStyleId, mapProviderKeys).id
+    val additions = buildMap {
+        for (countryId in repoState.installed.keys) {
+            repoState.addition(countryId)?.let { put(countryId, it) }
+        }
+    }
+    val removals = buildMap {
+        for (countryId in repoState.installed.keys) {
+            repoState.removal(countryId)?.let { put(countryId, it) }
+        }
+    }
     return OfflineMapsUiState(
         isAvailable = repoState.isAvailable,
         isPrepared = repoState.isPrepared,
@@ -302,6 +331,7 @@ private fun buildOfflineMapsUiState(
         availableSorts = availableSorts,
         searchQuery = controls.searchQuery,
         includesDetail = repoState.includesDetail,
+        includesElevation = repoState.includesElevation,
         showUseOpenHikesBanner = activeStyleId != MapStyleId.OPENHIKES,
         activeMapStyleId = activeStyleId,
         selectedCountryId = controls.selectedCountryId,
@@ -312,6 +342,8 @@ private fun buildOfflineMapsUiState(
         searchResults = searchResults,
         installed = repoState.installed,
         downloads = repoState.downloads,
+        additions = additions,
+        removals = removals,
         unopenable = repoState.unopenable,
         installedByteCount = repoState.installedByteCount,
         scrollRevealCountryId = controls.scrollRevealCountryId,
