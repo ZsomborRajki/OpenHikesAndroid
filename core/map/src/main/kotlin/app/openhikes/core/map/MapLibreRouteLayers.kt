@@ -25,6 +25,8 @@ import kotlin.math.min
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.serialization.json.JsonObject
 import org.maplibre.compose.expressions.dsl.const
+import org.maplibre.compose.expressions.dsl.convertToColor
+import org.maplibre.compose.expressions.dsl.feature
 import org.maplibre.compose.expressions.dsl.image
 import org.maplibre.compose.expressions.value.IconPitchAlignment
 import org.maplibre.compose.expressions.value.IconRotationAlignment
@@ -176,50 +178,106 @@ internal fun RouteOverlayLayers(routes: List<MapRouteOverlay>, idPrefix: String 
 @MaplibreComposable
 private fun WalkedRouteLayers(route: MapRouteOverlay, opacity: Float, idPrefix: String = "") {
     val plan = remember(route) { buildWalkedRouteRenderPlan(route) }
-    val walkedSourceData = remember(route.walkedSegments) {
-        buildMultiLineFeatureCollection(route.walkedSegments)
-    }
-    val walkedSource = rememberGeoJsonSource(data = walkedSourceData)
+    val hasShading = route.shadedStretches.isNotEmpty()
+    val usesPatternShading = hasShading && (!plan.drawsLine || plan.lineDashArray != null)
+    val baseTintHex = remember(plan.lineColor) { colorToRgbHex(plan.lineColor) }
 
-    if (plan.drawsLine && plan.borderColor != null && plan.borderWidthDp != null) {
+    val walkedSource = if (!usesPatternShading) {
+        val walkedSourceData = remember(route.walkedSegments) {
+            buildMultiLineFeatureCollection(route.walkedSegments)
+        }
+        rememberGeoJsonSource(data = walkedSourceData)
+    } else {
+        null
+    }
+    val shadedSource = if (hasShading) {
+        val partitionedSourceData = remember(
+            route.walkedSegments,
+            route.shadedStretches,
+            baseTintHex,
+            usesPatternShading
+        ) {
+            buildPartitionedShadeFeatureCollection(
+                walkedSegments = route.walkedSegments,
+                shadedStretches = route.shadedStretches,
+                baseTintHex = baseTintHex,
+                blendTransitions = !usesPatternShading
+            )
+        }
+        rememberGeoJsonSource(data = partitionedSourceData)
+    } else {
+        null
+    }
+
+    if (plan.drawsLine) {
+        WalkedRouteLineLayers(
+            route = route,
+            plan = plan,
+            borderSource = if (usesPatternShading) requireNotNull(shadedSource) else requireNotNull(walkedSource),
+            strokeSource = if (hasShading) requireNotNull(shadedSource) else requireNotNull(walkedSource),
+            hasShading = hasShading,
+            opacity = opacity,
+            idPrefix = idPrefix
+        )
+    }
+
+    plan.chevronSpec?.let { chevron ->
+        val chevronSource = if (hasShading && !plan.drawsLine) {
+            requireNotNull(shadedSource)
+        } else {
+            requireNotNull(walkedSource)
+        }
+        RouteChevronLayers(
+            route = route,
+            plan = plan,
+            chevron = chevron,
+            source = chevronSource,
+            opacity = opacity,
+            idPrefix = idPrefix
+        )
+    }
+}
+
+@Suppress("LongParameterList")
+@Composable
+@MaplibreComposable
+private fun WalkedRouteLineLayers(
+    route: MapRouteOverlay,
+    plan: WalkedRouteRenderPlan,
+    borderSource: org.maplibre.compose.sources.GeoJsonSource,
+    strokeSource: org.maplibre.compose.sources.GeoJsonSource,
+    hasShading: Boolean,
+    opacity: Float,
+    idPrefix: String
+) {
+    if (plan.borderColor != null && plan.borderWidthDp != null) {
         LineLayer(
             id = "${idPrefix}route-border-${route.hikeId.value}",
-            source = walkedSource,
+            source = borderSource,
             color = const(plan.borderColor),
             width = const(plan.borderWidthDp.dp),
             opacity = const(opacity),
             cap = const(plan.lineCap),
             join = const(LineJoin.Round),
-            dasharray = plan.borderDashArray?.let(::const)
+            dasharray = plan.borderDashArray?.let { const(it) }
         )
     }
-
-    if (plan.drawsLine) {
-        LineLayer(
-            id = "${idPrefix}route-line-${route.hikeId.value}",
-            source = walkedSource,
-            color = const(plan.lineColor),
-            width = const(plan.lineWidthDp.dp),
-            opacity = const(opacity),
-            cap = const(plan.lineCap),
-            join = const(LineJoin.Round),
-            dasharray = plan.lineDashArray?.let(::const)
-        )
-        if (route.shadedStretches.isNotEmpty()) {
-            ShadedRouteLineLayer(route = route, plan = plan, opacity = opacity, idPrefix = idPrefix)
-        }
+    val strokeColor = if (hasShading) {
+        feature[SHADE_COLOR_PROPERTY].convertToColor(const(plan.lineColor.copy(alpha = 1f)))
+    } else {
+        const(plan.lineColor)
     }
-
-    plan.chevronSpec?.let { chevron ->
-        RouteChevronLayers(
-            route = route,
-            plan = plan,
-            chevron = chevron,
-            walkedSource = walkedSource,
-            opacity = opacity,
-            idPrefix = idPrefix
-        )
-    }
+    val strokeOpacity = if (hasShading) (opacity * plan.lineColor.alpha).coerceIn(0f, 1f) else opacity
+    LineLayer(
+        id = "${idPrefix}route-line-${route.hikeId.value}",
+        source = strokeSource,
+        color = strokeColor,
+        width = const(plan.lineWidthDp.dp),
+        opacity = const(strokeOpacity),
+        cap = const(plan.lineCap),
+        join = const(LineJoin.Round),
+        dasharray = plan.lineDashArray?.let { const(it) }
+    )
 }
 
 @Composable
@@ -228,20 +286,26 @@ private fun RouteChevronLayers(
     route: MapRouteOverlay,
     plan: WalkedRouteRenderPlan,
     chevron: RouteChevronRenderSpec,
-    walkedSource: org.maplibre.compose.sources.GeoJsonSource,
+    source: org.maplibre.compose.sources.GeoJsonSource,
     opacity: Float,
     idPrefix: String
 ) {
-    val chevronPainter = remember(chevron) { RouteChevronPainter(chevron) }
-    SymbolLayer(
-        id = "${idPrefix}route-chevrons-${route.hikeId.value}",
-        source = walkedSource,
-        placement = const(SymbolPlacement.Line),
-        spacing = const(chevron.spacingDp.dp),
-        iconImage = image(
+    val shadeArrowheads = !plan.drawsLine && route.shadedStretches.isNotEmpty()
+    val iconImage = if (shadeArrowheads) {
+        rememberShadedArrowheadImageExpression(route = route, plan = plan, baseChevron = chevron)
+    } else {
+        val chevronPainter = remember(chevron) { RouteChevronPainter(chevron) }
+        image(
             value = chevronPainter,
             size = DpSize(chevron.iconWidthDp.dp, chevron.iconHeightDp.dp)
-        ),
+        )
+    }
+    SymbolLayer(
+        id = "${idPrefix}route-chevrons-${route.hikeId.value}",
+        source = source,
+        placement = const(SymbolPlacement.Line),
+        spacing = const(chevron.spacingDp.dp),
+        iconImage = iconImage,
         iconOpacity = const(opacity),
         iconRotationAlignment = const(IconRotationAlignment.Map),
         iconPitchAlignment = const(IconPitchAlignment.Map),
@@ -249,14 +313,6 @@ private fun RouteChevronLayers(
         iconAllowOverlap = const(true),
         iconIgnorePlacement = const(true)
     )
-    if (!plan.drawsLine && route.shadedStretches.isNotEmpty()) {
-        ShadedArrowheadLayers(
-            route = route,
-            plan = plan,
-            opacity = (opacity * plan.lineColor.alpha).coerceIn(0f, 1f),
-            idPrefix = idPrefix
-        )
-    }
 }
 
 internal fun buildWalkedRouteRenderPlan(route: MapRouteOverlay): WalkedRouteRenderPlan {

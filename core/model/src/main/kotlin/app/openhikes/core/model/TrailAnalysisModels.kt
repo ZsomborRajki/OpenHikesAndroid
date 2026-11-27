@@ -273,8 +273,15 @@ typealias TrailDifficultyBreakdown = TrailBreakdown<TrailDifficulty>
 
 /**
  * One unbroken stretch of a route belonging to a single OpenStreetMap category.
+ *
+ * [joinsPrevious] is `true` only when this stretch continues directly from the previous run within
+ * the same walked segment (never across a pause or GPX `<trkseg>` boundary).
  */
-data class TrailCategoryRun<C : TrailCategory>(val category: C, val coordinates: List<GeoCoordinate>)
+data class TrailCategoryRun<C : TrailCategory>(
+    val category: C,
+    val coordinates: List<GeoCoordinate>,
+    val joinsPrevious: Boolean = false
+)
 
 /**
  * Both surface and SAC difficulty breakdowns measured from one pass over a [TrailGraph].

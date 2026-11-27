@@ -51,6 +51,7 @@ import app.openhikes.core.model.OfflineRouteCoverageCalculator
 import app.openhikes.core.model.OrderedHikePhotos
 import app.openhikes.core.model.PhotoMapPin
 import app.openhikes.core.model.PhotoTrailAnchor
+import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteProfile
 import app.openhikes.core.model.RouteSegment
 import app.openhikes.core.model.RouteSegments
@@ -505,24 +506,35 @@ class HikeDetailViewModel @AssistedInject constructor(
         }
     }
 
+    private data class TrailBreakdownObservation(
+        val revision: String,
+        val needsBreakdowns: Boolean,
+        val route: List<RouteCoordinate>
+    )
+
     private fun observeTrailBreakdowns() {
         viewModelScope.launch {
-            val attemptedRevisions = HashSet<String>()
             hikeRepository.observeHike(hikeId)
                 .map { hike ->
-                    hike?.takeIf { it.needsTrailBreakdowns && it.route.size > 1 }?.let {
-                        TrailWalkRecord.routeRevision(it.route) to it.route
+                    hike?.takeIf { it.route.size > 1 }?.let {
+                        TrailBreakdownObservation(
+                            revision = TrailWalkRecord.routeRevision(it.route),
+                            needsBreakdowns = it.needsTrailBreakdowns,
+                            route = it.route
+                        )
                     }
                 }
-                .distinctUntilChanged { old, new -> old?.first == new?.first }
-                .collectLatest { pending ->
-                    if (pending == null || !trailGraphProvider.isAvailable) return@collectLatest
-                    val (revision, route) = pending
-                    if (!attemptedRevisions.add(revision)) return@collectLatest
+                .distinctUntilChanged { old, new ->
+                    old?.revision == new?.revision && old?.needsBreakdowns == new?.needsBreakdowns
+                }
+                .collectLatest { observation ->
+                    if (observation == null || !observation.needsBreakdowns || !trailGraphProvider.isAvailable) {
+                        return@collectLatest
+                    }
                     val breakdowns = withContext(defaultDispatcher) {
                         val ctx = currentCoroutineContext()
                         HikeTrailAnalysis.breakdowns(
-                            route = route,
+                            route = observation.route,
                             provider = trailGraphProvider,
                             checkActive = { ctx.ensureActive() }
                         )
@@ -530,7 +542,7 @@ class HikeDetailViewModel @AssistedInject constructor(
                     if (!breakdowns.isEmpty) {
                         hikeRepository.saveTrailBreakdowns(
                             hikeId = hikeId,
-                            expectedRouteRevision = revision,
+                            expectedRouteRevision = observation.revision,
                             breakdowns = breakdowns
                         )
                     }

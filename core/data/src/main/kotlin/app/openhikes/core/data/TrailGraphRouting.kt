@@ -77,7 +77,13 @@ internal class ArchiveTrailGraphProvider @Inject constructor(
             return !config.isUiTesting || config.trailGraphFixtureName != null
         }
 
-    override suspend fun assembledGraph(covering: List<GeoCoordinate>): AssembledTrailGraph {
+    override suspend fun assembledGraph(covering: List<GeoCoordinate>): AssembledTrailGraph =
+        assembledGraphForRuns(runs = listOf(covering), marginMeters = 0.0)
+
+    override suspend fun assembledGraphForRuns(
+        runs: List<List<GeoCoordinate>>,
+        marginMeters: Double
+    ): AssembledTrailGraph {
         val config = launchConfigHolder.current.value
         val fixtureName = config.trailGraphFixtureName
         return when {
@@ -87,22 +93,32 @@ internal class ArchiveTrailGraphProvider @Inject constructor(
                 isComplete = true
             )
             config.isUiTesting -> AssembledTrailGraph(graph = null, outage = null, isComplete = false)
-            else -> assembleFromNetworkSquares(covering)
+            else -> assembleFromNetworkSquares(runs, marginMeters)
         }
     }
 
-    override suspend fun cachedGraphOnly(covering: List<GeoCoordinate>): TrailGraph? {
+    override suspend fun cachedGraphOnly(covering: List<GeoCoordinate>): TrailGraph? =
+        cachedGraphOnlyForRuns(runs = listOf(covering), marginMeters = 0.0)
+
+    override suspend fun cachedGraphOnlyForRuns(runs: List<List<GeoCoordinate>>, marginMeters: Double): TrailGraph? {
         val config = launchConfigHolder.current.value
         val fixtureName = config.trailGraphFixtureName
         return when {
             fixtureName != null -> loadFixture(fixtureName)
             config.isUiTesting -> null
-            else -> assembleCachedOnly(covering)
+            else -> assembleCachedOnly(runs, marginMeters)
         }
     }
 
-    private suspend fun assembleFromNetworkSquares(covering: List<GeoCoordinate>): AssembledTrailGraph {
-        val rawRegions = TrailGraphCorridor.regionsCovering(covering, maxRegions = MAX_CORRIDOR_REGIONS + 1)
+    private suspend fun assembleFromNetworkSquares(
+        runs: List<List<GeoCoordinate>>,
+        marginMeters: Double
+    ): AssembledTrailGraph {
+        val rawRegions = TrailGraphCorridor.regionsCoveringRuns(
+            runs = runs,
+            marginMeters = marginMeters,
+            maxRegions = MAX_CORRIDOR_REGIONS + 1
+        )
         val exceededCap = rawRegions.size > MAX_CORRIDOR_REGIONS
         val regions = if (exceededCap) rawRegions.take(MAX_CORRIDOR_REGIONS) else rawRegions
         var combined = TrailGraph.Empty
@@ -120,8 +136,12 @@ internal class ArchiveTrailGraphProvider @Inject constructor(
         )
     }
 
-    private suspend fun assembleCachedOnly(covering: List<GeoCoordinate>): TrailGraph? {
-        val regions = TrailGraphCorridor.regionsCovering(covering, maxRegions = MAX_CORRIDOR_REGIONS)
+    private suspend fun assembleCachedOnly(runs: List<List<GeoCoordinate>>, marginMeters: Double): TrailGraph? {
+        val regions = TrailGraphCorridor.regionsCoveringRuns(
+            runs = runs,
+            marginMeters = marginMeters,
+            maxRegions = MAX_CORRIDOR_REGIONS
+        )
         var combined = TrailGraph.Empty
         for (region in regions) {
             val cached = routingSquareDataSource.readCachedRegion(region)

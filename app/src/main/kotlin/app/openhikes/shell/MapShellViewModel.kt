@@ -365,7 +365,11 @@ class MapShellViewModel @Inject constructor(
                     checkActive = { ctx.ensureActive() }
                 ).mapNotNull { run ->
                     run.category.shade?.let { shade ->
-                        RouteShadeStretch(shade = shade, coordinates = run.coordinates)
+                        RouteShadeStretch(
+                            shade = shade,
+                            coordinates = run.coordinates,
+                            joinsPrevious = run.joinsPrevious
+                        )
                     }
                 }
             }
