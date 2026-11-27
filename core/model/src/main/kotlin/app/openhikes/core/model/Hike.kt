@@ -118,10 +118,26 @@ data class Hike(
     val keywords: String? = null,
     val route: List<RouteCoordinate> = emptyList(),
     val places: List<TrailPoint> = emptyList(),
-    val photos: List<HikePhoto> = emptyList()
+    val photos: List<HikePhoto> = emptyList(),
+    val surfaceMetersByCategory: Map<String, Double> = emptyMap(),
+    val difficultyMetersByGrade: Map<String, Double> = emptyMap()
 ) {
     val displayTitle: String
         get() = customName?.takeIf { it.isNotEmpty() } ?: title
+
+    val surfaceBreakdown: TrailSurfaceBreakdown?
+        get() = TrailBreakdown.fromStoredSurfaceMeters(surfaceMetersByCategory)
+
+    val difficultyBreakdown: TrailDifficultyBreakdown?
+        get() = TrailBreakdown.fromStoredDifficultyMeters(difficultyMetersByGrade)
+
+    /**
+     * `true` while either breakdown reads as never analyzed (including rows holding only
+     * unrecognized categories from another version). Once both are stored, they stay kept until
+     * a route edit replaces the line.
+     */
+    val needsTrailBreakdowns: Boolean
+        get() = surfaceBreakdown == null || difficultyBreakdown == null
 
     val hasPhotos: Boolean
         get() = photos.isNotEmpty()

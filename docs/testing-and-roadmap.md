@@ -304,3 +304,29 @@ GitHub issues once created.)*
       `HikeDetailRoute`, error/retry card, and counting/redrawn footnotes,
       verified with Tier 1/2/3, Robolectric journey, and Compose screenshot
       tests.
+13. **Phase 12 — Trail Analysis & Route Coloring (Slice 12):**
+    - Pure-JVM trail breakdown & route-shading algorithms (`TrailSurface`,
+      `TrailDifficulty` SAC T1–T6, `TrailBreakdown`, `TrailBreakdownAnalyzer`,
+      `HikeTrailAnalysis`, `RouteColoring`, `RouteShade`, `RouteShadeStretch`,
+      `RouteSteepness` with smoothed grade windows & short-run absorption, and
+      `RouteShadeBlend` boundary sub-step blending) across `:core:model`, plus
+      `FakeTrailGraphProvider` in `:core:testing`.
+    - Proto DataStore `route_coloring` (defaulting to `Elevation`), Room v6
+      persisted `surfaceMetersJson` / `difficultyMetersJson` columns with
+      revision-checked `HikeRepository.saveTrailBreakdowns` and route-edit /
+      revert clearing in `RouteEditStore`, cache-only
+      `RoutingGraphSquareDataSource.readCachedRegion`, and bounded 24-region
+      `ArchiveTrailGraphProvider` corridor completeness across `:core:datastore`,
+      `:core:database`, `:core:network`, and `:core:data`.
+    - Blended GeoJSON `ShadedRouteLineLayer` and per-shade
+      `ShadedArrowheadLayers` layered over selected hikes and Trail Maker drafts
+      in `:core:map` while preserving route draw order and line patterns.
+    - Material 3 Expressive `TrailSurfaceSection`, `TrailDifficultySection`,
+      `RouteColoringPicker`, and `RouteShadeKey` in `:core:ui`; Hike Detail
+      off-main OSM breakdown analysis & capsule bar cards with coverage
+      footnotes, Route Style *All Hikes* shared *Color By*, Trail Maker
+      cache-only difficulty shading (`TrailDraftShadingController`) & *On the
+      Map* card (with `Elevation` disabled and explanatory note), and
+      `MapShellViewModel` off-main steepness / difficulty route shading across
+      `:feature:hikes`, `:feature:trailmaker`, and `:app`, verified with Tier
+      1/2, Robolectric journey, and Compose screenshot tests.

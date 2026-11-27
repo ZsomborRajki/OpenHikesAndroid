@@ -17,26 +17,24 @@ Supporting reference docs:
   pyramid, porting `OpenHikesUITests` fixtures/tags, static analysis wiring, and
   Phase 0–4 bootstrap roadmap.
 
-> **Repository status:** Phase 11 complete (Library Totals, Sorting & Map
-> Library Lines: pure-JVM `HikeListSort`, `HikeListOrder`,
-> `RouteElevationRevision` / `RouteElevationMeasurement`, antimeridian-aware
-> 64-point block-indexed `LibraryFootprint`, balanced interval-tree
-> `RecordedClocks`, `LibraryTotals` with same-ground overlap deduplication &
-> redrawn-trail climb withholding, two-pass `LibraryLineOutline` thinning
-> (`<= 256` points, 32 longest pauses), and `LibraryLineHitTest` across
-> `:core:model`; Proto DataStore `hike_list_sort`, transactional
-> `HikeLocalStateDao.replaceListOrders`, walk-count aggregation, off-main
-> `LibraryMetricsStore` (totals sweep, background `Hilliest` elevation
-> validation, cached thinned `LibraryLine` outlines, atomic seeded library &
-> nearby-trails fixtures), and `RouteEditStore` elevation-cache upsert across
-> `:core:common`, `:core:datastore`, `:core:database`, and `:core:data`;
-> `MapLibraryLineOverlay` & oldest-first faded MapLibre `LibraryLineOverlayLayers`
-> under selected routes in `:core:map`; `HikeLibrarySortBar`, accessible
-> reorder mode with active-hike pinning, auto-scroll-to-top, and reactive
-> `LibraryTotalsScreen` + `LibraryMonthChart` & clickable records in
-> `:core:designsystem`, `:core:ui`, `:feature:hikes`, and `:app` with map
-> tap-to-open library lines, plus Tier 1/2/3 & screenshot tests). Phases 0–11
-> are complete.
+> **Repository status:** Phase 12 complete (Trail Analysis & Route Coloring:
+> pure-JVM `TrailSurface`, `TrailDifficulty` (SAC T1–T6), `TrailBreakdown`,
+> `TrailBreakdownAnalyzer`, `HikeTrailAnalysis`, `RouteColoring`, `RouteShade`,
+> `RouteShadeStretch`, `RouteSteepness`, and `RouteShadeBlend` across
+> `:core:model`; Proto DataStore `route_coloring`, Room v6 persisted hike
+> surface & difficulty breakdowns with route-revision CAS and route-edit
+> clearing, cache-only `RoutingGraphSquareDataSource.readCachedRegion`, and
+> bounded `ArchiveTrailGraphProvider` corridor completeness across
+> `:core:datastore`, `:core:database`, `:core:network`, and `:core:data`;
+> blended GeoJSON `ShadedRouteLineLayer` & `ShadedArrowheadLayers` on selected
+> hikes and Trail Maker drafts in `:core:map`; Material 3 Expressive
+> `TrailSurfaceSection`, `TrailDifficultySection`, `RouteColoringPicker`, and
+> `RouteShadeKey` in `:core:ui`; Hike Detail off-main breakdown persistence &
+> cards, Route Style *All Hikes* shared *Color By*, Trail Maker cache-only
+> difficulty shading & *On the Map* picker, and `MapShellViewModel` steepness
+> / SAC difficulty shading across `:feature:hikes`, `:feature:trailmaker`, and
+> `:app`, plus Tier 1/2, Robolectric journey & Compose screenshot tests).
+> Phases 0–12 are complete.
 
 ---
 

@@ -20,7 +20,8 @@ data class UserSettings(
     val junctionWarningsEnabled: Boolean = DEFAULT_JUNCTION_WARNINGS_ENABLED,
     val showsPlacePins: Boolean = DEFAULT_SHOWS_PLACE_PINS,
     val hiddenPlaceSymbols: Set<TrailPlaceSymbol> = emptySet(),
-    val hikeListSort: HikeListSort = HikeListSort.Default
+    val hikeListSort: HikeListSort = HikeListSort.Default,
+    val routeColoring: RouteColoring = RouteColoring.Default
 ) {
     val shownSearchPlaceSymbols: Set<TrailPlaceSymbol>
         get() = TrailPointQuery.searchableSymbols.toSet() - hiddenPlaceSymbols

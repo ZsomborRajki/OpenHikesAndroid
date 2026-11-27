@@ -6,6 +6,7 @@ plugins {
 dependencies {
     api(projects.core.common)
     api(projects.core.model)
+    implementation(libs.kotlinx.serialization.json)
     api(libs.junit4)
     api(libs.truth)
     api(libs.turbine)

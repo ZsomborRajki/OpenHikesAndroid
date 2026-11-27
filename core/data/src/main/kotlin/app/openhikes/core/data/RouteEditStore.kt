@@ -226,7 +226,9 @@ internal class RouteEditStore(
             durationSeconds = original.durationSeconds ?: restoredStats.durationSeconds,
             dateEpochMillis = original.dateEpochMillis,
             routePointCount = originalRoute.size,
-            routeEditJson = if (restoredEdit.isEmpty) null else json.encodeToString(restoredEdit)
+            routeEditJson = if (restoredEdit.isEmpty) null else json.encodeToString(restoredEdit),
+            surfaceMetersJson = null,
+            difficultyMetersJson = null
         )
         val recordedWalkEntity = hikeWalkDao.getByHikeId(hike.id)
             .firstOrNull { it.endReasonId == TrailWalkEndReason.RECORDED.storedId }
@@ -342,7 +344,9 @@ private object RouteEditEntityMapper {
             durationSeconds = updatedDuration,
             dateEpochMillis = resolveStartDate(hike.dateEpochMillis, edited.start, original),
             routePointCount = edited.route.size,
-            routeEditJson = if (updatedEdit.isEmpty) null else json.encodeToString(updatedEdit)
+            routeEditJson = if (updatedEdit.isEmpty) null else json.encodeToString(updatedEdit),
+            surfaceMetersJson = null,
+            difficultyMetersJson = null
         )
     }
 

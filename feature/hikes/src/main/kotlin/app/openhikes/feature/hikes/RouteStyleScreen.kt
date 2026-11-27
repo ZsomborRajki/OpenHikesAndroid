@@ -50,9 +50,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.openhikes.core.designsystem.icon.OpenHikesIcons
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.RouteBorder
+import app.openhikes.core.model.RouteColoring
 import app.openhikes.core.model.RouteLinePattern
 import app.openhikes.core.model.RouteStyleUpdate
 import app.openhikes.core.model.RouteTint
+import app.openhikes.core.ui.R as CoreUiR
+import app.openhikes.core.ui.components.RouteColoringPicker
 import app.openhikes.core.ui.components.RoutePatternSwatch
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 import app.openhikes.core.ui.theme.parseHexColorOrDefault
@@ -90,13 +93,15 @@ fun RouteStyleRoute(
         onBorderSelected = viewModel::onBorderSelected,
         onWidthChanged = viewModel::onWidthChanged,
         onPatternSelected = viewModel::onPatternSelected,
+        onRouteColoringSelected = viewModel::onRouteColoringSelected,
         onDismissError = viewModel::onDismissError,
         modifier = modifier
     )
 }
 
 /**
- * Stateless route styling screen for picking color, border, width, and dash/chevron pattern.
+ * Stateless route styling screen for picking color, border, width, dash/chevron pattern, and
+ * app-wide route coloring mode.
  */
 @Composable
 fun RouteStyleScreen(
@@ -107,6 +112,7 @@ fun RouteStyleScreen(
     onWidthChanged: (Double) -> Unit,
     onPatternSelected: (RouteLinePattern) -> Unit,
     modifier: Modifier = Modifier,
+    onRouteColoringSelected: (RouteColoring) -> Unit = {},
     onDismissError: () -> Unit = {}
 ) {
     Column(modifier = modifier.fillMaxSize()) {
@@ -143,6 +149,15 @@ fun RouteStyleScreen(
                     onWidthChanged = onWidthChanged,
                     onPatternSelected = onPatternSelected
                 )
+            }
+            item(key = "all_hikes") {
+                HikeSectionCard(title = stringResource(CoreUiR.string.route_coloring_section_all_hikes)) {
+                    RouteColoringPicker(
+                        selectedColoring = uiState.routeColoring,
+                        onSelectColoring = onRouteColoringSelected,
+                        modifier = Modifier.padding(StyleHorizontalPadding)
+                    )
+                }
             }
         }
     }

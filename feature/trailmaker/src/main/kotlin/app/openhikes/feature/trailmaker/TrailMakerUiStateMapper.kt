@@ -2,11 +2,13 @@ package app.openhikes.feature.trailmaker
 
 import app.openhikes.core.common.HikeTitle
 import app.openhikes.core.model.DistanceUnit
+import app.openhikes.core.model.RouteColoring
 import app.openhikes.core.model.TrailDraftDroppedPin
 import app.openhikes.core.model.TrailDraftEngine
 import app.openhikes.core.model.TrailDraftRefusal
 import app.openhikes.core.model.TrailDraftSelection
 import app.openhikes.core.model.TrailStopSlot
+import app.openhikes.core.model.TrailTravelMode
 
 /**
  * Snapshot parameters supplied by [TrailMakerViewModel] to project immutable [TrailMakerUiState].
@@ -14,6 +16,8 @@ import app.openhikes.core.model.TrailStopSlot
 internal data class TrailMakerUiProjectionInput(
     val engine: TrailDraftEngine,
     val distanceUnit: DistanceUnit,
+    val routeColoring: RouteColoring,
+    val hasOfferedDifficultyShading: Boolean,
     val canSnapToPaths: Boolean,
     val isRestoring: Boolean,
     val isSaving: Boolean,
@@ -45,6 +49,8 @@ internal object TrailMakerUiStateMapper {
             isEmpty = engine.isEmpty,
             canSnapToPaths = input.canSnapToPaths,
             snapsToPaths = engine.snapsToPaths,
+            routeColoring = input.routeColoring,
+            showsColoringSection = engine.travelMode == TrailTravelMode.HIKING && input.hasOfferedDifficultyShading,
             isRouting = engine.isRouting,
             hasRetryableLegs = engine.hasRetryableLegs,
             worstLegSnap = engine.worstLegSnap,

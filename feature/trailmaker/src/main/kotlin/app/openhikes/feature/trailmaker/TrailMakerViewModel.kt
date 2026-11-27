@@ -2,6 +2,7 @@ package app.openhikes.feature.trailmaker
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import app.openhikes.core.common.DefaultDispatcher
 import app.openhikes.core.common.HikeTitle
 import app.openhikes.core.common.OpenHikesClock
 import app.openhikes.core.data.HikeRepository
@@ -20,11 +21,13 @@ import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.GeoBoundingBox
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.RouteColoring
 import app.openhikes.core.model.StoredTrailDraft
 import app.openhikes.core.model.TrailDraftDroppedPin
 import app.openhikes.core.model.TrailDraftEngine
 import app.openhikes.core.model.TrailDraftRefusal
 import app.openhikes.core.model.TrailDraftSelection
+import app.openhikes.core.model.TrailGraphProvider
 import app.openhikes.core.model.TrailLegEnds
 import app.openhikes.core.model.TrailLegRouter
 import app.openhikes.core.model.TrailStopRecent
@@ -33,6 +36,7 @@ import app.openhikes.core.ui.navigation.TrailMakerRoute
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.IOException
 import javax.inject.Inject
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -52,18 +56,21 @@ class TrailMakerViewModel @Inject constructor(
     private val hikeRepository: HikeRepository,
     private val userSettingsRepository: UserSettingsRepository,
     private val trailLegRouter: TrailLegRouter,
+    trailGraphProvider: TrailGraphProvider,
     private val stopPlaceSearchSource: StopPlaceSearchSource,
     private val locationFeed: LocationFeed,
     private val clock: OpenHikesClock,
     private val mapClaimCoordinator: MapClaimCoordinator,
     private val trailDraftOverlayState: TrailDraftOverlayState,
-    private val draftWriteCoordinator: TrailDraftWriteCoordinator
+    private val draftWriteCoordinator: TrailDraftWriteCoordinator,
+    @DefaultDispatcher defaultDispatcher: CoroutineDispatcher
 ) : ViewModel() {
     private val engine = TrailDraftEngine()
     private val uiStateFlow = MutableStateFlow(TrailMakerUiState(isRestoring = true))
     val uiState: StateFlow<TrailMakerUiState> = uiStateFlow.asStateFlow()
 
     private var distanceUnit: DistanceUnit = DistanceUnit.METRIC
+    private var routeColoring: RouteColoring = RouteColoring.Default
     private var recentStops: List<TrailStopRecent> = emptyList()
     private var droppedPin: TrailDraftDroppedPin? = null
     private var selection: TrailDraftSelection? = null
@@ -98,6 +105,18 @@ class TrailMakerViewModel @Inject constructor(
 
     private val canMutateDraft: Boolean
         get() = !isRestoring && !isSaving
+
+    private val shadingController = TrailDraftShadingController(
+        scope = viewModelScope,
+        engine = engine,
+        trailGraphProvider = trailGraphProvider,
+        defaultDispatcher = defaultDispatcher,
+        canMutateDraft = { canMutateDraft },
+        onStretchesUpdated = {
+            publishOverlay()
+            publishUiState()
+        }
+    )
 
     private val mapInteractionHandler = object : TrailDraftMapInteractionHandler {
         override fun onDropPin(coordinate: GeoCoordinate, legEnds: TrailLegEnds?) {
@@ -175,6 +194,7 @@ class TrailMakerViewModel @Inject constructor(
     override fun onCleared() {
         cancelRouting()
         cancelNaming()
+        cancelShading()
         cancelMyLocationLookup()
         searchJob?.cancel()
         placeCardAddressJob?.cancel()
@@ -187,6 +207,7 @@ class TrailMakerViewModel @Inject constructor(
         when (action) {
             is TrailMakerAction.SelectTravelMode -> setTravelMode(action.mode)
             is TrailMakerAction.ToggleSnapToPaths -> setSnapsToPaths(action.enabled)
+            is TrailMakerAction.SelectRouteColoring -> selectRouteColoring(action.coloring)
             TrailMakerAction.RetryRefusedLegs -> if (canMutateDraft) resolveLegs(retryingRefusals = true)
             is TrailMakerAction.OpenStopSearch -> openStopSearch(action.target)
             TrailMakerAction.CloseStopSearch -> closeStopSearch()
@@ -312,6 +333,7 @@ class TrailMakerViewModel @Inject constructor(
         isSaving = true
         cancelRouting()
         cancelNaming()
+        cancelShading()
         cancelMyLocationLookup()
         searchJob?.cancel()
         searchJob = null
@@ -330,7 +352,13 @@ class TrailMakerViewModel @Inject constructor(
                 .catch { error -> if (error !is IOException) throw error }
                 .collect { settings ->
                     distanceUnit = settings.distanceUnit
-                    publishUiState()
+                    val coloringChanged = routeColoring != settings.routeColoring
+                    routeColoring = settings.routeColoring
+                    if (coloringChanged) {
+                        publishAll()
+                    } else {
+                        publishUiState()
+                    }
                 }
         }
         viewModelScope.launch {
@@ -370,6 +398,18 @@ class TrailMakerViewModel @Inject constructor(
         if (!canMutateDraft || !engine.setSnapsToPaths(enabled)) return
         cancelRouting()
         commitLineAndRoute()
+    }
+
+    private fun selectRouteColoring(coloring: RouteColoring) {
+        routeColoring = coloring
+        publishAll()
+        viewModelScope.launch {
+            try {
+                userSettingsRepository.setRouteColoring(coloring)
+            } catch (_: IOException) {
+                // Keep UI responsive; settings store surfaces its own persistence state.
+            }
+        }
     }
 
     private fun openStopSearch(target: TrailStopSearchTarget) {
@@ -607,6 +647,7 @@ class TrailMakerViewModel @Inject constructor(
     private suspend fun clearDraftStateAndAwait() {
         cancelRouting()
         cancelNaming()
+        shadingController.reset()
         cancelMyLocationLookup()
         droppedPin = null
         selection = null
@@ -620,8 +661,8 @@ class TrailMakerViewModel @Inject constructor(
 
     private fun commitLineAndRoute() {
         persistDraft()
-        publishAll()
         resolveLegs(retryingRefusals = false)
+        publishAll()
         enqueueUnnamedStops()
     }
 
@@ -657,12 +698,19 @@ class TrailMakerViewModel @Inject constructor(
     }
 
     private fun publishAll() {
+        shadingController.refresh()
         publishOverlay()
         publishUiState()
     }
 
     private fun publishOverlay() {
-        trailDraftOverlayState.show(TrailMakerOverlayBuilder.build(engine, droppedPin))
+        trailDraftOverlayState.show(
+            TrailMakerOverlayBuilder.build(
+                engine = engine,
+                droppedPin = droppedPin,
+                shadedStretches = shadingController.activeStretches(routeColoring)
+            )
+        )
     }
 
     private fun publishUiState() {
@@ -670,6 +718,8 @@ class TrailMakerViewModel @Inject constructor(
             TrailMakerUiProjectionInput(
                 engine = engine,
                 distanceUnit = distanceUnit,
+                routeColoring = routeColoring,
+                hasOfferedDifficultyShading = shadingController.hasOffered,
                 canSnapToPaths = trailLegRouter.supportsMode(engine.travelMode),
                 isRestoring = isRestoring,
                 isSaving = isSaving,
@@ -684,6 +734,10 @@ class TrailMakerViewModel @Inject constructor(
                 placeCardAddress = placeCardAddress
             )
         )
+    }
+
+    private fun cancelShading() {
+        shadingController.cancel()
     }
 
     private companion object {

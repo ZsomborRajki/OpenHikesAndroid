@@ -3,6 +3,7 @@ package app.openhikes.core.testing.android
 import app.openhikes.core.data.UserSettingsRepository
 import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.HikeListSort
+import app.openhikes.core.model.RouteColoring
 import app.openhikes.core.model.TrailPlaceSymbol
 import app.openhikes.core.model.UserSettings
 import java.io.IOException
@@ -14,6 +15,7 @@ import kotlinx.coroutines.flow.update
 /**
  * In-memory [UserSettingsRepository] fake for deterministic JVM and Compose tests.
  */
+@Suppress("TooManyFunctions")
 class FakeUserSettingsRepository(
     initialSettings: UserSettings = UserSettings(),
     settingsFlowOverride: Flow<UserSettings>? = null
@@ -111,5 +113,10 @@ class FakeUserSettingsRepository(
     override suspend fun setHikeListSort(sort: HikeListSort) {
         consumeWriteFailureIfPresent()
         settingsState.update { it.copy(hikeListSort = sort) }
+    }
+
+    override suspend fun setRouteColoring(coloring: RouteColoring) {
+        consumeWriteFailureIfPresent()
+        settingsState.update { it.copy(routeColoring = coloring) }
     }
 }

@@ -3,6 +3,7 @@ package app.openhikes.feature.trailmaker
 import androidx.compose.runtime.Immutable
 import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.GeoCoordinate
+import app.openhikes.core.model.RouteColoring
 import app.openhikes.core.model.TrailDraftRefusal
 import app.openhikes.core.model.TrailLegEnds
 import app.openhikes.core.model.TrailLegSnap
@@ -96,6 +97,8 @@ data class TrailMakerUiState(
     val isEmpty: Boolean = true,
     val canSnapToPaths: Boolean = false,
     val snapsToPaths: Boolean = true,
+    val routeColoring: RouteColoring = RouteColoring.Default,
+    val showsColoringSection: Boolean = false,
     val isRouting: Boolean = false,
     val hasRetryableLegs: Boolean = false,
     val worstLegSnap: TrailLegSnap? = null,
@@ -120,6 +123,8 @@ sealed interface TrailMakerAction {
     data class SelectTravelMode(val mode: TrailTravelMode) : TrailMakerAction
 
     data class ToggleSnapToPaths(val enabled: Boolean) : TrailMakerAction
+
+    data class SelectRouteColoring(val coloring: RouteColoring) : TrailMakerAction
 
     data object RetryRefusedLegs : TrailMakerAction
 

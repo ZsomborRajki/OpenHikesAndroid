@@ -33,6 +33,8 @@ import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.ui.testing.OpenHikesTestTags
 import kotlinx.coroutines.flow.StateFlow
 import org.maplibre.compose.expressions.dsl.const
+import org.maplibre.compose.expressions.dsl.convertToColor
+import org.maplibre.compose.expressions.dsl.feature
 import org.maplibre.compose.expressions.value.LineCap
 import org.maplibre.compose.expressions.value.LineJoin
 import org.maplibre.compose.layers.LineLayer
@@ -114,6 +116,29 @@ internal fun TrailDraftOverlayLayers(trailDraftOverlayState: StateFlow<MapTrailD
             dashPattern = listOf(LONG_DASH_ON, LONG_DASH_OFF)
         )
     }
+    val showShading = current.draggedPinIndex == null &&
+        current.legs.none { it.snap.isRouting } &&
+        current.shadedStretches.isNotEmpty()
+    if (showShading) {
+        TrailDraftShadedLayer(shadedStretches = current.shadedStretches)
+    }
+}
+
+@Composable
+@MaplibreComposable
+private fun TrailDraftShadedLayer(shadedStretches: List<app.openhikes.core.model.RouteShadeStretch>) {
+    val shadedData = remember(shadedStretches) {
+        buildBlendedShadeFeatureCollection(shadedStretches)
+    }
+    val shadedSource = rememberGeoJsonSource(data = shadedData)
+    LineLayer(
+        id = "trail-draft-shaded",
+        source = shadedSource,
+        color = feature[SHADE_COLOR_PROPERTY].convertToColor(const(TrailDraftAccentColor)),
+        width = const(LEG_STROKE_WIDTH_DP.dp),
+        cap = const(LineCap.Round),
+        join = const(LineJoin.Round)
+    )
 }
 
 private fun partitionDraftLines(overlay: MapTrailDraftOverlay): TrailDraftLineBuckets {

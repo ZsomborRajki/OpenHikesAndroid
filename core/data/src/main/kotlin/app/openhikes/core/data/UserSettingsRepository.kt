@@ -2,6 +2,7 @@ package app.openhikes.core.data
 
 import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.HikeListSort
+import app.openhikes.core.model.RouteColoring
 import app.openhikes.core.model.TrailPlaceSymbol
 import app.openhikes.core.model.UserSettings
 import kotlinx.coroutines.flow.Flow
@@ -40,4 +41,6 @@ interface UserSettingsRepository {
     suspend fun setPlaceSymbolVisible(symbol: TrailPlaceSymbol, visible: Boolean)
 
     suspend fun setHikeListSort(sort: HikeListSort)
+
+    suspend fun setRouteColoring(coloring: RouteColoring)
 }

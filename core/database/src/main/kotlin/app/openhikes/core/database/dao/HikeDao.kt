@@ -131,6 +131,16 @@ interface HikeDao {
         routeLinePatternId: String
     ): Int
 
+    @Query(
+        """
+        UPDATE hikes
+        SET surface_meters_json = :surfaceMetersJson,
+            difficulty_meters_json = :difficultyMetersJson
+        WHERE id = :hikeId
+        """
+    )
+    suspend fun updateTrailBreakdowns(hikeId: String, surfaceMetersJson: String?, difficultyMetersJson: String?): Int
+
     @Query("SELECT * FROM hike_original_route_chunks WHERE hike_id = :hikeId ORDER BY chunk_index ASC")
     suspend fun getOriginalRouteChunks(hikeId: String): List<HikeOriginalRouteChunkEntity>
 

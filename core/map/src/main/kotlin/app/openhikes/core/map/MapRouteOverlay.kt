@@ -7,6 +7,7 @@ import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeMapRoute
 import app.openhikes.core.model.LibraryLine
 import app.openhikes.core.model.RouteLinePattern
+import app.openhikes.core.model.RouteShadeStretch
 import app.openhikes.core.model.toTrailRuns
 
 /**
@@ -21,7 +22,8 @@ data class MapRouteOverlay(
     val borderHex: String,
     val widthDp: Float,
     val linePattern: RouteLinePattern,
-    val isSelected: Boolean
+    val isSelected: Boolean,
+    val shadedStretches: List<RouteShadeStretch> = emptyList()
 )
 
 /**
@@ -33,7 +35,10 @@ data class MapRouteHighlight(val hikeId: HikeId, val coordinate: GeoCoordinate, 
 /**
  * Converts a domain [HikeMapRoute] into a [MapRouteOverlay] respecting pause boundaries.
  */
-fun HikeMapRoute.toMapRouteOverlay(isSelected: Boolean): MapRouteOverlay {
+fun HikeMapRoute.toMapRouteOverlay(
+    isSelected: Boolean,
+    shadedStretches: List<RouteShadeStretch> = emptyList()
+): MapRouteOverlay {
     val runs = route.toTrailRuns()
     val walked = runs.walkedRuns.map { range ->
         route.subList(range.first, range.last + 1).map { it.coordinate }
@@ -49,7 +54,8 @@ fun HikeMapRoute.toMapRouteOverlay(isSelected: Boolean): MapRouteOverlay {
         borderHex = routeBorderHex,
         widthDp = routeWidthDp.toFloat(),
         linePattern = linePattern,
-        isSelected = isSelected
+        isSelected = isSelected,
+        shadedStretches = shadedStretches
     )
 }
 

@@ -4,7 +4,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -23,6 +26,9 @@ import app.openhikes.core.model.HikeRouteStatistics
 import app.openhikes.core.model.HikeWalk
 import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteProfile
+import app.openhikes.core.model.TrailBreakdown
+import app.openhikes.core.model.TrailDifficulty
+import app.openhikes.core.model.TrailSurface
 import app.openhikes.core.model.TrailWalkEndReason
 import app.openhikes.core.model.TrailWalkPhase
 import app.openhikes.core.ui.testing.OpenHikesTestTags
@@ -147,6 +153,66 @@ class HikeDetailScreenTest {
 
         composeRule.onNodeWithTag(OpenHikesTestTags.WALK_CONTROLS).performClick()
         composeRule.onNodeWithTag(OpenHikesTestTags.WALK_END_DIALOG).assertIsDisplayed()
+    }
+
+    @Test
+    fun displaysSurfaceAndDifficultySectionsWithSpokenSummaryAndCoverageFootnotes() {
+        val surface = TrailBreakdown.fromMeters(
+            mapOf(TrailSurface.GRAVEL to 750.0, TrailSurface.PAVED to 250.0)
+        )
+        val difficulty = TrailBreakdown.fromMeters(
+            mapOf(TrailDifficulty.HIKING to 600.0, TrailDifficulty.UNKNOWN to 400.0)
+        )
+        val uiState = sampleDetailUiState().copy(
+            surfaceBreakdown = surface,
+            difficultyBreakdown = difficulty
+        )
+
+        composeRule.setContent {
+            OpenHikesTheme(dynamicColor = false) {
+                HikeDetailScreen(
+                    uiState = uiState,
+                    scrubDistanceProvider = { 0.0 },
+                    onScrubDistance = {},
+                    onBack = {},
+                    onZoomToRoute = {},
+                    onExportGpx = {},
+                    onOpenRouteStyle = {},
+                    onStartRename = {},
+                    onTitleDraftChange = {},
+                    onCommitRename = {},
+                    onCancelRename = {},
+                    onRequestDelete = {},
+                    onConfirmDelete = {},
+                    onCancelDelete = {}
+                )
+            }
+        }
+
+        val list = composeRule.onNodeWithTag(OpenHikesTestTags.HIKE_DETAIL_SCREEN)
+        list.performScrollToKey("surface")
+        composeRule.onNodeWithTag(OpenHikesTestTags.SURFACE_BAR)
+            .assertIsDisplayed()
+            .assert(
+                SemanticsMatcher("surface state description") { node ->
+                    val state = node.config.getOrElseNullable(SemanticsProperties.StateDescription) { null }
+                    state?.contains("Gravel") == true && state.contains("Paved")
+                }
+            )
+        composeRule.onNodeWithText("Surfaces from OpenStreetMap.").assertIsDisplayed()
+
+        list.performScrollToKey("difficulty")
+        composeRule.onNodeWithTag(OpenHikesTestTags.DIFFICULTY_BAR)
+            .assertIsDisplayed()
+            .assert(
+                SemanticsMatcher("difficulty state description") { node ->
+                    val state = node.config.getOrElseNullable(SemanticsProperties.StateDescription) { null }
+                    state?.contains("Hiking") == true && state.contains("Unknown")
+                }
+            )
+        composeRule.onNodeWithText(
+            "Difficulty grades from OpenStreetMap (SAC scale), which describes 60% of this route."
+        ).assertIsDisplayed()
     }
 
     private fun samplePausedWalkUiState(): HikeDetailUiState {

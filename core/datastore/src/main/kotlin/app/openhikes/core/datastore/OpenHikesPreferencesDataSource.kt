@@ -4,6 +4,7 @@ import androidx.datastore.core.DataStore
 import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.HikeListSort
 import app.openhikes.core.model.MapStyleId
+import app.openhikes.core.model.RouteColoring
 import app.openhikes.core.model.TrailPlaceSymbol
 import app.openhikes.core.model.UserSettings
 import java.io.IOException
@@ -126,6 +127,12 @@ class OpenHikesPreferencesDataSource @Inject constructor(private val userPrefere
             prefs.copy { hikeListSort = sort.rawValue }
         }
     }
+
+    suspend fun setRouteColoring(coloring: RouteColoring) {
+        userPreferences.updateData { prefs ->
+            prefs.copy { routeColoring = coloring.rawValue }
+        }
+    }
 }
 
 private fun UserPreferences.toUserSettings(): UserSettings {
@@ -176,6 +183,7 @@ private fun UserPreferences.toUserSettings(): UserSettings {
         hiddenPlaceSymbols = hiddenPlaceSymbolsList
             .mapNotNull(TrailPlaceSymbol::fromStoredId)
             .toSet(),
-        hikeListSort = HikeListSort.fromStoredId(hikeListSort)
+        hikeListSort = HikeListSort.fromStoredId(hikeListSort),
+        routeColoring = RouteColoring.fromStoredId(routeColoring)
     )
 }

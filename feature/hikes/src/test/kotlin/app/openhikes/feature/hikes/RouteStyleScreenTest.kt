@@ -3,6 +3,7 @@ package app.openhikes.feature.hikes
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -13,6 +14,7 @@ import androidx.compose.ui.test.performScrollToKey
 import app.openhikes.core.designsystem.theme.OpenHikesTheme
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.RouteBorder
+import app.openhikes.core.model.RouteColoring
 import app.openhikes.core.model.RouteLinePattern
 import app.openhikes.core.model.RouteTint
 import app.openhikes.core.ui.testing.OpenHikesTestTags
@@ -47,6 +49,7 @@ class RouteStyleScreenTest {
                     onBorderSelected = { uiState = uiState.copy(borderHex = it) },
                     onWidthChanged = { uiState = uiState.copy(widthDp = it) },
                     onPatternSelected = { uiState = uiState.copy(linePattern = it) },
+                    onRouteColoringSelected = { uiState = uiState.copy(routeColoring = it) },
                     onDismissError = { uiState = uiState.copy(hasSaveError = false) }
                 )
             }
@@ -66,6 +69,17 @@ class RouteStyleScreenTest {
             .performClick()
         assertThat(uiState.linePattern).isEqualTo(RouteLinePattern.DASHED)
         composeRule.onNodeWithTag(OpenHikesTestTags.ROUTE_PATTERN_CAPTION).assertTextEquals("Dashed")
+
+        composeRule.onNodeWithTag(OpenHikesTestTags.ROUTE_STYLE_SCREEN).performScrollToKey("all_hikes")
+        composeRule.onNodeWithTag(OpenHikesTestTags.ROUTE_SHADE_KEY)
+            .performScrollTo()
+            .assertContentDescriptionEquals("Steepness colors")
+        composeRule.onNodeWithTag(OpenHikesTestTags.routeColoringOption(RouteColoring.DIFFICULTY.rawValue))
+            .performScrollTo()
+            .performClick()
+        assertThat(uiState.routeColoring).isEqualTo(RouteColoring.DIFFICULTY)
+        composeRule.onNodeWithTag(OpenHikesTestTags.ROUTE_SHADE_KEY)
+            .assertContentDescriptionEquals("Difficulty colors")
 
         uiState = uiState.copy(hasSaveError = true)
         composeRule.onNodeWithTag(OpenHikesTestTags.HIKE_ACTION_ERROR).assertIsDisplayed()

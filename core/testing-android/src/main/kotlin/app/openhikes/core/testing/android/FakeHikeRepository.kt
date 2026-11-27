@@ -24,6 +24,7 @@ import app.openhikes.core.model.HikePhoto
 import app.openhikes.core.model.HikePhotoSearchPlan
 import app.openhikes.core.model.HikeRouteStatistics
 import app.openhikes.core.model.HikeSummary
+import app.openhikes.core.model.HikeTrailBreakdowns
 import app.openhikes.core.model.HikeWalk
 import app.openhikes.core.model.LibraryFootprint
 import app.openhikes.core.model.LibraryHikeFacts
@@ -354,6 +355,30 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
         return if (found) Result.success(Unit) else Result.failure(NoSuchElementException("Hike not found"))
     }
 
+    override suspend fun saveTrailBreakdowns(
+        hikeId: HikeId,
+        expectedRouteRevision: String,
+        breakdowns: HikeTrailBreakdowns
+    ): Result<Boolean> {
+        if (breakdowns.isEmpty) return Result.success(false)
+        var updated = false
+        hikesState.update { list ->
+            list.map { hike ->
+                if (hike.id == hikeId && TrailWalkRecord.routeRevision(hike.route) == expectedRouteRevision) {
+                    updated = true
+                    hike.copy(
+                        surfaceMetersByCategory = breakdowns.surface?.toStoredMeters() ?: hike.surfaceMetersByCategory,
+                        difficultyMetersByGrade = breakdowns.difficulty?.toStoredMeters()
+                            ?: hike.difficultyMetersByGrade
+                    )
+                } else {
+                    hike
+                }
+            }
+        }
+        return Result.success(updated)
+    }
+
     override suspend fun loadRouteEditSources(hikeId: HikeId): RouteEditSources? {
         val hike = hikesState.value.firstOrNull { it.id == hikeId } ?: return null
         val edit = routeEditsByHike[hikeId]
@@ -446,7 +471,9 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
                         distanceMeters = newDistance,
                         durationSeconds = updatedDuration,
                         dateEpochMillis = newDate,
-                        route = edited.route
+                        route = edited.route,
+                        surfaceMetersByCategory = emptyMap(),
+                        difficultyMetersByGrade = emptyMap()
                     )
                 } else {
                     item
@@ -527,7 +554,9 @@ class FakeHikeRepository(initialHikes: List<Hike> = emptyList()) : HikeRepositor
                         distanceMeters = original.distanceMeters,
                         durationSeconds = original.durationSeconds ?: stats.durationSeconds,
                         dateEpochMillis = original.dateEpochMillis,
-                        route = originalRoute
+                        route = originalRoute,
+                        surfaceMetersByCategory = emptyMap(),
+                        difficultyMetersByGrade = emptyMap()
                     )
                 } else {
                     item

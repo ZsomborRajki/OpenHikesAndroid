@@ -2,6 +2,7 @@ package app.openhikes.core.map
 
 import androidx.compose.runtime.Immutable
 import app.openhikes.core.model.GeoCoordinate
+import app.openhikes.core.model.RouteShadeStretch
 import app.openhikes.core.model.TrailDraftDroppedPin
 import app.openhikes.core.model.TrailLegEnds
 import app.openhikes.core.model.TrailLegSnap
@@ -67,7 +68,8 @@ data class MapTrailDraftOverlay(
     val routeTimeBubble: MapTrailDraftTimeBubble? = null,
     val snapsToPaths: Boolean = true,
     val draggedPinIndex: Int? = null,
-    val draggedCoordinate: GeoCoordinate? = null
+    val draggedCoordinate: GeoCoordinate? = null,
+    val shadedStretches: List<RouteShadeStretch> = emptyList()
 )
 
 /**

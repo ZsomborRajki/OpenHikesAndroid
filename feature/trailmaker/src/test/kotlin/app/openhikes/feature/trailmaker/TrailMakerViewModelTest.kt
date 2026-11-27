@@ -10,9 +10,16 @@ import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.LocationFix
+import app.openhikes.core.model.RouteColoring
 import app.openhikes.core.model.RouteCoordinate
+import app.openhikes.core.model.RouteShade
 import app.openhikes.core.model.StoredTrailDraft
 import app.openhikes.core.model.TrailDraftRefusal
+import app.openhikes.core.model.TrailGraph
+import app.openhikes.core.model.TrailGraphEdge
+import app.openhikes.core.model.TrailGraphEdgeId
+import app.openhikes.core.model.TrailGraphNode
+import app.openhikes.core.model.TrailGraphProvider
 import app.openhikes.core.model.TrailLegGap
 import app.openhikes.core.model.TrailLegOutage
 import app.openhikes.core.model.TrailLegPath
@@ -22,6 +29,7 @@ import app.openhikes.core.model.TrailStopRole
 import app.openhikes.core.model.TrailStopSearchResult
 import app.openhikes.core.model.TrailTravelMode
 import app.openhikes.core.model.TrailWaypoint
+import app.openhikes.core.testing.FakeTrailGraphProvider
 import app.openhikes.core.testing.FakeTrailLegRouter
 import app.openhikes.core.testing.MainDispatcherRule
 import app.openhikes.core.testing.TestClock
@@ -58,7 +66,9 @@ class TrailMakerViewModelTest {
     private fun createViewModel(
         draftRepository: TrailDraftRepository = FakeTrailDraftRepository(),
         hikeRepository: HikeRepository = FakeHikeRepository(),
+        userSettingsRepository: FakeUserSettingsRepository = FakeUserSettingsRepository(),
         router: FakeTrailLegRouter = FakeTrailLegRouter(),
+        trailGraphProvider: TrailGraphProvider = FakeTrailGraphProvider(isAvailable = false),
         searchSource: FakeStopPlaceSearchSource = FakeStopPlaceSearchSource(),
         locationFeed: FakeLocationFeed = FakeLocationFeed(),
         overlayState: TrailDraftOverlayState = TrailDraftOverlayState(),
@@ -68,14 +78,16 @@ class TrailMakerViewModelTest {
     ): TrailMakerViewModel = TrailMakerViewModel(
         trailDraftRepository = draftRepository,
         hikeRepository = hikeRepository,
-        userSettingsRepository = FakeUserSettingsRepository(),
+        userSettingsRepository = userSettingsRepository,
         trailLegRouter = router,
+        trailGraphProvider = trailGraphProvider,
         stopPlaceSearchSource = searchSource,
         locationFeed = locationFeed,
         clock = TestClock(1_780_000_000_000L),
         mapClaimCoordinator = claimCoordinator,
         trailDraftOverlayState = overlayState,
-        draftWriteCoordinator = writeCoordinator
+        draftWriteCoordinator = writeCoordinator,
+        defaultDispatcher = testDispatcher
     )
 
     @Test
@@ -539,4 +551,76 @@ class TrailMakerViewModelTest {
         assertThat(closedCount).isEqualTo(2)
         assertThat(draftRepo.currentStoredDraft.isEmpty).isTrue()
     }
+
+    @Test
+    fun shadesHikingDraftFromCachedGraphOnlyHidesDuringDragAndHonorsSharedColoring() = runTest(testDispatcher) {
+        val cachedGraph = mountainHikingGraph()
+        val graphProvider = FakeTrailGraphProvider(graph = cachedGraph, cachedGraph = cachedGraph)
+        val settingsRepo = FakeUserSettingsRepository()
+        val overlayState = TrailDraftOverlayState()
+        val router = FakeTrailLegRouter { ends, _ ->
+            TrailLegRoute(listOf(ends.start, ends.end), distanceMeters = 1_200.0, snap = TrailLegSnap.Snapped)
+        }
+        val vm = createViewModel(
+            userSettingsRepository = settingsRepo,
+            router = router,
+            trailGraphProvider = graphProvider,
+            overlayState = overlayState
+        )
+        advanceUntilIdle()
+
+        val handler = requireNotNull(overlayState.interactionHandler)
+        handler.onDropPin(startCoord, legEnds = null)
+        vm.onAction(TrailMakerAction.AddStopFromPlaceCard)
+        handler.onDropPin(endCoord, legEnds = null)
+        vm.onAction(TrailMakerAction.AddStopFromPlaceCard)
+        advanceUntilIdle()
+
+        assertThat(graphProvider.assembledGraphCalls).isEqualTo(0)
+        assertThat(graphProvider.cachedGraphOnlyCalls).isAtLeast(1)
+        assertThat(vm.uiState.value.showsColoringSection).isTrue()
+        assertThat(overlayState.overlay.value?.shadedStretches?.map { it.shade }).containsExactly(RouteShade.EASY)
+
+        assertThat(handler.onBeginPinDrag(0)).isTrue()
+        assertThat(overlayState.overlay.value?.shadedStretches).isEmpty()
+        handler.onCancelPinDrag()
+        assertThat(overlayState.overlay.value?.shadedStretches).hasSize(1)
+
+        vm.onAction(TrailMakerAction.SelectRouteColoring(RouteColoring.OFF))
+        advanceUntilIdle()
+        assertThat(settingsRepo.userSettings.first().routeColoring).isEqualTo(RouteColoring.OFF)
+        assertThat(overlayState.overlay.value?.shadedStretches).isEmpty()
+        assertThat(vm.uiState.value.showsColoringSection).isTrue()
+
+        vm.onAction(TrailMakerAction.SelectTravelMode(TrailTravelMode.DRIVING))
+        advanceUntilIdle()
+        assertThat(vm.uiState.value.showsColoringSection).isFalse()
+
+        vm.onAction(TrailMakerAction.SelectTravelMode(TrailTravelMode.HIKING))
+        vm.onAction(TrailMakerAction.SelectRouteColoring(RouteColoring.DIFFICULTY))
+        advanceUntilIdle()
+        assertThat(vm.uiState.value.showsColoringSection).isTrue()
+        assertThat(overlayState.overlay.value?.shadedStretches).hasSize(1)
+
+        vm.onDiscardTrail {}
+        advanceUntilIdle()
+        assertThat(vm.uiState.value.showsColoringSection).isFalse()
+    }
+
+    private fun mountainHikingGraph(): TrailGraph = TrailGraph(
+        nodes = listOf(
+            TrailGraphNode(1L, startCoord.latitude, startCoord.longitude),
+            TrailGraphNode(2L, endCoord.latitude, endCoord.longitude)
+        ),
+        edges = listOf(
+            TrailGraphEdge(
+                id = TrailGraphEdgeId(77L, 0),
+                fromNodeId = 1L,
+                toNodeId = 2L,
+                lengthMeters = 1_200.0,
+                highway = "path",
+                sacScale = "mountain_hiking"
+            )
+        )
+    )
 }

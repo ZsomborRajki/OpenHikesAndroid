@@ -6,6 +6,7 @@ import androidx.datastore.core.DataStoreFactory
 import app.openhikes.core.model.DistanceUnit
 import app.openhikes.core.model.HikeListSort
 import app.openhikes.core.model.MapStyleId
+import app.openhikes.core.model.RouteColoring
 import app.openhikes.core.model.UserSettings
 import com.google.common.truth.Truth.assertThat
 import java.io.ByteArrayInputStream
@@ -44,6 +45,7 @@ class OpenHikesPreferencesDataSourceTest {
         assertThat(settings.distanceUnit).isEqualTo(DistanceUnit.METRIC)
         assertThat(settings.mapStyleId).isEqualTo(MapStyleId.OPENHIKES)
         assertThat(settings.hikeListSort).isEqualTo(HikeListSort.NEWEST)
+        assertThat(settings.routeColoring).isEqualTo(RouteColoring.ELEVATION)
     }
 
     @Test
@@ -63,6 +65,7 @@ class OpenHikesPreferencesDataSourceTest {
         firstSource.setDistanceUnit(DistanceUnit.IMPERIAL)
         firstSource.setMapStyleId("custom-topo")
         firstSource.setHikeListSort(HikeListSort.HILLIEST)
+        firstSource.setRouteColoring(RouteColoring.DIFFICULTY)
         writerScope.cancel()
 
         val readerStore = createDataStore(backgroundScope, file)
@@ -79,6 +82,7 @@ class OpenHikesPreferencesDataSourceTest {
         assertThat(reloaded.distanceUnit).isEqualTo(DistanceUnit.IMPERIAL)
         assertThat(reloaded.mapStyleId).isEqualTo("custom-topo")
         assertThat(reloaded.hikeListSort).isEqualTo(HikeListSort.HILLIEST)
+        assertThat(reloaded.routeColoring).isEqualTo(RouteColoring.DIFFICULTY)
     }
 
     @Test(expected = CorruptionException::class)

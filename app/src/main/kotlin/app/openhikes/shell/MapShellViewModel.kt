@@ -45,6 +45,7 @@ import app.openhikes.core.map.toMapRouteOverlay
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.HikeSummary
+import app.openhikes.core.model.HikeTrailAnalysis
 import app.openhikes.core.model.LibraryLine
 import app.openhikes.core.model.LibraryLineHitTest
 import app.openhikes.core.model.MapAttribution
@@ -52,7 +53,13 @@ import app.openhikes.core.model.MapProviderKeys
 import app.openhikes.core.model.MapStyleCatalog
 import app.openhikes.core.model.RecordingTraceSnapshot
 import app.openhikes.core.model.RouteBorder
+import app.openhikes.core.model.RouteColoring
+import app.openhikes.core.model.RouteCoordinate
 import app.openhikes.core.model.RouteLinePattern
+import app.openhikes.core.model.RouteShadeStretch
+import app.openhikes.core.model.RouteSteepness
+import app.openhikes.core.model.TrailGraphProvider
+import app.openhikes.core.model.TrailWalkRecord
 import app.openhikes.core.model.UserSettings
 import app.openhikes.core.model.WalkTimeLeftMark
 import app.openhikes.core.model.toTrailRuns
@@ -64,6 +71,9 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.IOException
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -72,9 +82,12 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.transformLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -93,6 +106,7 @@ data class MapChromeUiState(
  * and route-owned map claims.
  */
 @Suppress("LongParameterList", "TooManyFunctions", "LargeClass")
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class MapShellViewModel @Inject constructor(
     private val userSettingsRepository: UserSettingsRepository,
@@ -109,6 +123,7 @@ class MapShellViewModel @Inject constructor(
     private val trailPlacesOverlayState: TrailPlacesOverlayState,
     private val trailPhotosOverlayState: TrailPhotosOverlayState,
     private val photoCaptureController: PhotoCaptureController,
+    private val trailGraphProvider: TrailGraphProvider,
     private val mapProviderKeys: MapProviderKeys,
     launchConfigHolder: LaunchConfigHolder,
     @DefaultDispatcher private val defaultDispatcher: CoroutineDispatcher
@@ -251,11 +266,118 @@ class MapShellViewModel @Inject constructor(
         val libraryLines: List<MapLibraryLineOverlay>
     )
 
+    private data class SelectedShadingKey(
+        val hikeId: HikeId,
+        val route: List<RouteCoordinate>,
+        val routeRevision: String,
+        val coloring: RouteColoring,
+        val hasZeroSurveyedDifficulty: Boolean
+    )
+
+    private data class SelectedRouteShading(
+        val hikeId: HikeId? = null,
+        val routeRevision: String? = null,
+        val stretches: List<RouteShadeStretch> = emptyList()
+    )
+
+    private val routeColoringFlow = userSettingsRepository.userSettings
+        .catch { exception ->
+            if (exception is IOException) {
+                emit(UserSettings())
+            } else {
+                throw exception
+            }
+        }
+        .map { it.routeColoring }
+        .distinctUntilChanged()
+
+    private val selectedRouteShadingFlow = combine(
+        mapClaimCoordinator.activeClaim
+            .map { claim ->
+                if (claim == null || claim.routeKey == TrailMakerRoute) {
+                    null
+                } else {
+                    claim.selectedHikeId?.takeIf { it != claim.hiddenRouteHikeId }
+                }
+            }
+            .distinctUntilChanged(),
+        routeColoringFlow
+    ) { selectedHikeId, coloring ->
+        selectedHikeId to coloring
+    }.flatMapLatest { (selectedHikeId, coloring) ->
+        if (selectedHikeId == null || coloring == RouteColoring.OFF) {
+            flowOf(SelectedRouteShading())
+        } else {
+            hikeRepository.observeHike(selectedHikeId)
+                .map { hike ->
+                    hike?.takeIf { it.route.size > 1 }?.let {
+                        val zeroSurveyed = it.difficultyBreakdown?.let { b -> b.surveyedFraction == 0.0 } == true
+                        SelectedShadingKey(
+                            hikeId = it.id,
+                            route = it.route,
+                            routeRevision = TrailWalkRecord.routeRevision(it.route),
+                            coloring = coloring,
+                            hasZeroSurveyedDifficulty = zeroSurveyed
+                        )
+                    }
+                }
+                .distinctUntilChanged { old, new ->
+                    old?.hikeId == new?.hikeId &&
+                        old?.routeRevision == new?.routeRevision &&
+                        old?.coloring == new?.coloring &&
+                        old?.hasZeroSurveyedDifficulty == new?.hasZeroSurveyedDifficulty
+                }
+                .transformLatest { key ->
+                    emit(SelectedRouteShading())
+                    if (key == null) return@transformLatest
+                    if (key.coloring == RouteColoring.DIFFICULTY && key.hasZeroSurveyedDifficulty) {
+                        return@transformLatest
+                    }
+                    val stretches = withContext(defaultDispatcher) {
+                        computeRouteShading(key.route, key.coloring)
+                    }
+                    emit(
+                        SelectedRouteShading(
+                            hikeId = key.hikeId,
+                            routeRevision = key.routeRevision,
+                            stretches = stretches
+                        )
+                    )
+                }
+        }
+    }
+
+    private suspend fun computeRouteShading(
+        route: List<RouteCoordinate>,
+        coloring: RouteColoring
+    ): List<RouteShadeStretch> = when (coloring) {
+        RouteColoring.OFF -> emptyList()
+        RouteColoring.ELEVATION -> RouteSteepness.runs(route)
+        RouteColoring.DIFFICULTY -> {
+            if (!trailGraphProvider.isAvailable) {
+                emptyList()
+            } else {
+                val ctx = currentCoroutineContext()
+                HikeTrailAnalysis.difficultyRuns(
+                    route = route,
+                    provider = trailGraphProvider,
+                    allowNetwork = true,
+                    checkActive = { ctx.ensureActive() }
+                ).mapNotNull { run ->
+                    run.category.shade?.let { shade ->
+                        RouteShadeStretch(shade = shade, coordinates = run.coordinates)
+                    }
+                }
+            }
+        }
+    }
+
     private val routeOverlaysFlow = combine(
         hikeRepository.mapRoutes,
         hikeRepository.libraryLines,
-        mapClaimCoordinator.activeClaim
-    ) { routes, libraryLines, activeClaim ->
+        mapClaimCoordinator.activeClaim,
+        selectedRouteShadingFlow
+    ) { routes, libraryLines, activeClaim, shading ->
         latestRouteMidpoints = routes.mapNotNull { mapRoute ->
             val mid = mapRoute.route.getOrNull(mapRoute.route.size / 2)?.coordinate
             mid?.let { mapRoute.hikeId to it }
@@ -268,7 +390,17 @@ class MapShellViewModel @Inject constructor(
         } else {
             routes
                 .filter { it.hikeId == selectedHikeId }
-                .map { route -> route.toMapRouteOverlay(isSelected = true) }
+                .map { route ->
+                    val stretches = if (
+                        shading.hikeId == route.hikeId &&
+                        shading.routeRevision == TrailWalkRecord.routeRevision(route.route)
+                    ) {
+                        shading.stretches
+                    } else {
+                        emptyList()
+                    }
+                    route.toMapRouteOverlay(isSelected = true, shadedStretches = stretches)
+                }
         }
         val visibleLibraryLines = if (isDrawingTrail) {
             emptyList()

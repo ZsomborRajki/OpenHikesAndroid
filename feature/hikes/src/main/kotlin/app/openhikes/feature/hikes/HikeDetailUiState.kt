@@ -15,7 +15,9 @@ import app.openhikes.core.model.OfflineCountryDownload
 import app.openhikes.core.model.OfflineRouteSaving
 import app.openhikes.core.model.RouteProfile
 import app.openhikes.core.model.RouteSegment
+import app.openhikes.core.model.TrailDifficultyBreakdown
 import app.openhikes.core.model.TrailPlaceRow
+import app.openhikes.core.model.TrailSurfaceBreakdown
 
 /**
  * Tabs inside [HikeDetailScreen] separating route metadata from recorded walk history.
@@ -78,7 +80,9 @@ data class HikeDetailUiState(
     val showsPlacePins: Boolean = true,
     val canSearchPlaces: Boolean = false,
     val pendingOpenPlaceId: String? = null,
-    val pendingAddPlaceCoordinate: GeoCoordinate? = null
+    val pendingAddPlaceCoordinate: GeoCoordinate? = null,
+    val surfaceBreakdown: TrailSurfaceBreakdown? = hike?.surfaceBreakdown,
+    val difficultyBreakdown: TrailDifficultyBreakdown? = hike?.difficultyBreakdown
 ) {
     val isWalkingThisHike: Boolean
         get() = walkSession.walkedHikeId == hikeId && walkSession.phase != null

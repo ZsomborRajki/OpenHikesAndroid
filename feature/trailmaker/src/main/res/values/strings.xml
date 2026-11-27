@@ -28,6 +28,7 @@
     <string name="trail_snap_title">Follow Paths</string>
     <string name="trail_snap_footer_hiking">Legs run along paths mapped in OpenStreetMap. Turn this off to draw straight lines.</string>
     <string name="trail_snap_footer_other">Turn this off to draw straight lines between stops.</string>
+    <string name="trail_maker_on_map_title">On the Map</string>
 
     <string name="trail_notice_routing">Finding a path…</string>
     <string name="trail_notice_no_path">No mapped path here</string>

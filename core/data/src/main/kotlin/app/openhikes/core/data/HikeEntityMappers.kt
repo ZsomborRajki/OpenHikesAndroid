@@ -71,8 +71,21 @@ internal fun HikeEntity.toDomain(
         routeChunks.sortedBy { it.chunkIndex }.map { it.chunkBlob }
     ),
     places = trailPoints.map { it.toDomain() },
-    photos = photos.map { it.toDomain() }
+    photos = photos.map { it.toDomain() },
+    surfaceMetersByCategory = decodeBreakdownMeters(surfaceMetersJson),
+    difficultyMetersByGrade = decodeBreakdownMeters(difficultyMetersJson)
 )
+
+internal fun decodeBreakdownMeters(raw: String?): Map<String, Double> = raw
+    ?.takeIf { it.isNotBlank() }
+    ?.let { text -> runCatching { Json.decodeFromString<Map<String, Double>>(text) }.getOrNull() }
+    ?.filterValues { it.isFinite() && it > 0.0 }
+    .orEmpty()
+
+internal fun encodeBreakdownMeters(meters: Map<String, Double>): String? =
+    meters.filterValues { it.isFinite() && it > 0.0 }
+        .takeIf { it.isNotEmpty() }
+        ?.let { Json.encodeToString(it) }
 
 internal fun HikePhotoEntity.toDomain(): HikePhoto {
     val lat = latitude

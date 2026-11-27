@@ -10,6 +10,7 @@ import app.openhikes.core.database.OpenHikesLocalDatabase
 import app.openhikes.core.model.EditedLine
 import app.openhikes.core.model.GpxImportResult
 import app.openhikes.core.model.HikeId
+import app.openhikes.core.model.HikeTrailBreakdowns
 import app.openhikes.core.model.PreparedRecording
 import app.openhikes.core.model.RouteCarriedEnds
 import app.openhikes.core.model.RouteCoordinate
@@ -19,6 +20,9 @@ import app.openhikes.core.model.RouteGeometry
 import app.openhikes.core.model.RouteStep
 import app.openhikes.core.model.RouteSteps
 import app.openhikes.core.model.RouteTrim
+import app.openhikes.core.model.TrailBreakdown
+import app.openhikes.core.model.TrailDifficulty
+import app.openhikes.core.model.TrailSurface
 import app.openhikes.core.model.TrailWalkEndReason
 import app.openhikes.core.model.TrailWalkRecord
 import app.openhikes.core.testing.TestClock
@@ -295,6 +299,57 @@ class RouteEditStoreTest {
 
         val saved = repo.observeHike(hikeId).first()!!
         assertThat(saved.durationSeconds).isWithin(0.1).of(originalDuration)
+    }
+
+    @Test
+    fun trailBreakdownsPersistDropStaleRevisionsAndClearOnRouteEditAndRevert() = runTest {
+        val dispatcher = UnconfinedTestDispatcher(testScheduler)
+        val repo = createRepository(LaunchConfig(), dispatcher)
+        val imported = repo.importGpxBytes(
+            TestFixtures.thumseeWalkThenDriveGpxBytes(),
+            "${TestFixtures.THUMSEE_WALK_THEN_DRIVE_NAME}.gpx"
+        ) as GpxImportResult.Success
+        val hikeId = imported.importedHikes.first().id
+        val original = repo.observeHike(hikeId).first()!!
+        val originalRevision = TrailWalkRecord.routeRevision(original.route)
+
+        val breakdowns = HikeTrailBreakdowns(
+            surface = TrailBreakdown.fromMeters(mapOf(TrailSurface.GRAVEL to 700.0, TrailSurface.PAVED to 300.0)),
+            difficulty = TrailBreakdown.fromMeters(mapOf(TrailDifficulty.HIKING to 1_000.0))
+        )
+
+        // Wrong revision is rejected without writing.
+        assertThat(repo.saveTrailBreakdowns(hikeId, "stale-revision", breakdowns).getOrThrow()).isFalse()
+        assertThat(repo.observeHike(hikeId).first()!!.needsTrailBreakdowns).isTrue()
+
+        // Matching revision persists both breakdowns.
+        assertThat(repo.saveTrailBreakdowns(hikeId, originalRevision, breakdowns).getOrThrow()).isTrue()
+        val persisted = repo.observeHike(hikeId).first()!!
+        assertThat(persisted.needsTrailBreakdowns).isFalse()
+        assertThat(persisted.surfaceBreakdown?.dominant?.category).isEqualTo(TrailSurface.GRAVEL)
+        assertThat(persisted.difficultyBreakdown?.dominant?.category).isEqualTo(TrailDifficulty.HIKING)
+
+        // Editing the route wipes stored breakdowns so Hike Detail re-measures the edited line.
+        val distances = RouteTrim.distances(original.route)
+        val edited = EditedLine.build(
+            whole = original.route,
+            distances = distances,
+            cuts = EditedLine.Cuts(range = 0.0..(distances.last() * 0.6)),
+            replacing = original.route
+        )!!
+        assertThat(repo.applyRouteEdit(hikeId, original.route, edited)).isEqualTo(RouteEditOutcome.Saved(edited.route))
+        val afterEdit = repo.observeHike(hikeId).first()!!
+        assertThat(afterEdit.surfaceBreakdown).isNull()
+        assertThat(afterEdit.difficultyBreakdown).isNull()
+        assertThat(afterEdit.needsTrailBreakdowns).isTrue()
+
+        // Saving breakdowns for the edited revision, then reverting, clears them again.
+        val editedRevision = TrailWalkRecord.routeRevision(edited.route)
+        assertThat(repo.saveTrailBreakdowns(hikeId, editedRevision, breakdowns).getOrThrow()).isTrue()
+        assertThat(repo.revertRouteEdit(hikeId, edited.route)).isEqualTo(RouteEditOutcome.Saved(original.route))
+        val afterRevert = repo.observeHike(hikeId).first()!!
+        assertThat(afterRevert.surfaceBreakdown).isNull()
+        assertThat(afterRevert.difficultyBreakdown).isNull()
     }
 
     private fun createRepository(

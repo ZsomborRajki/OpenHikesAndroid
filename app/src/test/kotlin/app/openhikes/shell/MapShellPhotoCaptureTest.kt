@@ -17,6 +17,7 @@ import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.Hike
 import app.openhikes.core.model.HikeId
 import app.openhikes.core.model.MapProviderKeys
+import app.openhikes.core.testing.FakeTrailGraphProvider
 import app.openhikes.core.testing.MainDispatcherRule
 import app.openhikes.core.testing.android.FakeHikeRepository
 import app.openhikes.core.testing.android.FakeOfflineCountryRepository
@@ -136,6 +137,7 @@ class MapShellPhotoCaptureTest {
         trailPlacesOverlayState = TrailPlacesOverlayState(),
         trailPhotosOverlayState = TrailPhotosOverlayState(),
         photoCaptureController = PhotoCaptureController(),
+        trailGraphProvider = FakeTrailGraphProvider(isAvailable = false),
         mapProviderKeys = MapProviderKeys.Empty,
         launchConfigHolder = LaunchConfigHolder(LaunchConfig.Production),
         defaultDispatcher = mainDispatcherRule.testDispatcher

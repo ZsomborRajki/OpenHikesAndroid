@@ -7,6 +7,7 @@ import app.openhikes.core.map.MapTrailDraftPin
 import app.openhikes.core.map.MapTrailDraftTimeBubble
 import app.openhikes.core.model.GeoCoordinate
 import app.openhikes.core.model.RouteGeometry
+import app.openhikes.core.model.RouteShadeStretch
 import app.openhikes.core.model.TrailDraftDroppedPin
 import app.openhikes.core.model.TrailDraftEngine
 import app.openhikes.core.model.TrailLeg
@@ -23,7 +24,11 @@ internal object TrailMakerOverlayBuilder {
     private const val COORDINATE_DECIMALS = 5
     private const val HALF = 2.0
 
-    fun build(engine: TrailDraftEngine, droppedPin: TrailDraftDroppedPin?): MapTrailDraftOverlay {
+    fun build(
+        engine: TrailDraftEngine,
+        droppedPin: TrailDraftDroppedPin?,
+        shadedStretches: List<RouteShadeStretch> = emptyList()
+    ): MapTrailDraftOverlay {
         val legs = engine.legs
         val tripTimeSeconds = engine.travelTimeSeconds
         val mapLegs = buildMapLegs(engine, legs, tripTimeSeconds)
@@ -46,7 +51,8 @@ internal object TrailMakerOverlayBuilder {
             routeTimeBubble = routeBubble,
             snapsToPaths = engine.snapsToPaths,
             draggedPinIndex = engine.drag?.index,
-            draggedCoordinate = engine.drag?.coordinate
+            draggedCoordinate = engine.drag?.coordinate,
+            shadedStretches = shadedStretches
         )
     }
 
